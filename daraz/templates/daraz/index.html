@@ -3,9 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <title>Copy-Daraz</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
+        body { background: #f5f5f5; }
+
+        .topbar {
+            background: #f85606;
+            color: #fff;
+            font-size: 13px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 24px;
+            padding: 6px 40px;
+        }
+        .topbar a { color: #fff; text-decoration: none; }
+        .topbar a:hover { text-decoration: underline; }
+
+        .navbar {
+            background: #f85606;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            padding: 14px 40px;
+        }
+        .logo {
+            color: #fff;
+            font-size: 26px;
+            font-weight: bold;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .search-form {
+            flex: 1;
+            display: flex;
+        }
+        .search-input {
+            flex: 1;
+            padding: 10px 14px;
+            border: none;
+            border-radius: 2px 0 0 2px;
+            font-size: 15px;
+            outline: none;
+        }
+        .search-btn {
+            background: #ffb9a3;
+            border: none;
+            padding: 0 20px;
+            border-radius: 0 2px 2px 0;
+            cursor: pointer;
+            font-size: 18px;
+            color: #f85606;
+        }
+        .cart {
+            color: #fff;
+            font-size: 26px;
+            text-decoration: none;
+        }
+
+        .hero {
+            margin: 20px 40px;
+            background: linear-gradient(90deg, #a3238e, #f85606);
+            border-radius: 8px;
+            color: #fff;
+            padding: 40px;
+        }
+        .hero h1 { font-size: 30px; margin-bottom: 10px; }
+        .hero p { font-size: 16px; }
+    </style>
 </head>
 <body>
-    <h1>Hello World!</h1>
-    <p>Welcome to Copy-Daraz Frontend (Django Template).</p>
+
+    <div class="topbar">
+        <a href="#">Save more on app</a>
+        <a href="#">Sell on Daraz</a>
+        <a href="#">Help & Support</a>
+        <a href="#">Login</a>
+        <a href="#">Sign up</a>
+        <a href="#">Change language</a>
+    </div>
+
+    <div class="navbar">
+        <a href="{% url 'home' %}" class="logo">Copy-Daraz</a>
+        <form class="search-form" action="#" method="get">
+            <input class="search-input" type="text" name="q" placeholder="Search the drawer.">
+            <button class="search-btn" type="submit">&#128269;</button>
+        </form>
+        <a href="#" class="cart">&#128722;</a>
+    </div>
+
+    <div class="hero">
+        <h1>Welcome to Copy-Daraz</h1>
+        <p>A Daraz-inspired shopping site built with Django.</p>
+    </div>
+
 </body>
 </html>

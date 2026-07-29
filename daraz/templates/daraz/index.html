@@ -28,8 +28,11 @@
             <h2>Categories</h2>
         </div>
         <div class="category-grid">
-            {% for value, label in categories %}
-            <a class="category-box" href="{% url 'category_products' value %}">{{ label }}</a>
+            {% for cat in categories %}
+            <a class="category-box" href="{% url 'category_products' cat.slug %}">
+                <img src="{{ cat.image }}" alt="{{ cat.label }}">
+                <div class="cname">{{ cat.label }}</div>
+            </a>
             {% endfor %}
         </div>
     </div>

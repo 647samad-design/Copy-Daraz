@@ -8,6 +8,22 @@ class Product(models.Model):
         ("grocery", "Grocery"),
         ("fashion", "Fashion"),
         ("electronics", "Electronics"),
+        ("3d-printers", "3D printers"),
+        ("pasta-tools", "Pasta, Noodle & Pizza Tools"),
+        ("sim-devices", "SIM devices"),
+        ("screen-protector", "Screen protector"),
+        ("casserole-pot", "Casserole pot"),
+        ("table-lamp", "Table lamp"),
+        ("hoodies", "Hoodies & Sweatshirts"),
+        ("toy-boxes", "Toy boxes and organizers"),
+        ("sneakers", "Sneakers"),
+        ("education", "Education"),
+        ("dress-up-kits", "Dress-Up Kits"),
+        ("microphones", "Microphones"),
+        ("leashes", "Leashes and harnesses"),
+        ("donate-education", "Donate to education"),
+        ("coloring-drawing", "Coloring & Drawing"),
+        ("lotion-cream", "Lotion, Cream and Scrubs"),
     ]
 
     name = models.CharField(max_length=255)

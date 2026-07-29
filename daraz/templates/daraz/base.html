@@ -26,7 +26,7 @@
         .cart { color: #fff; font-size: 26px; text-decoration: none; }
 
         .hero { margin: 20px 40px; }
-        .slider { position: relative; width: 100%; height: 320px; border-radius: 8px; overflow: hidden; }
+        .slider { position: relative; width: 100%; height: 280px; border-radius: 8px; overflow: hidden; }
         .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.6s ease-in-out; }
         .slide.active { opacity: 1; }
         .dots { position: absolute; bottom: 12px; width: 100%; display: flex; justify-content: center; gap: 8px; }
@@ -40,12 +40,12 @@
         }
         .sidebar a {
             display: flex; align-items: center; justify-content: center;
-            width: 44px; height: 44px; font-size: 20px; color: #999;
+            width: 42px; height: 42px; color: #888;
             border-bottom: 1px solid #f0f0f0; text-decoration: none;
         }
         .sidebar a:last-child { border-bottom: none; }
         .sidebar a:hover { color: #f85606; background: #fff6f2; }
-        .sidebar a.fire { color: #f85606; }
+        .sidebar svg { width: 18px; height: 18px; }
 
         .section { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
         .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -62,8 +62,22 @@
         .product-card .discount { color: #f85606; font-size: 12px; margin-left: 4px; }
 
         .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
-        .category-box { background: #f9f9f9; border: 1px solid #eee; text-align: center; padding: 20px 10px; text-decoration: none; color: #333; font-size: 14px; }
+        .category-box { background: #f9f9f9; border: 1px solid #eee; text-align: center; padding: 0; text-decoration: none; color: #333; font-size: 13px; overflow: hidden; }
+        .category-box img { width: 100%; height: 90px; object-fit: cover; display: block; }
+        .category-box .cname { padding: 8px 6px; }
         .category-box:hover { border-color: #f85606; color: #f85606; }
+
+        .footer { background: #f0f0f0; margin-top: 30px; padding: 30px 40px 10px; }
+        .footer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; margin-bottom: 24px; }
+        .footer-col h3 { font-size: 15px; font-weight: 500; margin-bottom: 12px; color: #333; }
+        .footer-col a { display: block; font-size: 13px; color: #555; text-decoration: none; margin-bottom: 8px; }
+        .footer-col a:hover { color: #f85606; }
+        .footer-col p { font-size: 13px; color: #666; line-height: 1.6; }
+        .app-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .app-badge { border: 1px solid #ccc; border-radius: 4px; padding: 6px 12px; font-size: 12px; color: #333; background: #fff; }
+        .payment-row { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #ddd; padding: 16px 0; }
+        .payment-chip { border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 11px; background: #fff; color: #444; }
+        .footer-bottom { text-align: center; font-size: 12px; color: #888; padding: 12px 0; }
 
         {% block extra_css %}{% endblock %}
     </style>
@@ -102,13 +116,74 @@
     </div>
 
     <div class="sidebar">
-        <a href="#top" title="Back to top">&#8593;</a>
-        <a href="#flash-sale" class="fire" title="Flash sale">&#128293;</a>
-        <a href="#categories" title="Categories">&#9638;</a>
-        <a href="#just-for-you" title="Just for you">&#128100;</a>
+        <a href="#top" title="Back to top">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </a>
+        <a href="#flash-sale" title="Flash sale">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+        </a>
+        <a href="#categories" title="Categories">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </a>
+        <a href="#just-for-you" title="Just for you">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+        </a>
     </div>
 
     {% block content %}{% endblock %}
+
+    <div class="footer">
+        <div class="footer-cols">
+            <div class="footer-col">
+                <h3>Customer care</h3>
+                <a href="#">Help center</a>
+                <a href="#">How to buy</a>
+                <a href="#">Corporate and bulk purchases</a>
+                <a href="#">Return of goods and refund</a>
+                <a href="#">Contact us</a>
+            </div>
+            <div class="footer-col">
+                <h3>Copy-Daraz</h3>
+                <a href="#">About us</a>
+                <a href="#">Terms and conditions</a>
+                <a href="#">Privacy policy</a>
+                <a href="#">Sell on Copy-Daraz</a>
+                <a href="#">Careers</a>
+            </div>
+            <div class="footer-col">
+                <h3>Top categories</h3>
+                <a href="{% url 'category_products' 'skincare' %}">Skin care</a>
+                <a href="{% url 'category_products' 'electronics' %}">Electronics</a>
+                <a href="{% url 'category_products' 'fashion' %}">Fashion</a>
+                <a href="{% url 'category_products' 'grocery' %}">Grocery</a>
+                <a href="{% url 'category_products' 'education' %}">Education</a>
+            </div>
+            <div class="footer-col">
+                <h3>Happy shopping</h3>
+                <p>Download the Copy-Daraz app for a faster, easier shopping experience with exclusive app-only deals.</p>
+                <div class="app-badges">
+                    <span class="app-badge">App Store</span>
+                    <span class="app-badge">Google Play</span>
+                    <span class="app-badge">AppGallery</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="payment-row">
+            <span class="payment-chip">Cash on delivery</span>
+            <span class="payment-chip">Visa</span>
+            <span class="payment-chip">Mastercard</span>
+            <span class="payment-chip">Easypaisa</span>
+            <span class="payment-chip">Copy-Daraz wallet</span>
+            <span class="payment-chip">JazzCash</span>
+            <span class="payment-chip">Bank transfer</span>
+            <span class="payment-chip">Easy installments</span>
+        </div>
+
+        <div class="footer-bottom">
+            &copy; 2026 Copy-Daraz. A student practice project inspired by online marketplaces, built with Django.
+        </div>
+    </div>
 
     <script>
         const slides = document.querySelectorAll('.slide');

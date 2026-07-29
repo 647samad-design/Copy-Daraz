@@ -1,11 +1,26 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Product, Review
 
+CATEGORY_IMAGE_IDS = {
+    "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
+    "3d-printers": 60, "pasta-tools": 61, "sim-devices": 62, "screen-protector": 63,
+    "casserole-pot": 64, "table-lamp": 65, "hoodies": 66, "toy-boxes": 67,
+    "sneakers": 68, "education": 69, "dress-up-kits": 70, "microphones": 71,
+    "leashes": 72, "donate-education": 73, "coloring-drawing": 74, "lotion-cream": 75,
+}
+
 
 def home(request):
     flash_sale_products = Product.objects.filter(is_flash_sale=True)[:6]
     just_for_you_products = Product.objects.all()[:8]
-    categories = Product.CATEGORY_CHOICES
+    categories = [
+        {
+            "slug": slug,
+            "label": label,
+            "image": f"https://picsum.photos/id/{CATEGORY_IMAGE_IDS.get(slug, 10)}/200/150",
+        }
+        for slug, label in Product.CATEGORY_CHOICES
+    ]
     return render(request, "daraz/index.html", {
         "flash_sale_products": flash_sale_products,
         "just_for_you_products": just_for_you_products,
@@ -34,7 +49,9 @@ def product_detail(request, pk):
 
 def category_products(request, category):
     products = Product.objects.filter(category=category)
+    label = dict(Product.CATEGORY_CHOICES).get(category, category)
     return render(request, "daraz/category.html", {
         "products": products,
         "category": category,
+        "category_label": label,
     })

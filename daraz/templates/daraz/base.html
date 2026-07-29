@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Copy-Daraz{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
+        body { background: #f5f5f5; }
+        a { color: inherit; }
+
+        .topbar {
+            background: #f85606; color: #fff; font-size: 13px;
+            display: flex; justify-content: flex-end; gap: 24px; padding: 6px 40px;
+        }
+        .topbar a { text-decoration: none; }
+        .topbar a:hover { text-decoration: underline; }
+
+        .navbar {
+            background: #f85606; display: flex; align-items: center;
+            gap: 24px; padding: 14px 40px;
+        }
+        .logo { color: #fff; font-size: 26px; font-weight: bold; text-decoration: none; white-space: nowrap; }
+        .search-form { flex: 1; display: flex; }
+        .search-input { flex: 1; padding: 10px 14px; border: none; border-radius: 2px 0 0 2px; font-size: 15px; outline: none; }
+        .search-btn { background: #ffb9a3; border: none; padding: 0 20px; border-radius: 0 2px 2px 0; cursor: pointer; font-size: 18px; color: #f85606; }
+        .cart { color: #fff; font-size: 26px; text-decoration: none; }
+
+        .hero { margin: 20px 40px; }
+        .slider { position: relative; width: 100%; height: 320px; border-radius: 8px; overflow: hidden; }
+        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.6s ease-in-out; }
+        .slide.active { opacity: 1; }
+        .dots { position: absolute; bottom: 12px; width: 100%; display: flex; justify-content: center; gap: 8px; }
+        .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.6); }
+        .dot.active { background: #fff; }
+
+        .sidebar {
+            position: fixed; left: 0; top: 45%; transform: translateY(-50%);
+            background: #fff; border: 1px solid #eee; border-radius: 0 6px 6px 0;
+            box-shadow: 1px 0 4px rgba(0,0,0,0.08); z-index: 50;
+        }
+        .sidebar a {
+            display: flex; align-items: center; justify-content: center;
+            width: 44px; height: 44px; font-size: 20px; color: #999;
+            border-bottom: 1px solid #f0f0f0; text-decoration: none;
+        }
+        .sidebar a:last-child { border-bottom: none; }
+        .sidebar a:hover { color: #f85606; background: #fff6f2; }
+        .sidebar a.fire { color: #f85606; }
+
+        .section { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .section-header h2 { font-size: 20px; font-weight: 500; color: #333; }
+        .section-header .sub { color: #f85606; font-size: 14px; }
+
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+        .product-card { border: 1px solid #f0f0f0; padding: 12px; text-decoration: none; color: #333; display: block; }
+        .product-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .product-card img { width: 100%; height: 150px; object-fit: cover; margin-bottom: 10px; }
+        .product-card .pname { font-size: 13px; height: 36px; overflow: hidden; margin-bottom: 6px; }
+        .product-card .price { color: #f85606; font-size: 16px; font-weight: bold; }
+        .product-card .old-price { color: #999; font-size: 12px; text-decoration: line-through; margin-left: 6px; }
+        .product-card .discount { color: #f85606; font-size: 12px; margin-left: 4px; }
+
+        .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+        .category-box { background: #f9f9f9; border: 1px solid #eee; text-align: center; padding: 20px 10px; text-decoration: none; color: #333; font-size: 14px; }
+        .category-box:hover { border-color: #f85606; color: #f85606; }
+
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body id="top">
+
+    <div class="topbar">
+        <a href="#">Save more on app</a>
+        <a href="#">Sell on Daraz</a>
+        <a href="#">Help &amp; Support</a>
+        <a href="#">Login</a>
+        <a href="#">Sign up</a>
+        <a href="#">Change language</a>
+    </div>
+
+    <div class="navbar">
+        <a href="{% url 'home' %}" class="logo">Copy-Daraz</a>
+        <form class="search-form" action="{% url 'home' %}" method="get">
+            <input class="search-input" type="text" name="q" placeholder="Search the drawer.">
+            <button class="search-btn" type="submit"><i class="ti ti-search"></i>&#128269;</button>
+        </form>
+        <a href="#" class="cart">&#128722;</a>
+    </div>
+
+    <div class="hero">
+        <div class="slider" id="slider">
+            <img class="slide active" src="https://picsum.photos/id/1015/1200/320" alt="slide1">
+            <img class="slide" src="https://picsum.photos/id/1025/1200/320" alt="slide2">
+            <img class="slide" src="https://picsum.photos/id/1035/1200/320" alt="slide3">
+            <div class="dots">
+                <span class="dot active"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <a href="#top" title="Back to top">&#8593;</a>
+        <a href="#flash-sale" class="fire" title="Flash sale">&#128293;</a>
+        <a href="#categories" title="Categories">&#9638;</a>
+        <a href="#just-for-you" title="Just for you">&#128100;</a>
+    </div>
+
+    {% block content %}{% endblock %}
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const dots = document.querySelectorAll('.dot');
+        let current = 0;
+
+        function showSlide(index) {
+            slides.forEach(s => s.classList.remove('active'));
+            dots.forEach(d => d.classList.remove('active'));
+            slides[index].classList.add('active');
+            dots[index].classList.add('active');
+        }
+
+        function nextSlide() {
+            current = (current + 1) % slides.length;
+            showSlide(current);
+        }
+
+        function scheduleNext() {
+            const delay = Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
+            setTimeout(() => {
+                nextSlide();
+                scheduleNext();
+            }, delay);
+        }
+
+        scheduleNext();
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,22 @@
+{% extends "daraz/base.html" %}
+{% block content %}
+    <div class="section">
+        <div class="section-header">
+            <h2>{{ category|title }}</h2>
+        </div>
+        <div class="product-grid">
+            {% for product in products %}
+            <a class="product-card" href="{% url 'product_detail' product.id %}">
+                <img src="{{ product.image_url }}" alt="{{ product.name }}">
+                <div class="pname">{{ product.name }}</div>
+                <div>
+                    <span class="price">Rs.{{ product.price }}</span>
+                    {% if product.old_price %}<span class="old-price">Rs.{{ product.old_price }}</span>{% endif %}
+                </div>
+            </a>
+            {% empty %}
+            <p>No products in this category yet.</p>
+            {% endfor %}
+        </div>
+    </div>
+{% endblock %}

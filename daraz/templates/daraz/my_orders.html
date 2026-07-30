@@ -2,22 +2,37 @@
 {% block extra_css %}
     .orders-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
     .order-card { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
-    .order-card .top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
+    .order-card .top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px; }
     .order-card .status { color: #f85606; font-weight: 500; }
+    .order-items { display: flex; flex-direction: column; gap: 10px; }
+    .order-item-row { display: flex; align-items: center; gap: 12px; }
+    .order-item-row img { width: 50px; height: 50px; object-fit: cover; border: 1px solid #eee; }
+    .order-item-row .name { flex: 1; font-size: 13px; }
+    .order-item-row .qty { font-size: 12px; color: #888; }
+    .order-item-row .sub { font-size: 13px; font-weight: bold; color: #333; }
 {% endblock %}
 {% block content %}
 <div class="orders-wrap">
-    <div style="padding:16px 20px;font-size:18px;font-weight:500;border-bottom:1px solid #eee;">My orders</div>
+    <div style="padding:16px 20px;font-size:18px;font-weight:500;border-bottom:1px solid #eee;">{{ t.my_orders }}</div>
     {% for order in orders %}
     <div class="order-card">
         <div class="top">
             <span>Order #{{ order.id }} &middot; {{ order.created_at|date:"d M Y" }}</span>
             <span class="status">{{ order.get_status_display }}</span>
         </div>
-        <div style="font-size:13px;color:#666;">
-            {% for item in order.items.all %}{{ item.product_name }} x{{ item.quantity }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        <div class="order-items">
+            {% for item in order.items.all %}
+            <div class="order-item-row">
+                {% if item.product %}
+                <img src="{{ item.product.image_url }}" alt="{{ item.product_name }}">
+                {% endif %}
+                <span class="name">{{ item.product_name }}</span>
+                <span class="qty">x{{ item.quantity }}</span>
+                <span class="sub">Rs.{{ item.subtotal }}</span>
+            </div>
+            {% endfor %}
         </div>
-        <div style="margin-top:6px;font-weight:bold;color:#f85606;">Total: Rs.{{ order.total }}</div>
+        <div style="margin-top:10px;font-weight:bold;color:#f85606;text-align:right;">{{ t.total }}: Rs.{{ order.total }}</div>
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">You haven't placed any orders yet.</div>

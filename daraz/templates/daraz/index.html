@@ -66,8 +66,8 @@
 
     <div class="section" id="flash-sale">
         <div class="section-header">
-            <h2>Flash sale</h2>
-            <span class="sub">Now on sale</span>
+            <h2>{{ t.flash_sale }}</h2>
+            <span class="sub">{{ t.now_on_sale }}</span>
         </div>
         <div class="product-grid">
             {% for product in flash_sale_products %}
@@ -88,7 +88,7 @@
 
     <div class="section" id="categories">
         <div class="section-header">
-            <h2>Categories</h2>
+            <h2>{{ t.categories }}</h2>
         </div>
         <div class="category-grid">
             {% for cat in categories %}
@@ -102,7 +102,7 @@
 
     <div class="section" id="just-for-you">
         <div class="section-header">
-            <h2>Just for you</h2>
+            <h2>{{ t.just_for_you }}</h2>
         </div>
         <div class="product-grid">
             {% for product in just_for_you_products %}

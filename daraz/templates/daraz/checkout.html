@@ -25,7 +25,7 @@
                 <option value="card">Credit / Debit card</option>
                 <option value="wallet">Copy-Daraz wallet</option>
             </select>
-            <button type="submit">Place order</button>
+            <button type="submit">{{ t.place_order }}</button>
         </form>
     </div>
     <div class="summary">
@@ -37,7 +37,7 @@
         </div>
         {% endfor %}
         <div class="summary-total">
-            <span>Total</span>
+            <span>{{ t.total }}</span>
             <span>Rs.{{ total }}</span>
         </div>
     </div>

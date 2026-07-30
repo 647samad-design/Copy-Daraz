@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load daraz_extras %}
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -14,6 +15,12 @@
         }
         .topbar a { text-decoration: none; }
         .topbar a:hover { text-decoration: underline; }
+        .lang-dropdown { position: relative; cursor: pointer; }
+        .lang-current::after { content: " ▾"; }
+        .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 100; }
+        .lang-dropdown:hover .lang-menu { display: block; }
+        .lang-menu a { display: block; padding: 8px 14px; color: #333; font-size: 13px; }
+        .lang-menu a:hover { background: #fff6f2; color: #f85606; }
 
         .navbar {
             background: #f85606; display: flex; align-items: center;
@@ -82,24 +89,31 @@
 <body id="top">
 
     <div class="topbar">
-        <a href="#">Save more on app</a>
-        <a href="#">Sell on Daraz</a>
-        <a href="#">Help &amp; Support</a>
+        <a href="#">{{ t.save_more }}</a>
+        <a href="#">{{ t.sell_on }}</a>
+        <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
         {% if user.is_authenticated %}
         <span>Hi, {{ user.username }}</span>
-        <a href="{% url 'my_orders' %}">My orders</a>
-        <a href="{% url 'logout' %}">Logout</a>
+        <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
+        <a href="{% url 'logout' %}">{{ t.logout }}</a>
         {% else %}
-        <a href="{% url 'login' %}">Login</a>
-        <a href="{% url 'signup' %}">Sign up</a>
+        <a href="{% url 'login' %}">{{ t.login }}</a>
+        <a href="{% url 'signup' %}">{{ t.signup }}</a>
         {% endif %}
-        <a href="#">Change language</a>
+        <div class="lang-dropdown">
+            <span class="lang-current">{{ t.change_language }} ({{ language_names|get_item:current_lang }})</span>
+            <div class="lang-menu">
+                <a href="{% url 'set_language' 'en' %}">English</a>
+                <a href="{% url 'set_language' 'ur' %}">اردو</a>
+                <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
+            </div>
+        </div>
     </div>
 
     <div class="navbar">
         <a href="{% url 'home' %}" class="logo">Copy-Daraz</a>
         <form class="search-form" action="{% url 'home' %}" method="get">
-            <input class="search-input" type="text" name="q" placeholder="Search the drawer.">
+            <input class="search-input" type="text" name="q" placeholder="{{ t.search_placeholder }}">
             <button class="search-btn" type="submit">&#128269;</button>
         </form>
         <a href="{% url 'cart' %}" class="cart-link">

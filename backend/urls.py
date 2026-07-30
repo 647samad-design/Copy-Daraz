@@ -17,4 +17,6 @@ urlpatterns = [
     path('checkout/', views.checkout_view, name='checkout'),
     path('order/success/<int:order_id>/', views.order_success, name='order_success'),
     path('my-orders/', views.my_orders, name='my_orders'),
+    path('set-language/<str:lang_code>/', views.set_language, name='set_language'),
+    path('help/', views.help_support, name='help_support'),
 ]

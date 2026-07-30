@@ -18,7 +18,7 @@
 {% endblock %}
 {% block content %}
 <div class="cart-wrap">
-    <div class="cart-header">Shopping Cart ({{ count }} item{{ count|pluralize }})</div>
+    <div class="cart-header">{{ t.your_cart }} ({{ count }} item{{ count|pluralize }})</div>
 
     {% for row in items %}
     <div class="cart-row">
@@ -55,8 +55,8 @@
 
     {% if items %}
     <div class="cart-summary">
-        <span>Total: <span class="total">Rs.{{ total }}</span></span>
-        <a class="checkout-btn" href="{% url 'checkout' %}">Proceed to Checkout</a>
+        <span>{{ t.total }}: <span class="total">Rs.{{ total }}</span></span>
+        <a class="checkout-btn" href="{% url 'checkout' %}">{{ t.checkout }}</a>
     </div>
     {% endif %}
 </div>

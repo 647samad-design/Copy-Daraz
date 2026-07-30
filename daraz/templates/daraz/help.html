@@ -1,0 +1,24 @@
+{% extends "daraz/base.html" %}
+{% block extra_css %}
+    .help-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 24px; }
+    .help-wrap h1 { font-size: 20px; margin-bottom: 16px; }
+    .faq-item { border-bottom: 1px solid #f0f0f0; padding: 14px 0; }
+    .faq-q { font-weight: 500; margin-bottom: 6px; color: #333; }
+    .faq-a { font-size: 13px; color: #666; line-height: 1.6; }
+    .contact-box { margin-top: 20px; background: #fff6f2; border: 1px solid #ffd9c7; padding: 16px; font-size: 13px; color: #555; }
+{% endblock %}
+{% block content %}
+<div class="help-wrap">
+    <h1>Help &amp; Support</h1>
+    {% for question, answer in faqs %}
+    <div class="faq-item">
+        <div class="faq-q">{{ question }}</div>
+        <div class="faq-a">{{ answer }}</div>
+    </div>
+    {% endfor %}
+    <div class="contact-box">
+        Still need help? This is a practice project, but in a real store you'd reach support via
+        live chat, email, or phone from this page.
+    </div>
+</div>
+{% endblock %}

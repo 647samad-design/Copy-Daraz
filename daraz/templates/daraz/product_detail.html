@@ -43,24 +43,24 @@
                 <form method="post" action="{% url 'add_to_cart' product.id %}">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{% url 'checkout' %}">
-                    <button class="btn-buy" type="submit">Buy Now</button>
+                    <button class="btn-buy" type="submit">{{ t.buy_now }}</button>
                 </form>
                 <form method="post" action="{% url 'add_to_cart' product.id %}">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{% url 'product_detail' product.id %}">
-                    <button class="btn-cart" type="submit">Add to cart</button>
+                    <button class="btn-cart" type="submit">{{ t.add_to_cart }}</button>
                 </form>
             </div>
         </div>
     </div>
 
     <div class="desc-box">
-        <h2>Product details</h2>
+        <h2>{{ t.product_details }}</h2>
         <p style="margin-top:10px;">{{ product.description }}</p>
     </div>
 
     <div class="reviews-box">
-        <h2>Ratings and reviews</h2>
+        <h2>{{ t.ratings_reviews }}</h2>
         <form class="review-form" method="post">
             {% csrf_token %}
             <input type="text" name="username" placeholder="Your name" required>
@@ -72,7 +72,7 @@
                 <option value="1">1 star</option>
             </select>
             <textarea name="comment" rows="3" placeholder="Write your review..." required></textarea>
-            <button type="submit">Submit review</button>
+            <button type="submit">{{ t.submit_review }}</button>
         </form>
 
         {% for review in reviews %}

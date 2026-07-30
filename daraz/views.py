@@ -262,3 +262,23 @@ def order_success(request, order_id):
 def my_orders(request):
     orders = Order.objects.filter(user=request.user).order_by("-created_at")
     return render(request, "daraz/my_orders.html", {"orders": orders})
+
+
+def set_language(request, lang_code):
+    from .translations import TRANSLATIONS
+    if lang_code in TRANSLATIONS:
+        request.session["site_lang"] = lang_code
+    next_url = request.META.get("HTTP_REFERER", "/")
+    return redirect(next_url)
+
+
+def help_support(request):
+    faqs = [
+        ("How do I place an order?", "Add products to your cart, go to Cart, click 'Proceed to Checkout', fill in your delivery details and confirm. You must be logged in to check out."),
+        ("What payment methods are available?", "Cash on delivery, credit/debit card, and Copy-Daraz wallet (demo options — no real payment is processed on this practice site)."),
+        ("How can I track my order?", "Go to 'My orders' from the top menu after logging in to see all your past orders and their status."),
+        ("Can I return a product?", "This is a learning project, so returns aren't processed automatically, but in a real store you'd typically get 7-14 days to request a return from your order page."),
+        ("How do I change the site language?", "Use the 'Change language' option in the top bar to switch between English, Urdu, and Roman Urdu."),
+        ("I forgot my password, what do I do?", "This demo site doesn't yet have a password-reset flow. Please sign up with a new username for now."),
+    ]
+    return render(request, "daraz/help.html", {"faqs": faqs})

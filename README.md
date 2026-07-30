@@ -14,7 +14,7 @@ Ek simple Daraz jaisi website ka starter project — Django (Python) ke sath ban
 
 ## Run locally
 ```bash
-pip install django
+pip install -r requirements.txt
 python manage.py migrate
 python manage.py seed_data
 python manage.py createsuperuser   # or set username/password to daraz/daraz
@@ -28,3 +28,8 @@ Then open http://127.0.0.1:8000/
 - Flash sale, Categories, and Just for you sections with a floating sidebar (scroll shortcuts)
 - Product detail page with Buy Now / Add to cart and a review form
 - Admin panel at `/admin/` to manage products and reviews (default login: daraz / daraz)
+- Signup / Login / Logout with Django's built-in auth system (working out of the box)
+- "Continue with Google" button on login/signup — to activate it, set the `GOOGLE_CLIENT_ID`
+  environment variable to a real OAuth Client ID from https://console.cloud.google.com/apis/credentials
+  (create an OAuth 2.0 Web Client, add your site's URL under "Authorized JavaScript origins").
+  Until it's set, the Google button is shown but disabled.

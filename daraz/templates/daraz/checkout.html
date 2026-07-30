@@ -13,23 +13,23 @@
 {% block content %}
 <div class="checkout-wrap">
     <div class="checkout-form">
-        <h2>Delivery details</h2>
+        <h2>{{ t.delivery_details }}</h2>
         <form method="post">
             {% csrf_token %}
-            <input type="text" name="full_name" placeholder="Full name" value="{{ request.user.username }}" required>
-            <input type="text" name="address" placeholder="Street address" required>
-            <input type="text" name="city" placeholder="City" required>
-            <input type="text" name="phone" placeholder="Phone number" required>
+            <input type="text" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username }}" required>
+            <input type="text" name="address" placeholder="{{ t.street_address }}" required>
+            <input type="text" name="city" placeholder="{{ t.city }}" required>
+            <input type="text" name="phone" placeholder="{{ t.phone_number }}" required>
             <select name="payment_method">
-                <option value="cod">Cash on delivery</option>
-                <option value="card">Credit / Debit card</option>
-                <option value="wallet">Copy-Daraz wallet</option>
+                <option value="cod">{{ t.cash_on_delivery }}</option>
+                <option value="card">{{ t.card }}</option>
+                <option value="wallet">{{ t.wallet }}</option>
             </select>
             <button type="submit">{{ t.place_order }}</button>
         </form>
     </div>
     <div class="summary">
-        <h3>Order summary</h3>
+        <h3>{{ t.order_summary }}</h3>
         {% for row in items %}
         <div class="summary-row">
             <span>{{ row.product.name|truncatechars:28 }} x{{ row.qty }}</span>

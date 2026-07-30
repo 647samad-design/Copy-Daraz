@@ -1,7 +1,7 @@
 {% extends "daraz/base.html" %}
 {% block extra_css %}
-    .hero { margin: 20px 40px; display: flex; gap: 16px; }
-    .slider { position: relative; flex: 1; height: 430px; border-radius: 8px; overflow: hidden; }
+    .hero { margin: 0 0 0 0; display: flex; gap: 0; }
+    .slider { position: relative; flex: 1; height: 430px; overflow: hidden; }
     .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.6s ease-in-out; }
     .slide.active { opacity: 1; }
     .slide-caption { position: absolute; left: 40px; top: 50%; transform: translateY(-50%); color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.4); }
@@ -11,7 +11,7 @@
     .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.6); }
     .dot.active { background: #fff; }
 
-    .app-box { width: 260px; background: linear-gradient(160deg, #fff3ee, #ffd9c7); border-radius: 8px; padding: 20px; text-align: center; }
+    .app-box { width: 260px; background: linear-gradient(160deg, #fff3ee, #ffd9c7); padding: 20px; text-align: center; }
     .app-box .app-title { color: #f85606; font-weight: bold; font-size: 15px; margin-bottom: 12px; }
     .qr-pattern { width: 130px; height: 130px; margin: 0 auto 12px; background: #fff; padding: 8px; border-radius: 4px; }
     .qr-pattern svg { width: 100%; height: 100%; }
@@ -26,8 +26,8 @@
             <img class="slide" src="https://picsum.photos/id/1025/1400/430" alt="slide2">
             <img class="slide" src="https://picsum.photos/id/1035/1400/430" alt="slide3">
             <div class="slide-caption">
-                <h1>Big Deals, Every Day</h1>
-                <p>Shop the latest arrivals across every category</p>
+                <h1>{{ t.welcome }}</h1>
+                <p>{{ t.welcome_sub }}</p>
             </div>
             <div class="dots">
                 <span class="dot active"></span>
@@ -36,7 +36,7 @@
             </div>
         </div>
         <div class="app-box">
-            <div class="app-title">Try the Copy-Daraz app</div>
+            <div class="app-title">{{ t.try_app }}</div>
             <div class="qr-pattern">
                 <svg viewBox="0 0 100 100">
                     <rect width="100" height="100" fill="#fff"/>
@@ -58,8 +58,8 @@
                 </svg>
             </div>
             <div class="badges">
-                <span class="badge">Free shipping</span>
-                <span class="badge">Exclusive vouchers</span>
+                <span class="badge">{{ t.free_shipping }}</span>
+                <span class="badge">{{ t.exclusive_vouchers }}</span>
             </div>
         </div>
     </div>
@@ -76,12 +76,16 @@
                 <div class="pname">{{ product.name }}</div>
                 <div>
                     <span class="price">Rs.{{ product.price }}</span>
-                    {% if product.old_price %}<span class="old-price">Rs.{{ product.old_price }}</span>{% endif %}
                     {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
+                </div>
+                {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
+                <div class="card-rating">
+                    {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
+                    <span class="rcount">({{ product.reviews.count }})</span>
                 </div>
             </a>
             {% empty %}
-            <p>No flash sale products yet. Add some from the admin panel.</p>
+            <p>{{ t.no_flash_sale }}</p>
             {% endfor %}
         </div>
     </div>
@@ -111,11 +115,16 @@
                 <div class="pname">{{ product.name }}</div>
                 <div>
                     <span class="price">Rs.{{ product.price }}</span>
-                    {% if product.old_price %}<span class="old-price">Rs.{{ product.old_price }}</span>{% endif %}
+                    {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
+                </div>
+                {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
+                <div class="card-rating">
+                    {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
+                    <span class="rcount">({{ product.reviews.count }})</span>
                 </div>
             </a>
             {% empty %}
-            <p>No products yet. Add some from the admin panel.</p>
+            <p>{{ t.no_products }}</p>
             {% endfor %}
         </div>
     </div>

@@ -9,7 +9,7 @@
 {% endblock %}
 {% block content %}
 <div class="help-wrap">
-    <h1>Help &amp; Support</h1>
+    <h1>{{ t.help_title }}</h1>
     {% for question, answer in faqs %}
     <div class="faq-item">
         <div class="faq-q">{{ question }}</div>
@@ -17,8 +17,7 @@
     </div>
     {% endfor %}
     <div class="contact-box">
-        Still need help? This is a practice project, but in a real store you'd reach support via
-        live chat, email, or phone from this page.
+        {{ t.still_need_help }}
     </div>
 </div>
 {% endblock %}

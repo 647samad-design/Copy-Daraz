@@ -11,11 +11,16 @@
                 <div class="pname">{{ product.name }}</div>
                 <div>
                     <span class="price">Rs.{{ product.price }}</span>
-                    {% if product.old_price %}<span class="old-price">Rs.{{ product.old_price }}</span>{% endif %}
+                    {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
+                </div>
+                {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
+                <div class="card-rating">
+                    {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
+                    <span class="rcount">({{ product.reviews.count }})</span>
                 </div>
             </a>
             {% empty %}
-            <p>No products in this category yet.</p>
+            <p>{{ t.no_products }}</p>
             {% endfor %}
         </div>
     </div>

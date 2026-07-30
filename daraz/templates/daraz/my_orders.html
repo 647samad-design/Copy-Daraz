@@ -35,7 +35,7 @@
         <div style="margin-top:10px;font-weight:bold;color:#f85606;text-align:right;">{{ t.total }}: Rs.{{ order.total }}</div>
     </div>
     {% empty %}
-    <div style="padding:30px;text-align:center;color:#888;">You haven't placed any orders yet.</div>
+    <div style="padding:30px;text-align:center;color:#888;">{{ t.no_orders }}</div>
     {% endfor %}
 </div>
 {% endblock %}

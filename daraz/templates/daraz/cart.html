@@ -44,12 +44,12 @@
         <form method="post" action="{% url 'update_cart_item' row.product.id %}">
             {% csrf_token %}
             <input type="hidden" name="action" value="remove">
-            <button class="remove-btn" type="submit">Remove</button>
+            <button class="remove-btn" type="submit">{{ t.remove }}</button>
         </form>
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">
-        Your cart is empty. <a href="{% url 'home' %}" style="color:#f85606;">Continue shopping</a>
+        {{ t.empty_cart }} <a href="{% url 'home' %}" style="color:#f85606;">{{ t.continue_shopping }}</a>
     </div>
     {% endfor %}
 

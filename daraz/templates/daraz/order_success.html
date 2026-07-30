@@ -11,8 +11,8 @@
 <div class="success-wrap">
     <div class="success-box">
         <div class="check">&#10003;</div>
-        <h2>Order placed successfully!</h2>
-        <p>Order #{{ order.id }} &middot; Status: {{ order.get_status_display }}</p>
+        <h2>{{ t.order_placed }}</h2>
+        <p>Order #{{ order.id }} &middot; {{ t.status }}: {{ order.get_status_display }}</p>
         <table class="order-table">
             {% for item in order.items.all %}
             <tr>
@@ -20,10 +20,10 @@
                 <td>Rs.{{ item.subtotal }}</td>
             </tr>
             {% endfor %}
-            <tr><th>Total</th><th>Rs.{{ order.total }}</th></tr>
+            <tr><th>{{ t.total }}</th><th>Rs.{{ order.total }}</th></tr>
         </table>
-        <p style="margin-top:14px;font-size:13px;color:#666;">Delivering to {{ order.address }}, {{ order.city }}</p>
-        <a class="btn-home" href="{% url 'home' %}">Continue shopping</a>
+        <p style="margin-top:14px;font-size:13px;color:#666;">{{ t.delivering_to }} {{ order.address }}, {{ order.city }}</p>
+        <a class="btn-home" href="{% url 'home' %}">{{ t.continue_shopping }}</a>
     </div>
 </div>
 {% endblock %}

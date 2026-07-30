@@ -32,7 +32,7 @@
         <div class="product-info">
             <h1>{{ product.name }}</h1>
             <div class="rating-line">
-                &#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} reviews
+                &#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} {{ t.reviews }}
             </div>
             <div class="price-block">
                 <span class="price">Rs.{{ product.price }}</span>
@@ -63,7 +63,7 @@
         <h2>{{ t.ratings_reviews }}</h2>
         <form class="review-form" method="post">
             {% csrf_token %}
-            <input type="text" name="username" placeholder="Your name" required>
+            <input type="text" name="username" placeholder="{{ t.your_name }}" required>
             <select name="rating">
                 <option value="5">5 stars</option>
                 <option value="4">4 stars</option>
@@ -71,7 +71,7 @@
                 <option value="2">2 stars</option>
                 <option value="1">1 star</option>
             </select>
-            <textarea name="comment" rows="3" placeholder="Write your review..." required></textarea>
+            <textarea name="comment" rows="3" placeholder="{{ t.write_review }}" required></textarea>
             <button type="submit">{{ t.submit_review }}</button>
         </form>
 
@@ -82,7 +82,7 @@
             <p>{{ review.comment }}</p>
         </div>
         {% empty %}
-        <p>No reviews yet. Be the first to review this product.</p>
+        <p>{{ t.no_reviews }}</p>
         {% endfor %}
     </div>
 

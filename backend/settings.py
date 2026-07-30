@@ -39,7 +39,9 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.githubpreview.dev',
     'https://*.gitpod.io',
     'http://localhost:8000',
+    'https://localhost:8000',
     'http://127.0.0.1:8000',
+    'https://127.0.0.1:8000',
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True

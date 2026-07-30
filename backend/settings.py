@@ -29,7 +29,20 @@ SECRET_KEY = 'django-insecure-g1db5^p$##5gwm4i=me%_1v^189j4%5rj2le5vy00^^*-=($w8
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
+
+# Codespaces (and similar cloud dev environments) serve the site over HTTPS through
+# a proxy, so Django needs to trust that forwarded scheme and the dynamic preview
+# domain, otherwise CSRF checks fail with "Origin checking failed".
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.app.github.dev',
+    'https://*.githubpreview.dev',
+    'https://*.gitpod.io',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
 
 
 # Application definition

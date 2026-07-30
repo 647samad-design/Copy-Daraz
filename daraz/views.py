@@ -1,11 +1,12 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
-from .models import Product, Review
+from .models import Product, Review, Order, OrderItem
 
 CATEGORY_IMAGE_IDS = {
     "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
@@ -17,8 +18,8 @@ CATEGORY_IMAGE_IDS = {
 
 
 def home(request):
-    flash_sale_products = Product.objects.filter(is_flash_sale=True)[:6]
-    just_for_you_products = Product.objects.all()[:8]
+    flash_sale_products = Product.objects.filter(is_flash_sale=True)[:8]
+    just_for_you_products = Product.objects.all().order_by("-created_at")[:16]
     categories = [
         {
             "slug": slug,
@@ -152,3 +153,112 @@ def google_auth(request):
     )
     auth_login(request, user)
     return JsonResponse({"success": True, "redirect": "/"})
+
+
+def _get_cart_items(request):
+    """Reads the session cart {product_id: qty} and returns (items, total, count)."""
+    cart = request.session.get("cart", {})
+    items = []
+    total = 0
+    count = 0
+    for pid, qty in cart.items():
+        try:
+            product = Product.objects.get(pk=pid)
+        except Product.DoesNotExist:
+            continue
+        subtotal = product.price * qty
+        total += subtotal
+        count += qty
+        items.append({"product": product, "qty": qty, "subtotal": subtotal})
+    return items, total, count
+
+
+def cart_count(request):
+    cart = request.session.get("cart", {})
+    return sum(cart.values())
+
+
+def add_to_cart(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    cart = request.session.get("cart", {})
+    key = str(pk)
+    qty = int(request.POST.get("quantity", 1)) if request.method == "POST" else 1
+    cart[key] = cart.get(key, 0) + qty
+    request.session["cart"] = cart
+    request.session.modified = True
+    messages.success(request, f"{product.name} added to cart.")
+    next_url = request.POST.get("next") or request.GET.get("next") or "cart"
+    return redirect(next_url)
+
+
+def update_cart_item(request, pk):
+    cart = request.session.get("cart", {})
+    key = str(pk)
+    action = request.POST.get("action")
+    if key in cart:
+        if action == "increase":
+            cart[key] += 1
+        elif action == "decrease":
+            cart[key] -= 1
+            if cart[key] <= 0:
+                del cart[key]
+        elif action == "remove":
+            del cart[key]
+    request.session["cart"] = cart
+    request.session.modified = True
+    return redirect("cart")
+
+
+def cart_view(request):
+    items, total, count = _get_cart_items(request)
+    return render(request, "daraz/cart.html", {
+        "items": items,
+        "total": total,
+        "count": count,
+    })
+
+
+@login_required
+def checkout_view(request):
+    items, total, count = _get_cart_items(request)
+    if not items:
+        messages.error(request, "Your cart is empty.")
+        return redirect("cart")
+
+    if request.method == "POST":
+        order = Order.objects.create(
+            user=request.user,
+            full_name=request.POST.get("full_name", request.user.username),
+            address=request.POST.get("address", ""),
+            city=request.POST.get("city", ""),
+            phone=request.POST.get("phone", ""),
+            payment_method=request.POST.get("payment_method", "cod"),
+        )
+        for item in items:
+            OrderItem.objects.create(
+                order=order,
+                product=item["product"],
+                product_name=item["product"].name,
+                price=item["product"].price,
+                quantity=item["qty"],
+            )
+        request.session["cart"] = {}
+        request.session.modified = True
+        return redirect("order_success", order_id=order.id)
+
+    return render(request, "daraz/checkout.html", {
+        "items": items,
+        "total": total,
+    })
+
+
+@login_required
+def order_success(request, order_id):
+    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    return render(request, "daraz/order_success.html", {"order": order})
+
+
+@login_required
+def my_orders(request):
+    orders = Order.objects.filter(user=request.user).order_by("-created_at")
+    return render(request, "daraz/my_orders.html", {"orders": orders})

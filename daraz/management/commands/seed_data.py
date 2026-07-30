@@ -1,73 +1,59 @@
+import random
 from django.core.management.base import BaseCommand
 from daraz.models import Product
 
+CATEGORY_PRODUCTS = {
+    "skincare": ["Oil-Free Moisturizer 100ml", "Vitamin C Serum 30ml", "Sunblock SPF 50", "Aloe Vera Gel 200ml", "Charcoal Face Wash"],
+    "haircare": ["Anti-Dandruff Shampoo", "Argan Oil Hair Serum", "Keratin Conditioner", "Hair Growth Oil", "Curl Defining Cream"],
+    "grocery": ["Sunflower Cooking Oil 1L", "Basmati Rice 5kg", "Brown Lentils 1kg", "Green Tea 100 Bags", "Honey 500g"],
+    "fashion": ["Men's Casual T-Shirt", "Women's Kurta", "Denim Jacket", "Formal Trouser", "Printed Scarf"],
+    "electronics": ["Wireless Earbuds", "Smart Fitness Watch", "Bluetooth Speaker", "Power Bank 20000mAh", "LED Desk Lamp"],
+    "3d-printers": ["Mini 3D Printer", "PLA Filament 1kg", "3D Printer Nozzle Set", "Resin 3D Printer", "3D Printer Bed Sheet"],
+    "pasta-tools": ["Pasta Roller Machine", "Pizza Cutter Wheel", "Noodle Maker", "Dough Scraper Set", "Pizza Stone"],
+    "sim-devices": ["Dual SIM Adapter", "SIM Card Tray Pin", "SIM Card Reader", "4G SIM Router", "eSIM Converter Kit"],
+    "screen-protector": ["Tempered Glass Protector", "Privacy Screen Guard", "Matte Screen Film", "Camera Lens Protector", "Anti-Glare Film"],
+    "casserole-pot": ["Ceramic Casserole Pot", "Non-Stick Cooking Pot", "Insulated Hot Pot", "Stainless Steel Casserole", "Clay Cooking Pot"],
+    "table-lamp": ["LED Stage Table Lamp", "Touch Control Lamp", "Wooden Desk Lamp", "Rechargeable Reading Lamp", "Vintage Table Lamp"],
+    "hoodies": ["Men's Zipper Hoodie", "Women's Fleece Hoodie", "Oversized Sweatshirt", "Kids Hoodie", "Pullover Hoodie"],
+    "toy-boxes": ["Foldable Toy Box", "Stackable Storage Bins", "Kids Organizer Basket", "Canvas Storage Box", "Wooden Toy Chest"],
+    "sneakers": ["Men's Running Sneakers", "Women's Casual Sneakers", "Kids Sport Shoes", "High-Top Sneakers", "Slip-On Sneakers"],
+    "education": ["Kids Learning Tablet", "Alphabet Flash Cards", "School Stationery Set", "Whiteboard with Markers", "Educational Puzzle Set"],
+    "dress-up-kits": ["Princess Dress-Up Set", "Superhero Costume Kit", "Doctor Role-Play Kit", "Pirate Costume Set", "Fairy Tale Dress-Up Box"],
+    "microphones": ["USB Condenser Microphone", "Wireless Lapel Mic", "Karaoke Microphone", "Podcast Mic with Stand", "Bluetooth Mini Mic"],
+    "leashes": ["Adjustable Dog Leash", "Cat Harness and Leash Set", "Retractable Pet Leash", "Padded Dog Collar", "Reflective Night Leash"],
+    "donate-education": ["School Bag Donation Pack", "Book Donation Bundle", "Stationery Donation Kit", "Uniform Donation Set", "Learning Kit Donation"],
+    "coloring-drawing": ["Coloring Book Set", "72-Color Marker Set", "Watercolor Paint Kit", "Sketch Pad A4", "Doodle Art Kit"],
+    "lotion-cream": ["Hand and Foot Cream", "Body Lotion 400ml", "Whitening Scrub Cream", "Shea Butter Moisturizer", "Anti-Aging Night Cream"],
+}
+
 
 class Command(BaseCommand):
-    help = "Seed the database with sample Copy-Daraz products"
+    help = "Seed the database with sample Copy-Daraz products (5+ per category)"
 
     def handle(self, *args, **options):
-        products = [
-            {
-                "name": "Jenpharm Dermive Oil Free Moisturizer 100ml",
-                "image_url": "https://picsum.photos/id/26/400/400",
-                "price": 940, "old_price": 1098, "discount_percent": 14,
-                "category": "skincare", "is_flash_sale": True,
-                "description": "Oil free moisturizer with ceramides and hyaluronic acid, suitable for men and women.",
-            },
-            {
-                "name": "Jenpharm Spectrablock Max SPF100 Tinted 40gm",
-                "image_url": "https://picsum.photos/id/27/400/400",
-                "price": 861, "old_price": 998, "discount_percent": 14,
-                "category": "skincare", "is_flash_sale": True,
-                "description": "Tinted super sunscreen, dermatologically tested and lightweight.",
-            },
-            {
-                "name": "Dove Intense Repair Shampoo 175ML",
-                "image_url": "https://picsum.photos/id/28/400/400",
-                "price": 529, "old_price": 550, "discount_percent": 4,
-                "category": "haircare", "is_flash_sale": True,
-                "description": "Repairs damage and reduces hair breakage with every wash.",
-            },
-            {
-                "name": "L'Oreal Paris Elvive Hyaluron Moisture Shampoo",
-                "image_url": "https://picsum.photos/id/29/400/400",
-                "price": 819, "old_price": 1050, "discount_percent": 22,
-                "category": "haircare", "is_flash_sale": True,
-                "description": "72H hydration and 2x plumper hair, salon quality expert hair care.",
-            },
-            {
-                "name": "Sufi Sunflower Cooking Oil 1Ltr x 5 Poly Bags",
-                "image_url": "https://picsum.photos/id/30/400/400",
-                "price": 3088, "old_price": 3090, "discount_percent": 0,
-                "category": "grocery", "is_flash_sale": True,
-                "description": "Sunflower cooking oil enriched with vitamins A and D.",
-            },
-            {
-                "name": "New Trendy DTF T-Shirt and Trouser Set",
-                "image_url": "https://picsum.photos/id/31/400/400",
-                "price": 783, "old_price": 3599, "discount_percent": 78,
-                "category": "fashion", "is_flash_sale": True,
-                "description": "Trendy strong DTF printed t-shirt and trouser combo set for men.",
-            },
-            {
-                "name": "Wireless Bluetooth Earbuds",
-                "image_url": "https://picsum.photos/id/48/400/400",
-                "price": 1499, "old_price": 2500, "discount_percent": 40,
-                "category": "electronics", "is_flash_sale": False,
-                "description": "High quality wireless earbuds with noise cancellation and long battery life.",
-            },
-            {
-                "name": "Smart Fitness Watch",
-                "image_url": "https://picsum.photos/id/60/400/400",
-                "price": 2999, "old_price": 4500, "discount_percent": 33,
-                "category": "electronics", "is_flash_sale": False,
-                "description": "Track your heart rate, steps and sleep with this smart fitness watch.",
-            },
-        ]
+        img_id = 20
+        created_count = 0
 
-        for p in products:
-            obj, created = Product.objects.get_or_create(name=p["name"], defaults=p)
-            if created:
-                self.stdout.write(self.style.SUCCESS(f"Created: {obj.name}"))
-            else:
-                self.stdout.write(f"Already exists: {obj.name}")
+        for category, names in CATEGORY_PRODUCTS.items():
+            for i, name in enumerate(names):
+                price = random.choice([299, 499, 699, 819, 940, 1250, 1699, 2199, 2999, 3499])
+                has_discount = random.choice([True, True, False])
+                old_price = round(price * random.uniform(1.1, 1.6)) if has_discount else None
+                discount = round((1 - price / old_price) * 100) if old_price else 0
+                img_id += 1
+
+                defaults = {
+                    "image_url": f"https://picsum.photos/id/{(img_id % 300) + 5}/400/400",
+                    "price": price,
+                    "old_price": old_price,
+                    "discount_percent": discount,
+                    "category": category,
+                    "is_flash_sale": has_discount and i < 2,
+                    "description": f"{name} - a quality pick from our {category.replace('-', ' ')} collection, chosen for everyday value and reliability.",
+                }
+                obj, created = Product.objects.get_or_create(name=name, defaults=defaults)
+                if created:
+                    created_count += 1
+                    self.stdout.write(self.style.SUCCESS(f"Created: {obj.name} ({category})"))
+
+        self.stdout.write(self.style.SUCCESS(f"\nDone. {created_count} new products created."))

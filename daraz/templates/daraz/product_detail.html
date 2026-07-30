@@ -40,8 +40,16 @@
                 {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
             </div>
             <div class="btn-row">
-                <button class="btn-buy">Buy Now</button>
-                <button class="btn-cart">Add to cart</button>
+                <form method="post" action="{% url 'add_to_cart' product.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% url 'checkout' %}">
+                    <button class="btn-buy" type="submit">Buy Now</button>
+                </form>
+                <form method="post" action="{% url 'add_to_cart' product.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% url 'product_detail' product.id %}">
+                    <button class="btn-cart" type="submit">Add to cart</button>
+                </form>
             </div>
         </div>
     </div>

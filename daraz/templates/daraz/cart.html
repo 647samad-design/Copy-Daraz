@@ -1,0 +1,63 @@
+{% extends "daraz/base.html" %}
+{% block extra_css %}
+    .cart-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
+    .cart-header { padding: 16px 20px; border-bottom: 1px solid #eee; font-size: 18px; font-weight: 500; }
+    .cart-row { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
+    .cart-row img { width: 70px; height: 70px; object-fit: cover; border: 1px solid #eee; }
+    .cart-row .info { flex: 1; }
+    .cart-row .name { font-size: 14px; margin-bottom: 4px; }
+    .cart-row .price { color: #f85606; font-weight: bold; }
+    .qty-controls { display: flex; align-items: center; gap: 8px; }
+    .qty-controls button { width: 26px; height: 26px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+    .qty-controls form { display: inline; }
+    .subtotal { width: 100px; text-align: right; font-weight: bold; }
+    .remove-btn { color: #999; background: none; border: none; cursor: pointer; font-size: 13px; text-decoration: underline; }
+    .cart-summary { display: flex; justify-content: flex-end; padding: 20px; gap: 20px; align-items: center; }
+    .cart-summary .total { font-size: 20px; font-weight: bold; color: #f85606; }
+    .checkout-btn { background: #f85606; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; text-decoration: none; }
+{% endblock %}
+{% block content %}
+<div class="cart-wrap">
+    <div class="cart-header">Shopping Cart ({{ count }} item{{ count|pluralize }})</div>
+
+    {% for row in items %}
+    <div class="cart-row">
+        <img src="{{ row.product.image_url }}" alt="{{ row.product.name }}">
+        <div class="info">
+            <div class="name">{{ row.product.name }}</div>
+            <div class="price">Rs.{{ row.product.price }}</div>
+        </div>
+        <div class="qty-controls">
+            <form method="post" action="{% url 'update_cart_item' row.product.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="decrease">
+                <button type="submit">-</button>
+            </form>
+            <span>{{ row.qty }}</span>
+            <form method="post" action="{% url 'update_cart_item' row.product.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="increase">
+                <button type="submit">+</button>
+            </form>
+        </div>
+        <div class="subtotal">Rs.{{ row.subtotal }}</div>
+        <form method="post" action="{% url 'update_cart_item' row.product.id %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="remove">
+            <button class="remove-btn" type="submit">Remove</button>
+        </form>
+    </div>
+    {% empty %}
+    <div style="padding:30px;text-align:center;color:#888;">
+        Your cart is empty. <a href="{% url 'home' %}" style="color:#f85606;">Continue shopping</a>
+    </div>
+    {% endfor %}
+
+    {% if items %}
+    <div class="cart-summary">
+        <span>Total: <span class="total">Rs.{{ total }}</span></span>
+        <a class="checkout-btn" href="{% url 'checkout' %}">Proceed to Checkout</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

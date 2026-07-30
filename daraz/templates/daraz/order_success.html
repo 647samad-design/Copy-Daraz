@@ -1,0 +1,29 @@
+{% extends "daraz/base.html" %}
+{% block extra_css %}
+    .success-wrap { display: flex; justify-content: center; margin: 50px 20px; }
+    .success-box { width: 480px; background: #fff; border: 1px solid #eee; padding: 30px; text-align: center; }
+    .success-box .check { font-size: 50px; color: #27ae60; margin-bottom: 10px; }
+    .order-table { width: 100%; margin-top: 20px; text-align: left; font-size: 13px; }
+    .order-table th, .order-table td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+    .btn-home { display: inline-block; margin-top: 20px; background: #f85606; color: #fff; padding: 10px 24px; text-decoration: none; }
+{% endblock %}
+{% block content %}
+<div class="success-wrap">
+    <div class="success-box">
+        <div class="check">&#10003;</div>
+        <h2>Order placed successfully!</h2>
+        <p>Order #{{ order.id }} &middot; Status: {{ order.get_status_display }}</p>
+        <table class="order-table">
+            {% for item in order.items.all %}
+            <tr>
+                <td>{{ item.product_name }} x{{ item.quantity }}</td>
+                <td>Rs.{{ item.subtotal }}</td>
+            </tr>
+            {% endfor %}
+            <tr><th>Total</th><th>Rs.{{ order.total }}</th></tr>
+        </table>
+        <p style="margin-top:14px;font-size:13px;color:#666;">Delivering to {{ order.address }}, {{ order.city }}</p>
+        <a class="btn-home" href="{% url 'home' %}">Continue shopping</a>
+    </div>
+</div>
+{% endblock %}

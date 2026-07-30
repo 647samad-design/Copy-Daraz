@@ -15,21 +15,27 @@ Ek simple Daraz jaisi website ka starter project — Django (Python) ke sath ban
 ## Run locally
 ```bash
 pip install -r requirements.txt
+cp .env.example .env      # then edit .env and add your GOOGLE_CLIENT_ID
 python manage.py migrate
 python manage.py seed_data
-python manage.py createsuperuser   # or set username/password to daraz/daraz
+python manage.py createsuperuser   # or set username/password to daraz/daraz123456
 python manage.py runserver
 ```
 
 Then open http://127.0.0.1:8000/
 
 ## Features
-- Daraz-style navbar with search bar and auto-changing image slider
-- Flash sale, Categories, and Just for you sections with a floating sidebar (scroll shortcuts)
-- Product detail page with Buy Now / Add to cart and a review form
-- Admin panel at `/admin/` to manage products and reviews (default login: daraz / daraz)
-- Signup / Login / Logout with Django's built-in auth system (working out of the box)
-- "Continue with Google" button on login/signup — to activate it, set the `GOOGLE_CLIENT_ID`
-  environment variable to a real OAuth Client ID from https://console.cloud.google.com/apis/credentials
-  (create an OAuth 2.0 Web Client, add your site's URL under "Authorized JavaScript origins").
-  Until it's set, the Google button is shown but disabled.
+- Daraz-style navbar with search bar, cart icon with live item count
+- Big auto-changing image slider + "Try the app" QR box — shown only on the home page
+- Flash sale, Categories (21 categories, 5+ products each), and Just for you sections
+- Product detail page with working Buy Now / Add to cart and a review form
+- Full shopping cart: add, increase/decrease quantity, remove, live totals
+- Checkout with delivery details, creates a real Order in the database
+- "My orders" page to view order history
+- Admin panel at `/admin/` to manage products, reviews and orders (default login: daraz / daraz123456)
+- Signup / Login / Logout with Django's built-in auth system
+- "Continue with Google" — works once `GOOGLE_CLIENT_ID` is set in `.env`. Important: in Google Cloud
+  Console (APIs & Services → Credentials → your OAuth Client), add your site's exact URL (e.g. your
+  Codespaces preview URL) under **both** "Authorized JavaScript origins" and "Authorized redirect URIs",
+  otherwise Google will block the sign-in with an origin mismatch error. The `.env` file is not committed
+  to the repo (it's in `.gitignore`) — never commit real credentials.

@@ -282,3 +282,44 @@ def help_support(request):
         ("I forgot my password, what do I do?", "This demo site doesn't yet have a password-reset flow. Please sign up with a new username for now."),
     ]
     return render(request, "daraz/help.html", {"faqs": faqs})
+
+
+def sell_on_daraz(request):
+    return render(request, "daraz/static_page.html", {
+        "page_title": "Sell on Copy-Daraz",
+        "sections": [
+            ("Reach more buyers", "Register your shop and list your products in front of shoppers browsing every category on Copy-Daraz — from electronics to fashion to groceries."),
+            ("Simple onboarding", "Sign up with your account, add your product catalog, and start receiving orders. Sellers can track orders through the same dashboard used for buying."),
+            ("Note", "This is a demo storefront built for learning purposes. Seller registration isn't wired to a real payout system — it's here to show how the page would work on a full marketplace."),
+        ],
+    })
+
+
+def about_us(request):
+    return render(request, "daraz/static_page.html", {
+        "page_title": "About Copy-Daraz",
+        "sections": [
+            ("What this is", "Copy-Daraz is a practice e-commerce project built to learn how modern online marketplaces work end to end — browsing, cart, checkout, and order tracking."),
+            ("Not a real store", "It is not affiliated with any real marketplace. It's a personal Django learning project styled after popular shopping sites, with working accounts, cart totals, and order history."),
+        ],
+    })
+
+
+def terms_page(request):
+    return render(request, "daraz/static_page.html", {
+        "page_title": "Terms and Conditions",
+        "sections": [
+            ("Practice project", "This site is a learning demo. No real payments are processed and no goods are actually shipped."),
+            ("Accounts", "Any account you create here is only used to demonstrate login, cart, and order features."),
+        ],
+    })
+
+
+def privacy_page(request):
+    return render(request, "daraz/static_page.html", {
+        "page_title": "Privacy Policy",
+        "sections": [
+            ("What we store", "Only what's needed to demo the site: your username, email (if provided), cart contents, and any orders you place."),
+            ("No sharing", "Nothing you enter here is shared with third parties — this is a local/personal practice project, not a live commercial service."),
+        ],
+    })

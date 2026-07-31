@@ -19,4 +19,8 @@ urlpatterns = [
     path('my-orders/', views.my_orders, name='my_orders'),
     path('set-language/<str:lang_code>/', views.set_language, name='set_language'),
     path('help/', views.help_support, name='help_support'),
+    path('sell/', views.sell_on_daraz, name='sell_on_daraz'),
+    path('about/', views.about_us, name='about_us'),
+    path('terms/', views.terms_page, name='terms_page'),
+    path('privacy/', views.privacy_page, name='privacy_page'),
 ]

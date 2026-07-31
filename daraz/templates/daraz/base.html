@@ -9,28 +9,32 @@
         body { background: #f5f5f5; }
         a { color: inherit; }
 
+        .site-header { position: sticky; top: 0; z-index: 200; }
         .topbar {
-            background: #f85606; color: #fff; font-size: 13px;
+            background: #f85606; color: #fff; font-size: 12px; text-transform: uppercase;
             display: flex; justify-content: flex-end; gap: 24px; padding: 6px 40px;
+            overflow: hidden; transition: max-height 0.25s ease, padding 0.25s ease, opacity 0.2s ease;
+            max-height: 40px;
         }
-        .topbar a { text-decoration: none; }
+        .site-header.scrolled .topbar { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
+        .topbar a { text-decoration: none; letter-spacing: 0.3px; }
         .topbar a:hover { text-decoration: underline; }
         .lang-dropdown { position: relative; cursor: pointer; }
         .lang-current::after { content: " ▾"; }
-        .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 100; }
+        .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 100; text-transform: none; }
         .lang-dropdown:hover .lang-menu { display: block; }
         .lang-menu a { display: block; padding: 8px 14px; color: #333; font-size: 13px; }
         .lang-menu a:hover { background: #fff6f2; color: #f85606; }
 
         .navbar {
             background: #f85606; display: flex; align-items: center;
-            gap: 24px; padding: 18px 40px;
+            gap: 24px; padding: 16px 40px;
         }
         .logo { color: #fff; font-size: 30px; font-weight: bold; text-decoration: none; white-space: nowrap; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
         .logo-mark { width: 30px; height: 30px; }
         .search-form { flex: 1; display: flex; max-width: 900px; margin: 6px 0; }
-        .search-input { flex: 1; padding: 12px 16px; border: none; border-radius: 2px 0 0 2px; font-size: 15px; outline: none; }
-        .search-btn { background: #ffb9a3; border: none; padding: 0 22px; border-radius: 0 2px 2px 0; cursor: pointer; font-size: 18px; color: #f85606; }
+        .search-input { flex: 1; padding: 13px 18px; border: none; border-radius: 3px 0 0 3px; font-size: 15px; outline: none; }
+        .search-btn { background: #ffb9a3; border: none; padding: 0 22px; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 18px; color: #f85606; }
         .cart-link { color: #fff; text-decoration: none; position: relative; display: flex; align-items: center; }
         .cart-link svg { width: 28px; height: 28px; }
         .cart-badge { position: absolute; top: -8px; right: -10px; background: #fff; color: #f85606; font-size: 11px; font-weight: bold; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
@@ -39,7 +43,9 @@
             position: fixed; left: 0; top: 45%; transform: translateY(-50%);
             background: #fff; border: 1px solid #eee; border-radius: 0 6px 6px 0;
             box-shadow: 1px 0 4px rgba(0,0,0,0.08); z-index: 50;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
         }
+        .sidebar.visible { opacity: 1; pointer-events: auto; }
         .sidebar a {
             display: flex; align-items: center; justify-content: center;
             width: 42px; height: 42px; color: #888;
@@ -48,6 +54,17 @@
         .sidebar a:last-child { border-bottom: none; }
         .sidebar a:hover { color: #f85606; background: #fff6f2; }
         .sidebar svg { width: 18px; height: 18px; }
+
+        .app-modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; align-items: center; justify-content: center; }
+        .app-modal-backdrop.open { display: flex; }
+        .app-modal { background: #fff; width: 360px; padding: 26px; text-align: center; position: relative; }
+        .app-modal h3 { font-size: 18px; margin-bottom: 18px; }
+        .app-modal .qr-pattern { width: 180px; height: 180px; margin: 0 auto 18px; background: #fff; border: 1px solid #eee; padding: 10px; }
+        .app-modal .qr-pattern svg { width: 100%; height: 100%; }
+        .app-modal .store-badges { display: flex; gap: 10px; justify-content: center; }
+        .app-modal .store-badge { background: #222; color: #fff; border-radius: 4px; padding: 8px 16px; font-size: 12px; }
+        .app-modal .close-btn { position: absolute; top: 10px; right: 14px; background: none; border: none; font-size: 20px; cursor: pointer; color: #999; }
+
 
         .section { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
         .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -92,44 +109,46 @@
 </head>
 <body id="top">
 
-    <div class="topbar">
-        <a href="#">{{ t.save_more }}</a>
-        <a href="#">{{ t.sell_on }}</a>
-        <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
-        {% if user.is_authenticated %}
-        <span>Hi, {{ user.username }}</span>
-        <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
-        <a href="{% url 'logout' %}">{{ t.logout }}</a>
-        {% else %}
-        <a href="{% url 'login' %}">{{ t.login }}</a>
-        <a href="{% url 'signup' %}">{{ t.signup }}</a>
-        {% endif %}
-        <div class="lang-dropdown">
-            <span class="lang-current">{{ t.change_language }} ({{ language_names|get_item:current_lang }})</span>
-            <div class="lang-menu">
-                <a href="{% url 'set_language' 'en' %}">English</a>
-                <a href="{% url 'set_language' 'ur' %}">اردو</a>
-                <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
+    <div class="site-header" id="site-header">
+        <div class="topbar">
+            <a href="javascript:void(0)" onclick="document.getElementById('app-modal').classList.add('open')">{{ t.save_more }}</a>
+            <a href="{% url 'sell_on_daraz' %}">{{ t.sell_on }}</a>
+            <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
+            {% if user.is_authenticated %}
+            <span>Hi, {{ user.username }}</span>
+            <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
+            <a href="{% url 'logout' %}">{{ t.logout }}</a>
+            {% else %}
+            <a href="{% url 'login' %}">{{ t.login }}</a>
+            <a href="{% url 'signup' %}">{{ t.signup }}</a>
+            {% endif %}
+            <div class="lang-dropdown">
+                <span class="lang-current">{{ t.change_language }} ({{ language_names|get_item:current_lang }})</span>
+                <div class="lang-menu">
+                    <a href="{% url 'set_language' 'en' %}">English</a>
+                    <a href="{% url 'set_language' 'ur' %}">اردو</a>
+                    <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
+                </div>
             </div>
+        </div>
+
+        <div class="navbar">
+            <a href="{% url 'home' %}" class="logo">
+                <svg viewBox="0 0 40 40" class="logo-mark"><path d="M4 14 L20 4 L36 14 L20 24 Z" fill="#fff"/><path d="M4 14 L20 24 L20 40 L4 30 Z" fill="#ffd9c7"/><path d="M36 14 L20 24 L20 40 L36 30 Z" fill="#fff" opacity="0.85"/></svg>
+                Copy-Daraz
+            </a>
+            <form class="search-form" action="{% url 'home' %}" method="get">
+                <input class="search-input" type="text" name="q" placeholder="{{ t.search_placeholder }}">
+                <button class="search-btn" type="submit">&#128269;</button>
+            </form>
+            <a href="{% url 'cart' %}" class="cart-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
+            </a>
         </div>
     </div>
 
-    <div class="navbar">
-        <a href="{% url 'home' %}" class="logo">
-            <svg viewBox="0 0 40 40" class="logo-mark"><path d="M4 14 L20 4 L36 14 L20 24 Z" fill="#fff"/><path d="M4 14 L20 24 L20 40 L4 30 Z" fill="#ffd9c7"/><path d="M36 14 L20 24 L20 40 L36 30 Z" fill="#fff" opacity="0.85"/></svg>
-            Copy-Daraz
-        </a>
-        <form class="search-form" action="{% url 'home' %}" method="get">
-            <input class="search-input" type="text" name="q" placeholder="{{ t.search_placeholder }}">
-            <button class="search-btn" type="submit">&#128269;</button>
-        </form>
-        <a href="{% url 'cart' %}" class="cart-link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-            {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
-        </a>
-    </div>
-
-    <div class="sidebar">
+    <div class="sidebar" id="sidebar">
         <a href="#top" title="Back to top">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </a>
@@ -142,6 +161,30 @@
         <a href="#just-for-you" title="Just for you">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
         </a>
+    </div>
+
+    <div class="app-modal-backdrop" id="app-modal" onclick="if(event.target===this) this.classList.remove('open')">
+        <div class="app-modal">
+            <button class="close-btn" onclick="document.getElementById('app-modal').classList.remove('open')">&times;</button>
+            <h3>{{ t.try_app|default:"Download the App" }}</h3>
+            <div class="qr-pattern">
+                <svg viewBox="0 0 100 100">
+                    <rect width="100" height="100" fill="#fff"/>
+                    <rect x="5" y="5" width="25" height="25" fill="#222"/><rect x="10" y="10" width="15" height="15" fill="#fff"/>
+                    <rect x="70" y="5" width="25" height="25" fill="#222"/><rect x="75" y="10" width="15" height="15" fill="#fff"/>
+                    <rect x="5" y="70" width="25" height="25" fill="#222"/><rect x="10" y="75" width="15" height="15" fill="#fff"/>
+                    <rect x="40" y="5" width="8" height="8" fill="#222"/><rect x="55" y="15" width="8" height="8" fill="#222"/>
+                    <rect x="40" y="40" width="8" height="8" fill="#222"/><rect x="55" y="45" width="8" height="8" fill="#222"/>
+                    <rect x="40" y="60" width="8" height="8" fill="#222"/><rect x="60" y="70" width="8" height="8" fill="#222"/>
+                    <rect x="75" y="60" width="8" height="8" fill="#222"/><rect x="80" y="80" width="15" height="15" fill="#222"/>
+                    <rect x="40" y="80" width="8" height="8" fill="#222"/>
+                </svg>
+            </div>
+            <div class="store-badges">
+                <span class="store-badge">App Store</span>
+                <span class="store-badge">Google Play</span>
+            </div>
+        </div>
     </div>
 
     {% block content %}{% endblock %}
@@ -158,10 +201,10 @@
             </div>
             <div class="footer-col">
                 <h3>Copy-Daraz</h3>
-                <a href="#">{{ t.about_us }}</a>
-                <a href="#">{{ t.terms }}</a>
-                <a href="#">{{ t.privacy }}</a>
-                <a href="#">{{ t.sell_on_copy }}</a>
+                <a href="{% url 'about_us' %}">{{ t.about_us }}</a>
+                <a href="{% url 'terms_page' %}">{{ t.terms }}</a>
+                <a href="{% url 'privacy_page' %}">{{ t.privacy }}</a>
+                <a href="{% url 'sell_on_daraz' %}">{{ t.sell_on_copy }}</a>
                 <a href="#">{{ t.careers }}</a>
             </div>
             <div class="footer-col">
@@ -200,7 +243,26 @@
     </div>
 
     <script>
-        // Cart-count and shared scripts can go here later.
+        // Sticky header: collapse topbar and reveal sidebar shortcuts once the user scrolls.
+        (function () {
+            const header = document.getElementById('site-header');
+            const sidebar = document.getElementById('sidebar');
+            const threshold = 220;
+            function onScroll() {
+                if (window.scrollY > 40) {
+                    header.classList.add('scrolled');
+                } else {
+                    header.classList.remove('scrolled');
+                }
+                if (window.scrollY > threshold) {
+                    sidebar.classList.add('visible');
+                } else {
+                    sidebar.classList.remove('visible');
+                }
+            }
+            window.addEventListener('scroll', onScroll);
+            onScroll();
+        })();
     </script>
     {% block extra_js %}{% endblock %}
 </body>

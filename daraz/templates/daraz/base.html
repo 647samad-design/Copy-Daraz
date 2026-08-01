@@ -23,10 +23,11 @@
         .topbar a:hover { text-decoration: underline; }
         .lang-dropdown { position: relative; cursor: pointer; }
         .lang-current::after { content: " ▾"; }
-        .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 100; text-transform: none; }
-        .lang-dropdown:hover .lang-menu { display: block; }
+        .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 300; text-transform: none; }
+        .lang-dropdown.open .lang-menu { display: block; }
         .lang-menu a { display: block; padding: 8px 14px; color: #333; font-size: 13px; }
         .lang-menu a:hover { background: #fff6f2; color: #f85606; }
+        .navbar .lang-dropdown { color: #fff; font-size: 13px; white-space: nowrap; }
 
         .navbar {
             background: #f85606; display: flex; align-items: center;
@@ -167,14 +168,6 @@
             <a href="{% url 'login' %}">{{ t.login }}</a>
             <a href="{% url 'signup' %}">{{ t.signup }}</a>
             {% endif %}
-            <div class="lang-dropdown">
-                <span class="lang-current">{{ t.change_language }} ({{ language_names|get_item:current_lang }})</span>
-                <div class="lang-menu">
-                    <a href="{% url 'set_language' 'en' %}">English</a>
-                    <a href="{% url 'set_language' 'ur' %}">اردو</a>
-                    <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
-                </div>
-            </div>
         </div>
 
         <div class="navbar">
@@ -186,6 +179,14 @@
                 <input class="search-input" type="text" name="q" placeholder="{{ t.search_placeholder }}">
                 <button class="search-btn" type="submit">&#128269;</button>
             </form>
+            <div class="lang-dropdown" id="lang-dropdown" onclick="document.getElementById('lang-dropdown').classList.toggle('open')">
+                <span class="lang-current">{{ language_names|get_item:current_lang }}</span>
+                <div class="lang-menu">
+                    <a href="{% url 'set_language' 'en' %}">English</a>
+                    <a href="{% url 'set_language' 'ur' %}">اردو</a>
+                    <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
+                </div>
+            </div>
             <a href="{% url 'cart' %}" class="cart-link">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
                 {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
@@ -307,6 +308,13 @@
             }
             window.addEventListener('scroll', onScroll);
             onScroll();
+
+            document.addEventListener('click', function (e) {
+                const dropdown = document.getElementById('lang-dropdown');
+                if (dropdown && !dropdown.contains(e.target)) {
+                    dropdown.classList.remove('open');
+                }
+            });
         })();
     </script>
     {% block extra_js %}{% endblock %}

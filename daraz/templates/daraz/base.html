@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 {% load daraz_extras %}
-<html lang="en">
+<html lang="{{ current_lang }}" dir="{% if current_lang == 'ur' %}rtl{% else %}ltr{% endif %}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -132,6 +132,11 @@
 
         {% block extra_css %}{% endblock %}
 
+        html[dir="rtl"] input, html[dir="rtl"] textarea, html[dir="rtl"] select { text-align: right; }
+        html[dir="rtl"] .topbar { justify-content: flex-start; }
+        html[dir="rtl"] .sidebar { left: auto; right: 0; border-radius: 6px 0 0 6px; }
+        html[dir="rtl"] .cart-badge { right: auto; left: -10px; }
+
         @media (max-width: 700px) {
             .topbar { flex-wrap: wrap; gap: 10px; padding: 6px 14px; justify-content: center; }
             .navbar { flex-wrap: wrap; padding: 12px 14px; gap: 10px; }
@@ -155,7 +160,7 @@
             <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
             {% if user.is_authenticated %}
             <span>Hi, {{ user.username }}</span>
-            <a href="{% url 'wishlist' %}">{{ t.wishlist|default:"Wishlist" }}</a>
+            <a href="{% url 'wishlist' %}">{{ t.my_wishlist }}</a>
             <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
             <a href="{% url 'logout' %}">{{ t.logout }}</a>
             {% else %}

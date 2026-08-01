@@ -38,12 +38,12 @@
         {% endfor %}
 
         <form method="post" action="{% url 'apply_coupon' %}" class="coupon-box">
-            <input type="text" name="coupon_code" placeholder="Coupon code" value="{{ coupon.code|default:'' }}">
-            <button type="submit">Apply</button>
+            <input type="text" name="coupon_code" placeholder="{{ t.coupon_code_placeholder }}" value="{{ coupon.code|default:'' }}">
+            <button type="submit">{{ t.apply }}</button>
         </form>
         {% if coupon %}
         <div class="summary-row" style="color:#27ae60;">
-            <span>Coupon ({{ coupon.code }})</span>
+            <span>{{ t.coupon }} ({{ coupon.code }})</span>
             <span>-Rs.{{ discount_amount }}</span>
         </div>
         {% endif %}

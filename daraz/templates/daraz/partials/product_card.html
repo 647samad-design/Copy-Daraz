@@ -19,9 +19,9 @@
             <span class="rcount">({{ product.reviews.count }})</span>
         </div>
         {% if product.stock <= 0 %}
-        <div class="stock-badge out">Out of stock</div>
+        <div class="stock-badge out">{{ t.out_of_stock }}</div>
         {% elif product.stock <= 5 %}
-        <div class="stock-badge low">Only {{ product.stock }} left</div>
+        <div class="stock-badge low">{{ t.only_left }} {{ product.stock }}</div>
         {% endif %}
     </a>
 </div>

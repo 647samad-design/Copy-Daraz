@@ -1,7 +1,7 @@
 {% if page_obj.paginator.num_pages > 1 %}
 <div class="pagination">
     {% if page_obj.has_previous %}
-    <a href="?page={{ page_obj.previous_page_number }}{% if current_sort %}&sort={{ current_sort }}{% endif %}{% if query %}&q={{ query }}{% endif %}">Prev</a>
+    <a href="?page={{ page_obj.previous_page_number }}{% if current_sort %}&sort={{ current_sort }}{% endif %}{% if query %}&q={{ query }}{% endif %}">{{ t.prev }}</a>
     {% endif %}
     {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
@@ -11,7 +11,7 @@
         {% endif %}
     {% endfor %}
     {% if page_obj.has_next %}
-    <a href="?page={{ page_obj.next_page_number }}{% if current_sort %}&sort={{ current_sort }}{% endif %}{% if query %}&q={{ query }}{% endif %}">Next</a>
+    <a href="?page={{ page_obj.next_page_number }}{% if current_sort %}&sort={{ current_sort }}{% endif %}{% if query %}&q={{ query }}{% endif %}">{{ t.next }}</a>
     {% endif %}
 </div>
 {% endif %}

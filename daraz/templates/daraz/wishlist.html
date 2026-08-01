@@ -2,7 +2,7 @@
 {% block content %}
     <div class="section">
         <div class="section-header">
-            <h2>My Wishlist</h2>
+            <h2>{{ t.my_wishlist }}</h2>
         </div>
         <div class="product-grid">
             {% for item in items %}
@@ -10,7 +10,7 @@
             {% include "daraz/partials/product_card.html" %}
             {% endwith %}
             {% empty %}
-            <p>Your wishlist is empty. Tap the heart icon on any product to save it here.</p>
+            <p>{{ t.empty_wishlist }}</p>
             {% endfor %}
         </div>
     </div>

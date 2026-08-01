@@ -47,11 +47,11 @@
                 {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
             </div>
             {% if product.stock <= 0 %}
-            <div class="stock-badge out">Out of stock</div>
+            <div class="stock-badge out">{{ t.out_of_stock }}</div>
             {% elif product.stock <= 5 %}
-            <div class="stock-badge low">Only {{ product.stock }} left in stock</div>
+            <div class="stock-badge low">{{ t.only_left }} {{ product.stock }} {{ t.only_left_stock }}</div>
             {% else %}
-            <div class="stock-badge" style="color:#27ae60;">In stock</div>
+            <div class="stock-badge" style="color:#27ae60;">{{ t.in_stock }}</div>
             {% endif %}
             <div class="btn-row">
                 {% if product.stock > 0 %}
@@ -66,7 +66,7 @@
                     <button class="btn-cart" type="submit">{{ t.add_to_cart }}</button>
                 </form>
                 {% else %}
-                <button class="btn-cart" disabled style="opacity:0.5;cursor:not-allowed;">Out of stock</button>
+                <button class="btn-cart" disabled style="opacity:0.5;cursor:not-allowed;">{{ t.out_of_stock }}</button>
                 {% endif %}
             </div>
         </div>

@@ -18,17 +18,24 @@
     <div class="order-card">
         <div class="top">
             <span>Order #{{ order.id }} &middot; {{ order.created_at|date:"d M Y" }}</span>
-            <span class="status">{{ order.get_status_display }}</span>
+            <span class="status">
+                {% if order.status == "pending" %}{{ t.pending }}
+                {% elif order.status == "confirmed" %}{{ t.confirmed }}
+                {% elif order.status == "shipped" %}{{ t.shipped }}
+                {% elif order.status == "delivered" %}{{ t.delivered }}
+                {% elif order.status == "cancelled" %}{{ t.cancelled }}
+                {% endif %}
+            </span>
         </div>
 
         {% if order.status == "cancelled" %}
-        <div style="color:#c0392b;font-size:12px;margin-bottom:8px;">This order was cancelled.</div>
+        <div style="color:#c0392b;font-size:12px;margin-bottom:8px;">{{ t.order_cancelled_note }}</div>
         {% else %}
         <div class="status-progress">
-            <div class="status-step done"><div class="dot"></div>Pending</div>
-            <div class="status-step {% if order.status == 'confirmed' or order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>Confirmed</div>
-            <div class="status-step {% if order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>Shipped</div>
-            <div class="status-step {% if order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>Delivered</div>
+            <div class="status-step done"><div class="dot"></div>{{ t.pending }}</div>
+            <div class="status-step {% if order.status == 'confirmed' or order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>{{ t.confirmed }}</div>
+            <div class="status-step {% if order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>{{ t.shipped }}</div>
+            <div class="status-step {% if order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>{{ t.delivered }}</div>
         </div>
         {% endif %}
 
@@ -48,7 +55,7 @@
         {% if order.status == "pending" or order.status == "confirmed" %}
         <form method="post" action="{% url 'cancel_order' order.id %}" style="text-align:right;">
             {% csrf_token %}
-            <button type="submit" class="cancel-btn">Cancel order</button>
+            <button type="submit" class="cancel-btn">{{ t.cancel_order }}</button>
         </form>
         {% endif %}
     </div>

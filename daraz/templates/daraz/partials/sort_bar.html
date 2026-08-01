@@ -1,0 +1,12 @@
+<div class="sort-bar">
+    <form method="get">
+        {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+        <select name="sort" onchange="this.form.submit()">
+            <option value="" {% if not current_sort %}selected{% endif %}>Sort: Default</option>
+            <option value="price_asc" {% if current_sort == "price_asc" %}selected{% endif %}>Price: Low to High</option>
+            <option value="price_desc" {% if current_sort == "price_desc" %}selected{% endif %}>Price: High to Low</option>
+            <option value="newest" {% if current_sort == "newest" %}selected{% endif %}>Newest first</option>
+            <option value="rating" {% if current_sort == "rating" %}selected{% endif %}>Top rated</option>
+        </select>
+    </form>
+</div>

@@ -2,16 +2,16 @@
 {% block content %}
     <div class="section">
         <div class="section-header">
-            <h2>{{ category_label }}</h2>
+            <h2>My Wishlist</h2>
         </div>
-        {% include "daraz/partials/sort_bar.html" %}
         <div class="product-grid">
-            {% for product in products %}
+            {% for item in items %}
+            {% with product=item.product %}
             {% include "daraz/partials/product_card.html" %}
+            {% endwith %}
             {% empty %}
-            <p>{{ t.no_products }}</p>
+            <p>Your wishlist is empty. Tap the heart icon on any product to save it here.</p>
             {% endfor %}
         </div>
-        {% include "daraz/partials/pagination.html" %}
     </div>
 {% endblock %}

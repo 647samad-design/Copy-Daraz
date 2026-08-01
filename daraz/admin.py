@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Product, Review, Order, OrderItem
+from .models import Product, Review, Order, OrderItem, Wishlist, Coupon
 
 
 class ReviewInline(admin.TabularInline):
@@ -9,7 +9,7 @@ class ReviewInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "price", "old_price", "discount_percent", "is_flash_sale")
+    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "is_flash_sale")
     list_filter = ("category", "is_flash_sale")
     search_fields = ("name",)
     inlines = [ReviewInline]
@@ -31,3 +31,13 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "full_name", "city", "status", "total", "created_at")
     list_filter = ("status",)
     inlines = [OrderItemInline]
+
+
+@admin.register(Wishlist)
+class WishlistAdmin(admin.ModelAdmin):
+    list_display = ("user", "product", "created_at")
+
+
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+    list_display = ("code", "percent_off", "active")

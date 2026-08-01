@@ -6,7 +6,21 @@ from django.contrib import messages
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
-from .models import Product, Review, Order, OrderItem
+from django.core.paginator import Paginator
+from django.db.models import Q
+from .models import Product, Review, Order, OrderItem, Wishlist, Coupon
+
+
+def _apply_sort(qs, sort):
+    if sort == "price_asc":
+        return qs.order_by("price")
+    if sort == "price_desc":
+        return qs.order_by("-price")
+    if sort == "newest":
+        return qs.order_by("-created_at")
+    if sort == "rating":
+        return sorted(qs, key=lambda p: p.average_rating, reverse=True)
+    return qs
 
 CATEGORY_IMAGE_IDS = {
     "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
@@ -18,6 +32,9 @@ CATEGORY_IMAGE_IDS = {
 
 
 def home(request):
+    query = request.GET.get("q", "").strip()
+    if query:
+        return redirect(f"/search/?q={query}")
     flash_sale_products = Product.objects.filter(is_flash_sale=True)[:8]
     just_for_you_products = Product.objects.all().order_by("-created_at")[:16]
     categories = [
@@ -48,19 +65,57 @@ def product_detail(request, pk):
         return redirect("product_detail", pk=pk)
 
     reviews = product.reviews.all()
+    in_wishlist = False
+    if request.user.is_authenticated:
+        in_wishlist = Wishlist.objects.filter(user=request.user, product=product).exists()
     return render(request, "daraz/product_detail.html", {
         "product": product,
         "reviews": reviews,
+        "in_wishlist": in_wishlist,
     })
 
 
 def category_products(request, category):
     products = Product.objects.filter(category=category)
+    sort = request.GET.get("sort", "")
+    products = _apply_sort(products, sort)
+    paginator = Paginator(products, 12)
+    page_obj = paginator.get_page(request.GET.get("page"))
     label = dict(Product.CATEGORY_CHOICES).get(category, category)
     return render(request, "daraz/category.html", {
-        "products": products,
+        "products": page_obj,
+        "page_obj": page_obj,
         "category": category,
         "category_label": label,
+        "current_sort": sort,
+    })
+
+
+def search_products(request):
+    query = request.GET.get("q", "").strip()
+    results = Product.objects.filter(name__icontains=query) if query else Product.objects.none()
+    sort = request.GET.get("sort", "")
+    results = _apply_sort(results, sort)
+    paginator = Paginator(results, 12)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    return render(request, "daraz/search.html", {
+        "products": page_obj,
+        "page_obj": page_obj,
+        "query": query,
+        "current_sort": sort,
+    })
+
+
+def all_products(request):
+    products = Product.objects.all()
+    sort = request.GET.get("sort", "")
+    products = _apply_sort(products, sort)
+    paginator = Paginator(products, 16)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    return render(request, "daraz/all_products.html", {
+        "products": page_obj,
+        "page_obj": page_obj,
+        "current_sort": sort,
     })
 
 
@@ -180,10 +235,17 @@ def cart_count(request):
 
 def add_to_cart(request, pk):
     product = get_object_or_404(Product, pk=pk)
+    if product.stock <= 0:
+        messages.error(request, f"{product.name} is out of stock.")
+        return redirect(request.POST.get("next") or request.GET.get("next") or "cart")
     cart = request.session.get("cart", {})
     key = str(pk)
     qty = int(request.POST.get("quantity", 1)) if request.method == "POST" else 1
-    cart[key] = cart.get(key, 0) + qty
+    new_qty = cart.get(key, 0) + qty
+    if new_qty > product.stock:
+        new_qty = product.stock
+        messages.warning(request, f"Only {product.stock} of {product.name} left in stock.")
+    cart[key] = new_qty
     request.session["cart"] = cart
     request.session.modified = True
     messages.success(request, f"{product.name} added to cart.")
@@ -225,7 +287,20 @@ def checkout_view(request):
         messages.error(request, "Your cart is empty.")
         return redirect("cart")
 
+    coupon = None
+    discount_amount = 0
+    coupon_code = request.session.get("coupon_code", "")
+    if coupon_code:
+        coupon = Coupon.objects.filter(code__iexact=coupon_code, active=True).first()
+        if coupon:
+            discount_amount = round(total * coupon.percent_off / 100, 2)
+
     if request.method == "POST":
+        for item in items:
+            if item["qty"] > item["product"].stock:
+                messages.error(request, f"Not enough stock for {item['product'].name}.")
+                return redirect("cart")
+
         order = Order.objects.create(
             user=request.user,
             full_name=request.POST.get("full_name", request.user.username),
@@ -233,6 +308,8 @@ def checkout_view(request):
             city=request.POST.get("city", ""),
             phone=request.POST.get("phone", ""),
             payment_method=request.POST.get("payment_method", "cod"),
+            coupon_code=coupon.code if coupon else "",
+            discount_amount=discount_amount,
         )
         for item in items:
             OrderItem.objects.create(
@@ -242,14 +319,31 @@ def checkout_view(request):
                 price=item["product"].price,
                 quantity=item["qty"],
             )
+            item["product"].stock = max(item["product"].stock - item["qty"], 0)
+            item["product"].save(update_fields=["stock"])
         request.session["cart"] = {}
+        request.session["coupon_code"] = ""
         request.session.modified = True
         return redirect("order_success", order_id=order.id)
 
     return render(request, "daraz/checkout.html", {
         "items": items,
         "total": total,
+        "discount_amount": discount_amount,
+        "final_total": max(total - discount_amount, 0),
+        "coupon": coupon,
     })
+
+
+def apply_coupon(request):
+    code = request.POST.get("coupon_code", "").strip()
+    request.session["coupon_code"] = code
+    request.session.modified = True
+    if code and not Coupon.objects.filter(code__iexact=code, active=True).exists():
+        messages.error(request, "Invalid or expired coupon code.")
+    else:
+        messages.success(request, "Coupon applied.")
+    return redirect("checkout")
 
 
 @login_required
@@ -323,3 +417,34 @@ def privacy_page(request):
             ("No sharing", "Nothing you enter here is shared with third parties — this is a local/personal practice project, not a live commercial service."),
         ],
     })
+
+
+@login_required
+def cancel_order(request, order_id):
+    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    if order.status in ("pending", "confirmed"):
+        order.status = "cancelled"
+        order.save(update_fields=["status"])
+        messages.success(request, f"Order #{order.id} has been cancelled.")
+    else:
+        messages.error(request, "This order can no longer be cancelled.")
+    return redirect("my_orders")
+
+
+@login_required
+def toggle_wishlist(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    item, created = Wishlist.objects.get_or_create(user=request.user, product=product)
+    if not created:
+        item.delete()
+        messages.info(request, f"Removed {product.name} from wishlist.")
+    else:
+        messages.success(request, f"Added {product.name} to wishlist.")
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or "home"
+    return redirect(next_url)
+
+
+@login_required
+def wishlist_view(request):
+    items = Wishlist.objects.filter(user=request.user).select_related("product")
+    return render(request, "daraz/wishlist.html", {"items": items})

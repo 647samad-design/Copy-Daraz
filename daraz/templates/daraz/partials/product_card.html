@@ -1,0 +1,27 @@
+<div class="wishlist-heart">
+    {% if user.is_authenticated %}
+    <form method="post" action="{% url 'toggle_wishlist' product.id %}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" class="{% if product.id in wishlist_ids %}active{% endif %}">&#9829;</button>
+    </form>
+    {% endif %}
+    <a class="product-card" href="{% url 'product_detail' product.id %}">
+        <img src="{{ product.image_url }}" alt="{{ product.name }}">
+        <div class="pname">{{ product.name }}</div>
+        <div>
+            <span class="price">Rs.{{ product.price }}</span>
+            {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
+        </div>
+        {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
+        <div class="card-rating">
+            {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
+            <span class="rcount">({{ product.reviews.count }})</span>
+        </div>
+        {% if product.stock <= 0 %}
+        <div class="stock-badge out">Out of stock</div>
+        {% elif product.stock <= 5 %}
+        <div class="stock-badge low">Only {{ product.stock }} left</div>
+        {% endif %}
+    </a>
+</div>

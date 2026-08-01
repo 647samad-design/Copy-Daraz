@@ -20,6 +20,18 @@
             <span>Order #{{ order.id }} &middot; {{ order.created_at|date:"d M Y" }}</span>
             <span class="status">{{ order.get_status_display }}</span>
         </div>
+
+        {% if order.status == "cancelled" %}
+        <div style="color:#c0392b;font-size:12px;margin-bottom:8px;">This order was cancelled.</div>
+        {% else %}
+        <div class="status-progress">
+            <div class="status-step done"><div class="dot"></div>Pending</div>
+            <div class="status-step {% if order.status == 'confirmed' or order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>Confirmed</div>
+            <div class="status-step {% if order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>Shipped</div>
+            <div class="status-step {% if order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>Delivered</div>
+        </div>
+        {% endif %}
+
         <div class="order-items">
             {% for item in order.items.all %}
             <div class="order-item-row">
@@ -33,6 +45,12 @@
             {% endfor %}
         </div>
         <div style="margin-top:10px;font-weight:bold;color:#f85606;text-align:right;">{{ t.total }}: Rs.{{ order.total }}</div>
+        {% if order.status == "pending" or order.status == "confirmed" %}
+        <form method="post" action="{% url 'cancel_order' order.id %}" style="text-align:right;">
+            {% csrf_token %}
+            <button type="submit" class="cancel-btn">Cancel order</button>
+        </form>
+        {% endif %}
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">{{ t.no_orders }}</div>

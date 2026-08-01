@@ -84,6 +84,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'daraz.context_processors.cart_count',
+                'daraz.context_processors.wishlist_ids',
                 'daraz.context_processors.site_language',
             ],
         },

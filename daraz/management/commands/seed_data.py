@@ -1,6 +1,6 @@
 import random
 from django.core.management.base import BaseCommand
-from daraz.models import Product
+from daraz.models import Product, Coupon
 
 CATEGORY_PRODUCTS = {
     "skincare": ["Oil-Free Moisturizer 100ml", "Vitamin C Serum 30ml", "Sunblock SPF 50", "Aloe Vera Gel 200ml", "Charcoal Face Wash"],
@@ -57,3 +57,8 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(f"Created: {obj.name} ({category})"))
 
         self.stdout.write(self.style.SUCCESS(f"\nDone. {created_count} new products created."))
+
+        for code, pct in [("WELCOME10", 10), ("SAVE20", 20), ("FLASH50", 50)]:
+            _, created = Coupon.objects.get_or_create(code=code, defaults={"percent_off": pct, "active": True})
+            if created:
+                self.stdout.write(self.style.SUCCESS(f"Coupon created: {code} (-{pct}%)"))

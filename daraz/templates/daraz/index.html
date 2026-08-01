@@ -71,19 +71,7 @@
         </div>
         <div class="product-grid">
             {% for product in flash_sale_products %}
-            <a class="product-card" href="{% url 'product_detail' product.id %}">
-                <img src="{{ product.image_url }}" alt="{{ product.name }}">
-                <div class="pname">{{ product.name }}</div>
-                <div>
-                    <span class="price">Rs.{{ product.price }}</span>
-                    {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
-                </div>
-                {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
-                <div class="card-rating">
-                    {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
-                    <span class="rcount">({{ product.reviews.count }})</span>
-                </div>
-            </a>
+            {% include "daraz/partials/product_card.html" %}
             {% empty %}
             <p>{{ t.no_flash_sale }}</p>
             {% endfor %}
@@ -107,22 +95,11 @@
     <div class="section" id="just-for-you">
         <div class="section-header">
             <h2>{{ t.just_for_you }}</h2>
+            <a href="{% url 'all_products' %}" class="sub">View all &rarr;</a>
         </div>
         <div class="product-grid">
             {% for product in just_for_you_products %}
-            <a class="product-card" href="{% url 'product_detail' product.id %}">
-                <img src="{{ product.image_url }}" alt="{{ product.name }}">
-                <div class="pname">{{ product.name }}</div>
-                <div>
-                    <span class="price">Rs.{{ product.price }}</span>
-                    {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
-                </div>
-                {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
-                <div class="card-rating">
-                    {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
-                    <span class="rcount">({{ product.reviews.count }})</span>
-                </div>
-            </a>
+            {% include "daraz/partials/product_card.html" %}
             {% empty %}
             <p>{{ t.no_products }}</p>
             {% endfor %}

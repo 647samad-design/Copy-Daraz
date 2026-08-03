@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import path
+from django.contrib.auth import views as auth_views
 from daraz import views
 
 urlpatterns = [
@@ -13,6 +14,24 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('auth/google/', views.google_auth, name='google_auth'),
+
+    path('password-reset/', auth_views.PasswordResetView.as_view(
+        template_name='daraz/auth/password_reset_form.html',
+        email_template_name='daraz/auth/password_reset_email.html',
+        subject_template_name='daraz/auth/password_reset_subject.txt',
+        success_url='/password-reset/done/',
+    ), name='password_reset'),
+    path('password-reset/done/', auth_views.PasswordResetDoneView.as_view(
+        template_name='daraz/auth/password_reset_done.html',
+    ), name='password_reset_done'),
+    path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
+        template_name='daraz/auth/password_reset_confirm.html',
+        success_url='/reset/done/',
+    ), name='password_reset_confirm'),
+    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
+        template_name='daraz/auth/password_reset_complete.html',
+    ), name='password_reset_complete'),
+
     path('cart/', views.cart_view, name='cart'),
     path('cart/add/<int:pk>/', views.add_to_cart, name='add_to_cart'),
     path('cart/update/<int:pk>/', views.update_cart_item, name='update_cart_item'),
@@ -29,4 +48,11 @@ urlpatterns = [
     path('about/', views.about_us, name='about_us'),
     path('terms/', views.terms_page, name='terms_page'),
     path('privacy/', views.privacy_page, name='privacy_page'),
+
+    path('profile/', views.profile_view, name='profile'),
+    path('profile/address/add/', views.add_address, name='add_address'),
+    path('profile/address/delete/<int:pk>/', views.delete_address, name='delete_address'),
+    path('store/<str:seller_name>/', views.store_page, name='store_page'),
+    path('newsletter/subscribe/', views.newsletter_subscribe, name='newsletter_subscribe'),
+    path('product/<int:pk>/ask/', views.ask_question, name='ask_question'),
 ]

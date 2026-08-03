@@ -138,6 +138,30 @@
         html[dir="rtl"] .sidebar { left: auto; right: 0; border-radius: 6px 0 0 6px; }
         html[dir="rtl"] .cart-badge { right: auto; left: -10px; }
 
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+        .toast { background: #333; color: #fff; padding: 12px 18px; border-radius: 4px; font-size: 13px; box-shadow: 0 3px 10px rgba(0,0,0,0.2); opacity: 0; transform: translateX(20px); transition: all 0.3s ease; max-width: 320px; }
+        .toast.show { opacity: 1; transform: translateX(0); }
+        .toast.success { background: #27ae60; }
+        .toast.error { background: #c0392b; }
+        .toast.warning { background: #e67e22; }
+        .toast.info { background: #333; }
+
+        .newsletter-box { background: #fff6f2; border: 1px solid #ffd9c7; padding: 16px; margin-top: 10px; }
+        .newsletter-box p { font-size: 12px; color: #666; margin-bottom: 8px; }
+        .newsletter-box form { display: flex; gap: 6px; }
+        .newsletter-box input { flex: 1; padding: 8px; border: 1px solid #ddd; font-size: 12px; }
+        .newsletter-box button { background: #f85606; color: #fff; border: none; padding: 0 14px; cursor: pointer; font-size: 12px; }
+
+        .chat-bubble { position: fixed; bottom: 24px; right: 24px; width: 54px; height: 54px; border-radius: 50%; background: #f85606; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 400; }
+        .chat-window { position: fixed; bottom: 90px; right: 24px; width: 280px; background: #fff; border: 1px solid #eee; box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 400; display: none; }
+        .chat-window.open { display: block; }
+        .chat-header { background: #f85606; color: #fff; padding: 12px; font-size: 13px; font-weight: 500; }
+        .chat-body { padding: 12px; font-size: 12px; color: #444; max-height: 200px; overflow-y: auto; }
+        .chat-msg { background: #f5f5f5; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+        .chat-input-row { display: flex; border-top: 1px solid #eee; }
+        .chat-input-row input { flex: 1; border: none; padding: 10px; font-size: 12px; }
+        .chat-input-row button { background: #f85606; color: #fff; border: none; padding: 0 14px; cursor: pointer; }
+
         @media (max-width: 700px) {
             .topbar { flex-wrap: wrap; gap: 10px; padding: 6px 14px; justify-content: center; }
             .navbar { flex-wrap: wrap; padding: 12px 14px; gap: 10px; }
@@ -160,7 +184,7 @@
             <a href="{% url 'sell_on_daraz' %}">{{ t.sell_on }}</a>
             <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
             {% if user.is_authenticated %}
-            <span>Hi, {{ user.username }}</span>
+            <span>Hi, <a href="{% url 'profile' %}" style="text-decoration:underline;">{{ user.username }}</a></span>
             <a href="{% url 'wishlist' %}">{{ t.my_wishlist }}</a>
             <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
             <a href="{% url 'logout' %}">{{ t.logout }}</a>
@@ -269,6 +293,14 @@
                     <span class="app-badge">Google Play</span>
                     <span class="app-badge">AppGallery</span>
                 </div>
+                <div class="newsletter-box">
+                    <p>Subscribe for deals &amp; updates</p>
+                    <form method="post" action="{% url 'newsletter_subscribe' %}">
+                        {% csrf_token %}
+                        <input type="email" name="email" placeholder="Your email" required>
+                        <button type="submit">Join</button>
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -285,6 +317,24 @@
 
         <div class="footer-bottom">
             &copy; 2026 Copy-Daraz. A student practice project inspired by online marketplaces, built with Django.
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container">
+        {% for message in messages %}
+        <div class="toast {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+
+    <div class="chat-bubble" onclick="document.getElementById('chat-window').classList.toggle('open')">&#128172;</div>
+    <div class="chat-window" id="chat-window">
+        <div class="chat-header">Copy-Daraz Support</div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-msg">Hi! This is a demo chat widget. Ask us anything about your order or products.</div>
+        </div>
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="Type a message...">
+            <button onclick="sendChatMsg()">Send</button>
         </div>
     </div>
 
@@ -316,6 +366,42 @@
                 }
             });
         })();
+
+        // Toast notifications: animate in, auto-dismiss after 3.5s.
+        document.querySelectorAll('.toast').forEach(function (toast, i) {
+            setTimeout(() => toast.classList.add('show'), 100 + i * 100);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(20px)'; }, 3500 + i * 100);
+        });
+
+        // Fake live chat bubble
+        function sendChatMsg() {
+            const input = document.getElementById('chat-input');
+            const body = document.getElementById('chat-body');
+            const text = input.value.trim();
+            if (!text) return;
+            const userMsg = document.createElement('div');
+            userMsg.className = 'chat-msg';
+            userMsg.style.background = '#fff6f2';
+            userMsg.textContent = text;
+            body.appendChild(userMsg);
+            input.value = '';
+            body.scrollTop = body.scrollHeight;
+            setTimeout(() => {
+                const reply = document.createElement('div');
+                reply.className = 'chat-msg';
+                reply.textContent = "Thanks for your message! This is a demo widget, so a real support agent isn't connected here.";
+                body.appendChild(reply);
+                body.scrollTop = body.scrollHeight;
+            }, 700);
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            const chatInput = document.getElementById('chat-input');
+            if (chatInput) {
+                chatInput.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') sendChatMsg();
+                });
+            }
+        });
     </script>
     {% block extra_js %}{% endblock %}
 </body>

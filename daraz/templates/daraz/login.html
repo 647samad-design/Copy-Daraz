@@ -26,6 +26,9 @@
             {% csrf_token %}
             <input type="text" name="username" placeholder="{{ t.username }}" required>
             <input type="password" name="password" placeholder="{{ t.password }}" required>
+            <div style="text-align:right;margin:-6px 0 12px;">
+                <a href="{% url 'password_reset' %}" style="font-size:12px;color:#f85606;">Forgot password?</a>
+            </div>
             <button class="submit" type="submit">{{ t.login }}</button>
         </form>
 

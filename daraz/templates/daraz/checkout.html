@@ -14,12 +14,20 @@
 <div class="checkout-wrap">
     <div class="checkout-form">
         <h2>{{ t.delivery_details }}</h2>
+        {% if addresses %}
+        <select id="saved-address-select" onchange="fillAddress(this)" style="margin-bottom:14px;">
+            <option value="">-- Choose a saved address --</option>
+            {% for addr in addresses %}
+            <option value="{{ forloop.counter0 }}" data-name="{{ addr.full_name }}" data-phone="{{ addr.phone }}" data-address="{{ addr.address }}" data-city="{{ addr.city }}">{{ addr.label }}: {{ addr.address }}, {{ addr.city }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
         <form method="post">
             {% csrf_token %}
-            <input type="text" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username }}" required>
-            <input type="text" name="address" placeholder="{{ t.street_address }}" required>
-            <input type="text" name="city" placeholder="{{ t.city }}" required>
-            <input type="text" name="phone" placeholder="{{ t.phone_number }}" required>
+            <input type="text" id="id_full_name" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username }}" required>
+            <input type="text" id="id_address" name="address" placeholder="{{ t.street_address }}" required>
+            <input type="text" id="id_city" name="city" placeholder="{{ t.city }}" required>
+            <input type="text" id="id_phone" name="phone" placeholder="{{ t.phone_number }}" required>
             <select name="payment_method">
                 <option value="cod">{{ t.cash_on_delivery }}</option>
                 <option value="card">{{ t.card }}</option>
@@ -54,4 +62,16 @@
         </div>
     </div>
 </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function fillAddress(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt.value && opt.value !== "0") return;
+    document.getElementById('id_full_name').value = opt.dataset.name || '';
+    document.getElementById('id_phone').value = opt.dataset.phone || '';
+    document.getElementById('id_address').value = opt.dataset.address || '';
+    document.getElementById('id_city').value = opt.dataset.city || '';
+}
+</script>
 {% endblock %}

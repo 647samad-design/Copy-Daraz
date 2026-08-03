@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Product, Review, Order, OrderItem, Wishlist, Coupon
+from .models import (
+    Product, Review, Order, OrderItem, Wishlist, Coupon,
+    ProductImage, Profile, Address, Question, NewsletterSubscriber,
+)
 
 
 class ReviewInline(admin.TabularInline):
@@ -7,12 +10,22 @@ class ReviewInline(admin.TabularInline):
     extra = 0
 
 
+class ProductImageInline(admin.TabularInline):
+    model = ProductImage
+    extra = 1
+
+
+class QuestionInline(admin.TabularInline):
+    model = Question
+    extra = 0
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "is_flash_sale")
+    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "seller_name", "is_flash_sale")
     list_filter = ("category", "is_flash_sale")
     search_fields = ("name",)
-    inlines = [ReviewInline]
+    inlines = [ProductImageInline, ReviewInline, QuestionInline]
 
 
 @admin.register(Review)
@@ -41,3 +54,23 @@ class WishlistAdmin(admin.ModelAdmin):
 @admin.register(Coupon)
 class CouponAdmin(admin.ModelAdmin):
     list_display = ("code", "percent_off", "active")
+
+
+@admin.register(Profile)
+class ProfileAdmin(admin.ModelAdmin):
+    list_display = ("user", "phone")
+
+
+@admin.register(Address)
+class AddressAdmin(admin.ModelAdmin):
+    list_display = ("user", "label", "city", "phone")
+
+
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    list_display = ("product", "username", "question", "answer")
+
+
+@admin.register(NewsletterSubscriber)
+class NewsletterSubscriberAdmin(admin.ModelAdmin):
+    list_display = ("email", "created_at")

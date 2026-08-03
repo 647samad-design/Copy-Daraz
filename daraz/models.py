@@ -35,6 +35,7 @@ class Product(models.Model):
     description = models.TextField(blank=True)
     is_flash_sale = models.BooleanField(default=False)
     stock = models.PositiveIntegerField(default=50)
+    seller_name = models.CharField(max_length=100, default="Copy-Daraz Mall")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -125,3 +126,53 @@ class Coupon(models.Model):
 
     def __str__(self):
         return f"{self.code} (-{self.percent_off}%)"
+
+
+class ProductImage(models.Model):
+    product = models.ForeignKey(Product, related_name="extra_images", on_delete=models.CASCADE)
+    image_url = models.URLField()
+
+    def __str__(self):
+        return f"Image for {self.product.name}"
+
+
+class Profile(models.Model):
+    user = models.OneToOneField("auth.User", related_name="profile", on_delete=models.CASCADE)
+    phone = models.CharField(max_length=30, blank=True)
+
+    def __str__(self):
+        return f"{self.user.username}'s profile"
+
+
+class Address(models.Model):
+    user = models.ForeignKey("auth.User", related_name="addresses", on_delete=models.CASCADE)
+    label = models.CharField(max_length=30, default="Home")
+    full_name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=30)
+    address = models.CharField(max_length=255)
+    city = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.label} - {self.user.username}"
+
+
+class Question(models.Model):
+    product = models.ForeignKey(Product, related_name="questions", on_delete=models.CASCADE)
+    username = models.CharField(max_length=100)
+    question = models.TextField()
+    answer = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Q on {self.product.name}: {self.question[:40]}"
+
+
+class NewsletterSubscriber(models.Model):
+    email = models.EmailField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.email

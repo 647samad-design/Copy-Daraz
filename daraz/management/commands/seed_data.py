@@ -1,6 +1,6 @@
 import random
 from django.core.management.base import BaseCommand
-from daraz.models import Product, Coupon
+from daraz.models import Product, Coupon, ProductImage
 
 CATEGORY_PRODUCTS = {
     "skincare": ["Oil-Free Moisturizer 100ml", "Vitamin C Serum 30ml", "Sunblock SPF 50", "Aloe Vera Gel 200ml", "Charcoal Face Wash"],
@@ -34,6 +34,8 @@ class Command(BaseCommand):
         img_id = 20
         created_count = 0
 
+        SELLERS = ["Copy-Daraz Mall", "UrbanStyle Store", "TechHub Official", "HomeEssentials Shop", "GreenGrocer PK"]
+
         for category, names in CATEGORY_PRODUCTS.items():
             for i, name in enumerate(names):
                 price = random.choice([299, 499, 699, 819, 940, 1250, 1699, 2199, 2999, 3499])
@@ -49,12 +51,18 @@ class Command(BaseCommand):
                     "discount_percent": discount,
                     "category": category,
                     "is_flash_sale": has_discount and i < 2,
+                    "seller_name": random.choice(SELLERS),
                     "description": f"{name} - a quality pick from our {category.replace('-', ' ')} collection, chosen for everyday value and reliability.",
                 }
                 obj, created = Product.objects.get_or_create(name=name, defaults=defaults)
                 if created:
                     created_count += 1
                     self.stdout.write(self.style.SUCCESS(f"Created: {obj.name} ({category})"))
+                    for extra in range(2):
+                        ProductImage.objects.create(
+                            product=obj,
+                            image_url=f"https://picsum.photos/id/{((img_id + extra + 1) % 300) + 5}/400/400",
+                        )
 
         self.stdout.write(self.style.SUCCESS(f"\nDone. {created_count} new products created."))
 

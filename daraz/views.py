@@ -8,7 +8,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.core.paginator import Paginator
 from django.db.models import Q
-from .models import Product, Review, Order, OrderItem, Wishlist, Coupon
+from .models import (
+    Product, Review, Order, OrderItem, Wishlist, Coupon,
+    ProductImage, Profile, Address, Question, NewsletterSubscriber,
+)
 
 
 def _apply_sort(qs, sort):
@@ -68,10 +71,26 @@ def product_detail(request, pk):
     in_wishlist = False
     if request.user.is_authenticated:
         in_wishlist = Wishlist.objects.filter(user=request.user, product=product).exists()
+
+    gallery = [product.image_url] + list(product.extra_images.values_list("image_url", flat=True))
+    related_products = Product.objects.filter(category=product.category).exclude(pk=product.pk)[:6]
+    questions = product.questions.all()
+
+    recent_ids = request.session.get("recently_viewed", [])
+    recent_ids = [i for i in recent_ids if i != product.id]
+    recent_ids.insert(0, product.id)
+    request.session["recently_viewed"] = recent_ids[:10]
+    request.session.modified = True
+    recently_viewed = Product.objects.filter(id__in=recent_ids[1:7])
+
     return render(request, "daraz/product_detail.html", {
         "product": product,
         "reviews": reviews,
         "in_wishlist": in_wishlist,
+        "gallery": gallery,
+        "related_products": related_products,
+        "questions": questions,
+        "recently_viewed": recently_viewed,
     })
 
 
@@ -332,6 +351,7 @@ def checkout_view(request):
         "discount_amount": discount_amount,
         "final_total": max(total - discount_amount, 0),
         "coupon": coupon,
+        "addresses": Address.objects.filter(user=request.user),
     })
 
 
@@ -448,3 +468,73 @@ def toggle_wishlist(request, pk):
 def wishlist_view(request):
     items = Wishlist.objects.filter(user=request.user).select_related("product")
     return render(request, "daraz/wishlist.html", {"items": items})
+
+
+@login_required
+def profile_view(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    if request.method == "POST":
+        request.user.first_name = request.POST.get("first_name", "")
+        request.user.email = request.POST.get("email", "")
+        request.user.save()
+        profile.phone = request.POST.get("phone", "")
+        profile.save()
+        messages.success(request, "Profile updated.")
+        return redirect("profile")
+    addresses = Address.objects.filter(user=request.user)
+    orders_count = Order.objects.filter(user=request.user).count()
+    return render(request, "daraz/profile.html", {
+        "profile": profile,
+        "addresses": addresses,
+        "orders_count": orders_count,
+    })
+
+
+@login_required
+def add_address(request):
+    if request.method == "POST":
+        Address.objects.create(
+            user=request.user,
+            label=request.POST.get("label", "Home"),
+            full_name=request.POST.get("full_name", ""),
+            phone=request.POST.get("phone", ""),
+            address=request.POST.get("address", ""),
+            city=request.POST.get("city", ""),
+        )
+        messages.success(request, "Address saved.")
+    return redirect("profile")
+
+
+@login_required
+def delete_address(request, pk):
+    Address.objects.filter(pk=pk, user=request.user).delete()
+    return redirect("profile")
+
+
+def store_page(request, seller_name):
+    products = Product.objects.filter(seller_name=seller_name)
+    return render(request, "daraz/store.html", {
+        "seller_name": seller_name,
+        "products": products,
+    })
+
+
+def newsletter_subscribe(request):
+    if request.method == "POST":
+        email = request.POST.get("email", "").strip()
+        if email:
+            NewsletterSubscriber.objects.get_or_create(email=email)
+            messages.success(request, "Thanks for subscribing!")
+    return redirect(request.META.get("HTTP_REFERER", "home"))
+
+
+def ask_question(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if request.method == "POST":
+        Question.objects.create(
+            product=product,
+            username=request.POST.get("username") or (request.user.username if request.user.is_authenticated else "Anonymous"),
+            question=request.POST.get("question", ""),
+        )
+        messages.success(request, "Your question has been posted.")
+    return redirect("product_detail", pk=pk)

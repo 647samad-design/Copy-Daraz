@@ -35,7 +35,7 @@ class Product(models.Model):
     description = models.TextField(blank=True)
     is_flash_sale = models.BooleanField(default=False)
     stock = models.PositiveIntegerField(default=50)
-    seller_name = models.CharField(max_length=100, default="Copy-Daraz Mall")
+    seller_name = models.CharField(max_length=100, default="19Bees Mall")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

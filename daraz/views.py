@@ -8,7 +8,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse, HttpResponse
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
@@ -180,7 +182,7 @@ def signup_view(request):
             auth_login(request, user)
             if email:
                 _send_verification_email(request, user)
-            messages.success(request, "Account created. Welcome to Copy-Daraz.")
+            messages.success(request, "Account created. Welcome to 19Bees.")
             return redirect("home")
 
     return render(request, "daraz/signup.html", {
@@ -195,13 +197,15 @@ def _send_verification_email(request, user):
     scheme = "https" if request.is_secure() else "http"
     link = f"{scheme}://{request.get_host()}/verify-email/{uid}/{token}/"
     try:
-        send_mail(
-            "Verify your Copy-Daraz email",
-            f"Hi {user.username},\n\nPlease verify your email by clicking the link below:\n{link}\n\n- Copy-Daraz",
-            settings.DEFAULT_FROM_EMAIL if hasattr(settings, "DEFAULT_FROM_EMAIL") else None,
+        html_body = render_to_string("daraz/emails/verify_email.html", {"user": user, "link": link})
+        email = EmailMultiAlternatives(
+            "Verify your 19Bees email",
+            strip_tags(html_body),
+            None,
             [user.email],
-            fail_silently=True,
         )
+        email.attach_alternative(html_body, "text/html")
+        email.send(fail_silently=True)
     except Exception:
         pass
 
@@ -413,14 +417,20 @@ def checkout_view(request):
         recipient = order.user.email if order.user and order.user.email else order.guest_email
         if recipient:
             try:
-                lines = "\n".join(f"- {i.product_name} x{i.quantity} = Rs.{i.subtotal}" for i in order.items.all())
-                send_mail(
-                    f"Your Copy-Daraz order #{order.id} is confirmed",
-                    f"Hi {order.full_name},\n\nThanks for your order!\n\n{lines}\n\nTotal: Rs.{order.total}\nDelivering to: {order.address}, {order.city}\n\n- Copy-Daraz",
+                scheme = "https" if request.is_secure() else "http"
+                invoice_url = f"{scheme}://{request.get_host()}/order/{order.id}/invoice/"
+                html_body = render_to_string("daraz/emails/order_confirmation.html", {
+                    "order": order,
+                    "invoice_url": invoice_url,
+                })
+                email = EmailMultiAlternatives(
+                    f"Your 19Bees order #{order.id} is confirmed",
+                    strip_tags(html_body),
                     None,
                     [recipient],
-                    fail_silently=True,
                 )
+                email.attach_alternative(html_body, "text/html")
+                email.send(fail_silently=True)
             except Exception:
                 pass
 
@@ -475,7 +485,7 @@ def set_language(request, lang_code):
 def help_support(request):
     faqs = [
         ("How do I place an order?", "Add products to your cart, go to Cart, click 'Proceed to Checkout', fill in your delivery details and confirm. You must be logged in to check out."),
-        ("What payment methods are available?", "Cash on delivery, credit/debit card, and Copy-Daraz wallet (demo options — no real payment is processed on this practice site)."),
+        ("What payment methods are available?", "Cash on delivery, credit/debit card, and 19Bees wallet (demo options — no real payment is processed on this practice site)."),
         ("How can I track my order?", "Go to 'My orders' from the top menu after logging in to see all your past orders and their status."),
         ("Can I return a product?", "This is a learning project, so returns aren't processed automatically, but in a real store you'd typically get 7-14 days to request a return from your order page."),
         ("How do I change the site language?", "Use the 'Change language' option in the top bar to switch between English, Urdu, and Roman Urdu."),
@@ -486,9 +496,9 @@ def help_support(request):
 
 def sell_on_daraz(request):
     return render(request, "daraz/static_page.html", {
-        "page_title": "Sell on Copy-Daraz",
+        "page_title": "Sell on 19Bees",
         "sections": [
-            ("Reach more buyers", "Register your shop and list your products in front of shoppers browsing every category on Copy-Daraz — from electronics to fashion to groceries."),
+            ("Reach more buyers", "Register your shop and list your products in front of shoppers browsing every category on 19Bees — from electronics to fashion to groceries."),
             ("Simple onboarding", "Sign up with your account, add your product catalog, and start receiving orders. Sellers can track orders through the same dashboard used for buying."),
             ("Note", "This is a demo storefront built for learning purposes. Seller registration isn't wired to a real payout system — it's here to show how the page would work on a full marketplace."),
         ],
@@ -497,9 +507,9 @@ def sell_on_daraz(request):
 
 def about_us(request):
     return render(request, "daraz/static_page.html", {
-        "page_title": "About Copy-Daraz",
+        "page_title": "About 19Bees",
         "sections": [
-            ("What this is", "Copy-Daraz is a practice e-commerce project built to learn how modern online marketplaces work end to end — browsing, cart, checkout, and order tracking."),
+            ("What this is", "19Bees is a practice e-commerce project built to learn how modern online marketplaces work end to end — browsing, cart, checkout, and order tracking."),
             ("Not a real store", "It is not affiliated with any real marketplace. It's a personal Django learning project styled after popular shopping sites, with working accounts, cart totals, and order history."),
         ],
     })
@@ -644,7 +654,7 @@ def invoice_pdf(request, order_id):
     p.rect(0, height - 60, width, 60, fill=1, stroke=0)
     p.setFillColorRGB(1, 1, 1)
     p.setFont("Helvetica-Bold", 20)
-    p.drawString(40, height - 40, "Copy-Daraz")
+    p.drawString(40, height - 40, "19Bees")
 
     p.setFillColorRGB(0, 0, 0)
     p.setFont("Helvetica-Bold", 14)

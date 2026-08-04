@@ -54,6 +54,7 @@
         {% endfor %}
 
         <form method="post" action="{% url 'apply_coupon' %}" class="coupon-box">
+            {% csrf_token %}
             <input type="text" name="coupon_code" placeholder="{{ t.coupon_code_placeholder }}" value="{{ coupon.code|default:'' }}">
             <button type="submit">{{ t.apply }}</button>
         </form>

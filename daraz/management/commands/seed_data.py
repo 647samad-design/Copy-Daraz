@@ -28,13 +28,13 @@ CATEGORY_PRODUCTS = {
 
 
 class Command(BaseCommand):
-    help = "Seed the database with sample Copy-Daraz products (5+ per category)"
+    help = "Seed the database with sample 19Bees products (5+ per category)"
 
     def handle(self, *args, **options):
         img_id = 20
         created_count = 0
 
-        SELLERS = ["Copy-Daraz Mall", "UrbanStyle Store", "TechHub Official", "HomeEssentials Shop", "GreenGrocer PK"]
+        SELLERS = ["19Bees Mall", "UrbanStyle Store", "TechHub Official", "HomeEssentials Shop", "GreenGrocer PK"]
 
         for category, names in CATEGORY_PRODUCTS.items():
             for i, name in enumerate(names):

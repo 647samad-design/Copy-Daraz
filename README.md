@@ -1,4 +1,4 @@
-# Copy-Daraz
+# 19Bees
 
 Ek simple Daraz jaisi website ka starter project — Django (Python) ke sath banaya gaya hai.
 

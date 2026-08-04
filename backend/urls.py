@@ -55,4 +55,13 @@ urlpatterns = [
     path('store/<str:seller_name>/', views.store_page, name='store_page'),
     path('newsletter/subscribe/', views.newsletter_subscribe, name='newsletter_subscribe'),
     path('product/<int:pk>/ask/', views.ask_question, name='ask_question'),
+
+    path('verify-email/<uidb64>/<token>/', views.verify_email, name='verify_email'),
+    path('resend-verification/', views.resend_verification, name='resend_verification'),
+    path('order/<int:order_id>/invoice/', views.invoice_pdf, name='invoice_pdf'),
+    path('notifications/', views.notifications_list, name='notifications_list'),
+    path('compare/', views.compare_page, name='compare_page'),
+    path('compare/toggle/<int:pk>/', views.toggle_compare, name='toggle_compare'),
+    path('cart/bulk-remove/', views.cart_bulk_remove, name='cart_bulk_remove'),
+    path('api/search-suggest/', views.search_suggest, name='search_suggest'),
 ]

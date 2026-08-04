@@ -2,6 +2,8 @@
 {% block extra_css %}
     .cart-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
     .cart-header { padding: 16px 20px; border-bottom: 1px solid #eee; font-size: 18px; font-weight: 500; }
+    .bulk-bar { padding: 10px 20px; background: #f9f9f9; display: flex; align-items: center; gap: 14px; font-size: 12px; border-bottom: 1px solid #eee; }
+    .bulk-bar button { background: #c0392b; color: #fff; border: none; padding: 6px 14px; cursor: pointer; font-size: 12px; }
     .cart-row { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
     .cart-row img { width: 70px; height: 70px; object-fit: cover; border: 1px solid #eee; }
     .cart-row .info { flex: 1; }
@@ -20,9 +22,17 @@
 <div class="cart-wrap">
     <div class="cart-header">{{ t.your_cart }} ({{ count }} item{{ count|pluralize }})</div>
 
+    {% if items %}
+    <div class="bulk-bar">
+        <label><input type="checkbox" id="select-all" onclick="document.querySelectorAll('.item-check').forEach(c=>c.checked=this.checked)"> Select all</label>
+        <button type="button" onclick="bulkRemove()">Remove selected</button>
+    </div>
+    {% endif %}
+
     {% for row in items %}
     <div class="cart-row">
-        <img src="{{ row.product.image_url }}" alt="{{ row.product.name }}">
+        <input type="checkbox" class="item-check" value="{{ row.product.id }}">
+        <img src="{{ row.product.image_url }}" alt="{{ row.product.name }}" loading="lazy">
         <div class="info">
             <div class="name">{{ row.product.name }}</div>
             <div class="price">Rs.{{ row.product.price }}</div>
@@ -60,4 +70,25 @@
     </div>
     {% endif %}
 </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function bulkRemove() {
+    const checked = Array.from(document.querySelectorAll('.item-check:checked')).map(c => c.value);
+    if (!checked.length) { alert('Select at least one item.'); return; }
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = "{% url 'cart_bulk_remove' %}";
+    const csrf = document.createElement('input');
+    csrf.type = 'hidden'; csrf.name = 'csrfmiddlewaretoken'; csrf.value = '{{ csrf_token }}';
+    form.appendChild(csrf);
+    checked.forEach(id => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'selected'; inp.value = id;
+        form.appendChild(inp);
+    });
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
 {% endblock %}

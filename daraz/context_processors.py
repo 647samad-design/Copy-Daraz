@@ -20,3 +20,19 @@ def site_language(request):
         "current_lang": lang,
         "language_names": LANGUAGE_NAMES,
     }
+
+
+def trending_searches(request):
+    from .models import SearchLog
+    return {"trending_searches": SearchLog.objects.all()[:5]}
+
+
+def unread_notifications(request):
+    if request.user.is_authenticated:
+        from .models import Notification
+        return {"unread_notifications_count": Notification.objects.filter(user=request.user, is_read=False).count()}
+    return {"unread_notifications_count": 0}
+
+
+def compare_count(request):
+    return {"compare_count": len(request.session.get("compare", [])), "compare_ids": request.session.get("compare", [])}

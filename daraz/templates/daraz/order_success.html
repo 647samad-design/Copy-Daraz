@@ -23,6 +23,8 @@
             <tr><th>{{ t.total }}</th><th>Rs.{{ order.total }}</th></tr>
         </table>
         <p style="margin-top:14px;font-size:13px;color:#666;">{{ t.delivering_to }} {{ order.address }}, {{ order.city }}</p>
+        <a href="{% url 'invoice_pdf' order.id %}" style="display:inline-block;margin-top:14px;color:#f85606;font-size:13px;">&#128196; Download invoice (PDF)</a>
+        <br>
         <a class="btn-home" href="{% url 'home' %}">{{ t.continue_shopping }}</a>
     </div>
 </div>

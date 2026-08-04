@@ -14,6 +14,11 @@
 <div class="checkout-wrap">
     <div class="checkout-form">
         <h2>{{ t.delivery_details }}</h2>
+        {% if not user.is_authenticated %}
+        <div style="background:#fff6f2;border:1px solid #ffd9c7;padding:10px 14px;font-size:12px;margin-bottom:14px;">
+            Checking out as a guest. <a href="{% url 'login' %}" style="color:#f85606;">Login</a> to save your address and track this order later.
+        </div>
+        {% endif %}
         {% if addresses %}
         <select id="saved-address-select" onchange="fillAddress(this)" style="margin-bottom:14px;">
             <option value="">-- Choose a saved address --</option>
@@ -24,7 +29,10 @@
         {% endif %}
         <form method="post">
             {% csrf_token %}
-            <input type="text" id="id_full_name" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username }}" required>
+            <input type="text" id="id_full_name" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username|default:'' }}" required>
+            {% if not user.is_authenticated %}
+            <input type="email" name="guest_email" placeholder="Email (for order confirmation)" required>
+            {% endif %}
             <input type="text" id="id_address" name="address" placeholder="{{ t.street_address }}" required>
             <input type="text" id="id_city" name="city" placeholder="{{ t.city }}" required>
             <input type="text" id="id_phone" name="phone" placeholder="{{ t.phone_number }}" required>

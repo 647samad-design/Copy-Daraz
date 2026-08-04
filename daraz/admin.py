@@ -2,6 +2,7 @@ from django.contrib import admin
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
+    Notification, SearchLog,
 )
 
 
@@ -74,3 +75,13 @@ class QuestionAdmin(admin.ModelAdmin):
 @admin.register(NewsletterSubscriber)
 class NewsletterSubscriberAdmin(admin.ModelAdmin):
     list_display = ("email", "created_at")
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("user", "message", "is_read", "created_at")
+
+
+@admin.register(SearchLog)
+class SearchLogAdmin(admin.ModelAdmin):
+    list_display = ("query", "count")

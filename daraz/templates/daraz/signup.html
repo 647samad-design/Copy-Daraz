@@ -24,6 +24,7 @@
 
         <form method="post">
             {% csrf_token %}
+            <input type="hidden" name="ref" value="{{ ref_code }}">
             <input type="text" name="username" placeholder="{{ t.username }}" required>
             <input type="email" name="email" placeholder="{{ t.email_optional }}">
             <input type="password" name="password" placeholder="{{ t.password }}" required>

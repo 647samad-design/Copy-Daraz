@@ -5,12 +5,19 @@ from django.contrib.auth.models import User
 from django.contrib import messages
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.core.mail import send_mail
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+import random
+import string
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
+    Notification, SearchLog,
 )
 
 
@@ -23,7 +30,7 @@ def _apply_sort(qs, sort):
         return qs.order_by("-created_at")
     if sort == "rating":
         return sorted(qs, key=lambda p: p.average_rating, reverse=True)
-    return qs
+    return qs.order_by("-id")
 
 CATEGORY_IMAGE_IDS = {
     "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
@@ -112,6 +119,9 @@ def category_products(request, category):
 
 def search_products(request):
     query = request.GET.get("q", "").strip()
+    if query:
+        log, _ = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
+        SearchLog.objects.filter(pk=log.pk).update(count=log.count + 1)
     results = Product.objects.filter(name__icontains=query) if query else Product.objects.none()
     sort = request.GET.get("sort", "")
     results = _apply_sort(results, sort)
@@ -156,13 +166,68 @@ def signup_view(request):
             messages.error(request, "That username is already taken.")
         else:
             user = User.objects.create_user(username=username, email=email, password=password)
+            code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            ref = request.GET.get("ref") or request.POST.get("ref", "")
+            profile = Profile.objects.create(user=user, referral_code=code, referred_by=ref)
+            if ref:
+                referrer_profile = Profile.objects.filter(referral_code=ref).first()
+                if referrer_profile:
+                    Notification.objects.create(
+                        user=referrer_profile.user,
+                        message=f"{username} joined using your referral link!",
+                        link="/profile/",
+                    )
             auth_login(request, user)
+            if email:
+                _send_verification_email(request, user)
             messages.success(request, "Account created. Welcome to Copy-Daraz.")
             return redirect("home")
 
     return render(request, "daraz/signup.html", {
         "google_client_id": settings.GOOGLE_CLIENT_ID,
+        "ref_code": request.GET.get("ref", ""),
     })
+
+
+def _send_verification_email(request, user):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    scheme = "https" if request.is_secure() else "http"
+    link = f"{scheme}://{request.get_host()}/verify-email/{uid}/{token}/"
+    try:
+        send_mail(
+            "Verify your Copy-Daraz email",
+            f"Hi {user.username},\n\nPlease verify your email by clicking the link below:\n{link}\n\n- Copy-Daraz",
+            settings.DEFAULT_FROM_EMAIL if hasattr(settings, "DEFAULT_FROM_EMAIL") else None,
+            [user.email],
+            fail_silently=True,
+        )
+    except Exception:
+        pass
+
+
+def verify_email(request, uidb64, token):
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if user is not None and default_token_generator.check_token(user, token):
+        profile, _ = Profile.objects.get_or_create(user=user)
+        profile.email_verified = True
+        profile.save()
+        messages.success(request, "Your email has been verified.")
+    else:
+        messages.error(request, "This verification link is invalid or has expired.")
+    return redirect("profile" if request.user.is_authenticated else "login")
+
+
+@login_required
+def resend_verification(request):
+    _send_verification_email(request, request.user)
+    messages.success(request, "Verification email sent.")
+    return redirect("profile")
 
 
 def login_view(request):
@@ -299,7 +364,6 @@ def cart_view(request):
     })
 
 
-@login_required
 def checkout_view(request):
     items, total, count = _get_cart_items(request)
     if not items:
@@ -320,9 +384,11 @@ def checkout_view(request):
                 messages.error(request, f"Not enough stock for {item['product'].name}.")
                 return redirect("cart")
 
+        guest_email = request.POST.get("guest_email", "").strip()
         order = Order.objects.create(
-            user=request.user,
-            full_name=request.POST.get("full_name", request.user.username),
+            user=request.user if request.user.is_authenticated else None,
+            guest_email=guest_email if not request.user.is_authenticated else "",
+            full_name=request.POST.get("full_name", request.user.username if request.user.is_authenticated else "Guest"),
             address=request.POST.get("address", ""),
             city=request.POST.get("city", ""),
             phone=request.POST.get("phone", ""),
@@ -343,6 +409,24 @@ def checkout_view(request):
         request.session["cart"] = {}
         request.session["coupon_code"] = ""
         request.session.modified = True
+
+        recipient = order.user.email if order.user and order.user.email else order.guest_email
+        if recipient:
+            try:
+                lines = "\n".join(f"- {i.product_name} x{i.quantity} = Rs.{i.subtotal}" for i in order.items.all())
+                send_mail(
+                    f"Your Copy-Daraz order #{order.id} is confirmed",
+                    f"Hi {order.full_name},\n\nThanks for your order!\n\n{lines}\n\nTotal: Rs.{order.total}\nDelivering to: {order.address}, {order.city}\n\n- Copy-Daraz",
+                    None,
+                    [recipient],
+                    fail_silently=True,
+                )
+            except Exception:
+                pass
+
+        if order.user:
+            Notification.objects.create(user=order.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
+
         return redirect("order_success", order_id=order.id)
 
     return render(request, "daraz/checkout.html", {
@@ -351,7 +435,7 @@ def checkout_view(request):
         "discount_amount": discount_amount,
         "final_total": max(total - discount_amount, 0),
         "coupon": coupon,
-        "addresses": Address.objects.filter(user=request.user),
+        "addresses": Address.objects.filter(user=request.user) if request.user.is_authenticated else [],
     })
 
 
@@ -366,9 +450,11 @@ def apply_coupon(request):
     return redirect("checkout")
 
 
-@login_required
 def order_success(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    if request.user.is_authenticated:
+        order = get_object_or_404(Order, pk=order_id, user=request.user)
+    else:
+        order = get_object_or_404(Order, pk=order_id, user__isnull=True)
     return render(request, "daraz/order_success.html", {"order": order})
 
 
@@ -538,3 +624,111 @@ def ask_question(request, pk):
         )
         messages.success(request, "Your question has been posted.")
     return redirect("product_detail", pk=pk)
+
+
+def invoice_pdf(request, order_id):
+    if request.user.is_authenticated:
+        order = get_object_or_404(Order, pk=order_id, user=request.user)
+    else:
+        order = get_object_or_404(Order, pk=order_id, user__isnull=True)
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    p.setFillColorRGB(0.97, 0.34, 0.02)
+    p.rect(0, height - 60, width, 60, fill=1, stroke=0)
+    p.setFillColorRGB(1, 1, 1)
+    p.setFont("Helvetica-Bold", 20)
+    p.drawString(40, height - 40, "Copy-Daraz")
+
+    p.setFillColorRGB(0, 0, 0)
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(40, height - 90, f"Invoice - Order #{order.id}")
+    p.setFont("Helvetica", 10)
+    p.drawString(40, height - 110, f"Date: {order.created_at.strftime('%d %b %Y')}")
+    p.drawString(40, height - 125, f"Status: {order.get_status_display()}")
+    p.drawString(40, height - 145, f"Deliver to: {order.full_name}, {order.address}, {order.city}")
+    p.drawString(40, height - 160, f"Phone: {order.phone}")
+
+    y = height - 200
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(40, y, "Item")
+    p.drawString(320, y, "Qty")
+    p.drawString(370, y, "Price")
+    p.drawString(450, y, "Subtotal")
+    y -= 16
+    p.setFont("Helvetica", 10)
+    for item in order.items.all():
+        p.drawString(40, y, item.product_name[:45])
+        p.drawString(320, y, str(item.quantity))
+        p.drawString(370, y, f"Rs.{item.price}")
+        p.drawString(450, y, f"Rs.{item.subtotal}")
+        y -= 16
+        if y < 80:
+            p.showPage()
+            y = height - 60
+
+    y -= 10
+    p.line(40, y, width - 40, y)
+    y -= 20
+    p.setFont("Helvetica-Bold", 12)
+    p.drawString(370, y, "Total:")
+    p.drawString(450, y, f"Rs.{order.total}")
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    response = HttpResponse(buffer, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="invoice-{order.id}.pdf"'
+    return response
+
+
+@login_required
+def notifications_list(request):
+    notifications = request.user.notifications.all()[:30]
+    request.user.notifications.filter(is_read=False).update(is_read=True)
+    return render(request, "daraz/notifications.html", {"notifications": notifications})
+
+
+def toggle_compare(request, pk):
+    compare = request.session.get("compare", [])
+    if pk in compare:
+        compare.remove(pk)
+    else:
+        if len(compare) >= 4:
+            compare.pop(0)
+        compare.append(pk)
+    request.session["compare"] = compare
+    request.session.modified = True
+    return redirect(request.META.get("HTTP_REFERER", "home"))
+
+
+def compare_page(request):
+    compare_ids = request.session.get("compare", [])
+    products = Product.objects.filter(id__in=compare_ids)
+    return render(request, "daraz/compare.html", {"products": products})
+
+
+def cart_bulk_remove(request):
+    if request.method == "POST":
+        cart = request.session.get("cart", {})
+        selected = request.POST.getlist("selected")
+        for pid in selected:
+            cart.pop(pid, None)
+        request.session["cart"] = cart
+        request.session.modified = True
+        messages.success(request, "Selected items removed from cart.")
+    return redirect("cart")
+
+
+def search_suggest(request):
+    q = request.GET.get("q", "").strip()
+    if not q or len(q) < 2:
+        return JsonResponse({"results": []})
+    names = list(Product.objects.filter(name__icontains=q).values_list("name", flat=True)[:6])
+    return JsonResponse({"results": names})

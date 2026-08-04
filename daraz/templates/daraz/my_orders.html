@@ -58,6 +58,7 @@
             <button type="submit" class="cancel-btn">{{ t.cancel_order }}</button>
         </form>
         {% endif %}
+        <a href="{% url 'invoice_pdf' order.id %}" style="font-size:12px;color:#f85606;text-align:right;display:block;margin-top:6px;">Download invoice</a>
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">{{ t.no_orders }}</div>

@@ -65,4 +65,11 @@ urlpatterns = [
     path('compare/toggle/<int:pk>/', views.toggle_compare, name='toggle_compare'),
     path('cart/bulk-remove/', views.cart_bulk_remove, name='cart_bulk_remove'),
     path('api/search-suggest/', views.search_suggest, name='search_suggest'),
+
+    path('become-seller/', views.become_seller, name='become_seller'),
+    path('seller/dashboard/', views.seller_dashboard, name='seller_dashboard'),
+    path('seller/product/add/', views.seller_add_product, name='seller_add_product'),
+    path('seller/product/<int:pk>/edit/', views.seller_edit_product, name='seller_edit_product'),
+    path('seller/product/<int:pk>/delete/', views.seller_delete_product, name='seller_delete_product'),
+    path('product/<int:pk>/quick/', views.product_quick_view, name='product_quick_view'),
 ]

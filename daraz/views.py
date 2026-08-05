@@ -19,7 +19,7 @@ import string
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
-    Notification, SearchLog,
+    Notification, SearchLog, SellerAccount,
 )
 
 
@@ -499,9 +499,11 @@ def sell_on_daraz(request):
         "page_title": "Sell on 19Bees",
         "sections": [
             ("Reach more buyers", "Register your shop and list your products in front of shoppers browsing every category on 19Bees — from electronics to fashion to groceries."),
-            ("Simple onboarding", "Sign up with your account, add your product catalog, and start receiving orders. Sellers can track orders through the same dashboard used for buying."),
-            ("Note", "This is a demo storefront built for learning purposes. Seller registration isn't wired to a real payout system — it's here to show how the page would work on a full marketplace."),
+            ("Two account types", "Individual sellers pay a 10% platform commission. Organizations / registered businesses pay 20% and get a dedicated business profile."),
+            ("Simple onboarding", "Apply below, get approved, and start listing products from your own seller dashboard — track sales, commission, and earnings in one place."),
         ],
+        "cta_url": "/become-seller/",
+        "cta_label": "Apply to become a seller",
     })
 
 
@@ -742,3 +744,102 @@ def search_suggest(request):
         return JsonResponse({"results": []})
     names = list(Product.objects.filter(name__icontains=q).values_list("name", flat=True)[:6])
     return JsonResponse({"results": names})
+
+
+@login_required
+def become_seller(request):
+    existing = SellerAccount.objects.filter(user=request.user).first()
+    if existing:
+        return redirect("seller_dashboard")
+
+    if request.method == "POST":
+        account_type = request.POST.get("account_type", "individual")
+        seller = SellerAccount.objects.create(
+            user=request.user,
+            account_type=account_type,
+            business_name=request.POST.get("business_name", ""),
+            phone=request.POST.get("phone", ""),
+        )
+        messages.success(request, "Your seller application has been submitted. We'll review it shortly.")
+        return redirect("seller_dashboard")
+
+    return render(request, "daraz/become_seller.html")
+
+
+@login_required
+def seller_dashboard(request):
+    seller = get_object_or_404(SellerAccount, user=request.user)
+    products = Product.objects.filter(seller_account=seller)
+
+    order_items = OrderItem.objects.filter(product__seller_account=seller).select_related("order", "product")
+    total_sales = sum(i.subtotal for i in order_items)
+    commission_owed = round(total_sales * seller.commission_rate / 100, 2)
+    net_earnings = total_sales - commission_owed
+
+    return render(request, "daraz/seller_dashboard.html", {
+        "seller": seller,
+        "products": products,
+        "order_items": order_items.order_by("-order__created_at")[:20],
+        "total_sales": total_sales,
+        "commission_owed": commission_owed,
+        "net_earnings": net_earnings,
+        "product_count": products.count(),
+    })
+
+
+@login_required
+def seller_add_product(request):
+    seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
+    if request.method == "POST":
+        Product.objects.create(
+            name=request.POST.get("name"),
+            image_url=request.POST.get("image_url"),
+            price=request.POST.get("price"),
+            old_price=request.POST.get("old_price") or None,
+            discount_percent=request.POST.get("discount_percent") or 0,
+            category=request.POST.get("category"),
+            stock=request.POST.get("stock") or 0,
+            description=request.POST.get("description", ""),
+            seller_account=seller,
+            seller_name=seller.display_name,
+        )
+        messages.success(request, "Product added to your store.")
+        return redirect("seller_dashboard")
+    return render(request, "daraz/seller_add_product.html", {
+        "categories": Product.CATEGORY_CHOICES,
+    })
+
+
+@login_required
+def seller_edit_product(request, pk):
+    seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
+    product = get_object_or_404(Product, pk=pk, seller_account=seller)
+    if request.method == "POST":
+        product.name = request.POST.get("name")
+        product.image_url = request.POST.get("image_url")
+        product.price = request.POST.get("price")
+        product.old_price = request.POST.get("old_price") or None
+        product.discount_percent = request.POST.get("discount_percent") or 0
+        product.category = request.POST.get("category")
+        product.stock = request.POST.get("stock") or 0
+        product.description = request.POST.get("description", "")
+        product.save()
+        messages.success(request, "Product updated.")
+        return redirect("seller_dashboard")
+    return render(request, "daraz/seller_add_product.html", {
+        "categories": Product.CATEGORY_CHOICES,
+        "product": product,
+    })
+
+
+@login_required
+def seller_delete_product(request, pk):
+    seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
+    Product.objects.filter(pk=pk, seller_account=seller).delete()
+    messages.success(request, "Product removed from your store.")
+    return redirect("seller_dashboard")
+
+
+def product_quick_view(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    return render(request, "daraz/partials/quick_view.html", {"product": product})

@@ -6,7 +6,7 @@
         <button type="submit" class="{% if product.id in wishlist_ids %}active{% endif %}">&#9829;</button>
     </form>
     {% endif %}
-    <a class="product-card" href="{% url 'product_detail' product.id %}">
+    <a class="product-card" href="{% url 'product_detail' product.id %}" onclick="return openQuickView(event, {{ product.id }})">
         <img src="{{ product.image_url }}" alt="{{ product.name }}" loading="lazy">
         <div class="pname">{{ product.name }}</div>
         <div>

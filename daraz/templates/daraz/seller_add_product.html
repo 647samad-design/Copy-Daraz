@@ -1,0 +1,31 @@
+{% extends "daraz/base.html" %}
+{% block extra_css %}
+    .pf-wrap { display: flex; justify-content: center; margin: 30px 20px; }
+    .pf-box { width: 480px; background: #fff; border: 1px solid #eee; padding: 26px; }
+    .pf-box h1 { font-size: 18px; margin-bottom: 18px; }
+    .pf-box input, .pf-box select, .pf-box textarea { width: 100%; padding: 9px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 13px; box-sizing: border-box; }
+    .pf-box button { background: #1c1c1c; color: #ffc93c; border: none; padding: 11px 24px; font-size: 14px; cursor: pointer; font-weight: bold; }
+{% endblock %}
+{% block content %}
+<div class="pf-wrap">
+    <div class="pf-box">
+        <h1>{% if product %}Edit product{% else %}Add a new product{% endif %}</h1>
+        <form method="post">
+            {% csrf_token %}
+            <input type="text" name="name" placeholder="Product name" value="{{ product.name|default:'' }}" required>
+            <input type="url" name="image_url" placeholder="Image URL" value="{{ product.image_url|default:'' }}" required>
+            <select name="category" required>
+                {% for value, label in categories %}
+                <option value="{{ value }}" {% if product.category == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <input type="number" name="price" placeholder="Price (Rs.)" value="{{ product.price|default:'' }}" required>
+            <input type="number" name="old_price" placeholder="Old price (optional, for discount)" value="{{ product.old_price|default:'' }}">
+            <input type="number" name="discount_percent" placeholder="Discount %" value="{{ product.discount_percent|default:'0' }}">
+            <input type="number" name="stock" placeholder="Stock quantity" value="{{ product.stock|default:'10' }}" required>
+            <textarea name="description" rows="3" placeholder="Description">{{ product.description|default:'' }}</textarea>
+            <button type="submit">{% if product %}Save changes{% else %}Add product{% endif %}</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

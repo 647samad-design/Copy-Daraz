@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
-    Notification, SearchLog,
+    Notification, SearchLog, SellerAccount,
 )
 
 
@@ -85,3 +85,28 @@ class NotificationAdmin(admin.ModelAdmin):
 @admin.register(SearchLog)
 class SearchLogAdmin(admin.ModelAdmin):
     list_display = ("query", "count")
+
+
+@admin.register(SellerAccount)
+class SellerAccountAdmin(admin.ModelAdmin):
+    list_display = ("display_name", "user", "account_type", "status", "commission_rate", "created_at")
+    list_filter = ("account_type", "status")
+    actions = ["approve_sellers", "reject_sellers"]
+
+    def approve_sellers(self, request, queryset):
+        from .models import Notification
+        for seller in queryset:
+            seller.status = "approved"
+            seller.save(update_fields=["status"])
+            Notification.objects.create(
+                user=seller.user,
+                message="Your seller account has been approved! You can now list products.",
+                link="/seller/dashboard/",
+            )
+        self.message_user(request, f"{queryset.count()} seller(s) approved.")
+    approve_sellers.short_description = "Approve selected sellers"
+
+    def reject_sellers(self, request, queryset):
+        queryset.update(status="rejected")
+        self.message_user(request, f"{queryset.count()} seller(s) rejected.")
+    reject_sellers.short_description = "Reject selected sellers"

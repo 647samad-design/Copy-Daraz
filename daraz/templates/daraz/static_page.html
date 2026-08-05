@@ -15,5 +15,8 @@
         <p>{{ body }}</p>
     </div>
     {% endfor %}
+    {% if cta_url %}
+    <a href="{{ cta_url }}" style="display:inline-block;background:#ffc93c;color:#1c1c1c;padding:12px 26px;text-decoration:none;font-weight:bold;font-size:14px;border-radius:4px;">{{ cta_label }}</a>
+    {% endif %}
 </div>
 {% endblock %}

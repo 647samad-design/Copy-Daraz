@@ -36,6 +36,7 @@ class Product(models.Model):
     is_flash_sale = models.BooleanField(default=False)
     stock = models.PositiveIntegerField(default=50)
     seller_name = models.CharField(max_length=100, default="19Bees Mall")
+    seller_account = models.ForeignKey("SellerAccount", related_name="products", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -218,3 +219,35 @@ class SearchLog(models.Model):
 
     def __str__(self):
         return f"{self.query} ({self.count})"
+
+
+class SellerAccount(models.Model):
+    ACCOUNT_TYPE_CHOICES = [
+        ("individual", "Individual seller"),
+        ("organization", "Organization / Business"),
+    ]
+    STATUS_CHOICES = [
+        ("pending", "Pending approval"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    user = models.OneToOneField("auth.User", related_name="seller_account", on_delete=models.CASCADE)
+    account_type = models.CharField(max_length=20, choices=ACCOUNT_TYPE_CHOICES, default="individual")
+    business_name = models.CharField(max_length=150, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and not kwargs.get("update_fields"):
+            self.commission_rate = 20 if self.account_type == "organization" else 10
+        super().save(*args, **kwargs)
+
+    @property
+    def display_name(self):
+        return self.business_name or self.user.username
+
+    def __str__(self):
+        return f"{self.display_name} ({self.get_account_type_display()}, {self.status})"

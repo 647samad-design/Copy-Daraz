@@ -224,6 +224,9 @@
             <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
             {% if user.is_authenticated %}
             <span>Hi, <a href="{% url 'profile' %}" style="text-decoration:underline;">{{ user.username }}</a></span>
+            {% if user.seller_account %}
+            <a href="{% url 'seller_dashboard' %}">Seller Dashboard</a>
+            {% endif %}
             <a href="{% url 'wishlist' %}">{{ t.my_wishlist }}</a>
             <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
             <a href="{% url 'logout' %}">{{ t.logout }}</a>
@@ -302,6 +305,13 @@
         <a href="#just-for-you" title="Just for you">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
         </a>
+    </div>
+
+    <div class="app-modal-backdrop" id="quick-view-modal" onclick="if(event.target===this) this.classList.remove('open')">
+        <div class="app-modal" style="width:600px;text-align:left;">
+            <button class="close-btn" onclick="document.getElementById('quick-view-modal').classList.remove('open')">&times;</button>
+            <div id="quick-view-body" style="min-height:120px;display:flex;align-items:center;justify-content:center;color:#999;font-size:13px;">Loading...</div>
+        </div>
     </div>
 
     <div class="app-modal-backdrop" id="app-modal" onclick="if(event.target===this) this.classList.remove('open')">
@@ -410,6 +420,21 @@
     </div>
 
     <script>
+        // Quick View: fetch product details without a full page navigation.
+        function openQuickView(e, id) {
+            if (e.ctrlKey || e.metaKey || e.button === 1) return true;
+            e.preventDefault();
+            const modal = document.getElementById('quick-view-modal');
+            const body = document.getElementById('quick-view-body');
+            body.innerHTML = 'Loading...';
+            modal.classList.add('open');
+            fetch('/product/' + id + '/quick/')
+                .then(r => r.text())
+                .then(html => { body.innerHTML = html; })
+                .catch(() => { body.innerHTML = 'Could not load product. <a href="/product/' + id + '/">Open full page</a>'; });
+            return false;
+        }
+
         // Dark mode toggle
         function toggleTheme() {
             const html = document.documentElement;

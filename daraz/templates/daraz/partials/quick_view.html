@@ -6,20 +6,20 @@
         <h2 style="font-size:18px;margin-bottom:8px;">{{ product.name }}</h2>
         <div style="color:#f5a623;font-size:13px;margin-bottom:8px;">&#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} reviews</div>
         <div style="margin-bottom:10px;">
-            <span style="color:#f85606;font-size:22px;font-weight:bold;">Rs.{{ product.price }}</span>
+            <span style="color:#60A5FA;font-size:22px;font-weight:bold;">Rs.{{ product.price }}</span>
             {% if product.old_price %}<span style="color:#999;font-size:13px;text-decoration:line-through;margin-left:8px;">Rs.{{ product.old_price }}</span>{% endif %}
-            {% if product.discount_percent %}<span style="color:#f85606;font-size:13px;margin-left:6px;">-{{ product.discount_percent }}%</span>{% endif %}
+            {% if product.discount_percent %}<span style="color:#60A5FA;font-size:13px;margin-left:6px;">-{{ product.discount_percent }}%</span>{% endif %}
         </div>
         <p style="font-size:13px;color:#666;margin-bottom:14px;line-height:1.5;">{{ product.description|truncatewords:30 }}</p>
         {% if product.stock > 0 %}
         <form method="post" action="{% url 'add_to_cart' product.id %}" style="display:inline-block;">
             {% csrf_token %}
             <input type="hidden" name="next" value="/product/{{ product.id }}/">
-            <button type="submit" style="background:#f85606;color:#fff;border:none;padding:11px 22px;font-size:13px;cursor:pointer;">Add to cart</button>
+            <button type="submit" style="background:#60A5FA;color:#fff;border:none;padding:11px 22px;font-size:13px;cursor:pointer;">Add to cart</button>
         </form>
         {% else %}
         <span style="color:#c0392b;font-size:13px;">Out of stock</span>
         {% endif %}
-        <a href="{% url 'product_detail' product.id %}" style="display:inline-block;margin-left:10px;color:#f85606;font-size:13px;">View full details &rarr;</a>
+        <a href="{% url 'product_detail' product.id %}" style="display:inline-block;margin-left:10px;color:#60A5FA;font-size:13px;">View full details &rarr;</a>
     </div>
 </div>

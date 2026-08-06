@@ -8,15 +8,15 @@
     .cart-row img { width: 70px; height: 70px; object-fit: cover; border: 1px solid #eee; }
     .cart-row .info { flex: 1; }
     .cart-row .name { font-size: 14px; margin-bottom: 4px; }
-    .cart-row .price { color: #f85606; font-weight: bold; }
+    .cart-row .price { color: #60A5FA; font-weight: bold; }
     .qty-controls { display: flex; align-items: center; gap: 8px; }
     .qty-controls button { width: 26px; height: 26px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
     .qty-controls form { display: inline; }
     .subtotal { width: 100px; text-align: right; font-weight: bold; }
     .remove-btn { color: #999; background: none; border: none; cursor: pointer; font-size: 13px; text-decoration: underline; }
     .cart-summary { display: flex; justify-content: flex-end; padding: 20px; gap: 20px; align-items: center; }
-    .cart-summary .total { font-size: 20px; font-weight: bold; color: #f85606; }
-    .checkout-btn { background: #f85606; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; text-decoration: none; }
+    .cart-summary .total { font-size: 20px; font-weight: bold; color: #60A5FA; }
+    .checkout-btn { background: #60A5FA; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; text-decoration: none; }
 {% endblock %}
 {% block content %}
 <div class="cart-wrap">
@@ -59,7 +59,7 @@
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">
-        {{ t.empty_cart }} <a href="{% url 'home' %}" style="color:#f85606;">{{ t.continue_shopping }}</a>
+        {{ t.empty_cart }} <a href="{% url 'home' %}" style="color:#60A5FA;">{{ t.continue_shopping }}</a>
     </div>
     {% endfor %}
 

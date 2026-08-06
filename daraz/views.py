@@ -19,7 +19,7 @@ import string
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
-    Notification, SearchLog, SellerAccount,
+    Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
 )
 
 
@@ -47,8 +47,8 @@ def home(request):
     query = request.GET.get("q", "").strip()
     if query:
         return redirect(f"/search/?q={query}")
-    flash_sale_products = Product.objects.filter(is_flash_sale=True)[:8]
-    just_for_you_products = Product.objects.all().order_by("-created_at")[:16]
+    flash_sale_products = Product.objects.filter(is_flash_sale=True, approval_status="approved")[:8]
+    just_for_you_products = Product.objects.filter(approval_status="approved").order_by("-created_at")[:16]
     categories = [
         {
             "slug": slug,
@@ -67,6 +67,15 @@ def home(request):
 def product_detail(request, pk):
     product = get_object_or_404(Product, pk=pk)
 
+    if product.approval_status != "approved":
+        is_owner_seller = (
+            product.seller_account and request.user.is_authenticated
+            and product.seller_account.user_id == request.user.id
+        )
+        if not (is_owner_seller or request.user.is_staff):
+            from django.http import Http404
+            raise Http404("This product is not available.")
+
     if request.method == "POST":
         Review.objects.create(
             product=product,
@@ -82,7 +91,7 @@ def product_detail(request, pk):
         in_wishlist = Wishlist.objects.filter(user=request.user, product=product).exists()
 
     gallery = [product.image_url] + list(product.extra_images.values_list("image_url", flat=True))
-    related_products = Product.objects.filter(category=product.category).exclude(pk=product.pk)[:6]
+    related_products = Product.objects.filter(category=product.category, approval_status="approved").exclude(pk=product.pk)[:6]
     questions = product.questions.all()
 
     recent_ids = request.session.get("recently_viewed", [])
@@ -104,7 +113,7 @@ def product_detail(request, pk):
 
 
 def category_products(request, category):
-    products = Product.objects.filter(category=category)
+    products = Product.objects.filter(category=category, approval_status="approved")
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
     paginator = Paginator(products, 12)
@@ -124,7 +133,7 @@ def search_products(request):
     if query:
         log, _ = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
         SearchLog.objects.filter(pk=log.pk).update(count=log.count + 1)
-    results = Product.objects.filter(name__icontains=query) if query else Product.objects.none()
+    results = Product.objects.filter(name__icontains=query, approval_status="approved") if query else Product.objects.none()
     sort = request.GET.get("sort", "")
     results = _apply_sort(results, sort)
     paginator = Paginator(results, 12)
@@ -138,7 +147,7 @@ def search_products(request):
 
 
 def all_products(request):
-    products = Product.objects.all()
+    products = Product.objects.filter(approval_status="approved")
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
     paginator = Paginator(products, 16)
@@ -159,6 +168,7 @@ def signup_view(request):
         email = request.POST.get("email", "").strip()
         password = request.POST.get("password", "")
         confirm = request.POST.get("confirm_password", "")
+        user_type = request.POST.get("user_type", "buyer")
 
         if not username or not password:
             messages.error(request, "Username and password are required.")
@@ -166,6 +176,8 @@ def signup_view(request):
             messages.error(request, "Passwords do not match.")
         elif User.objects.filter(username=username).exists():
             messages.error(request, "That username is already taken.")
+        elif user_type in ("individual", "organization") and not request.POST.get("phone", "").strip():
+            messages.error(request, "Phone number is required for seller accounts.")
         else:
             user = User.objects.create_user(username=username, email=email, password=password)
             code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -179,15 +191,47 @@ def signup_view(request):
                         message=f"{username} joined using your referral link!",
                         link="/profile/",
                     )
+
+            if user_type in ("individual", "organization"):
+                SellerAccount.objects.create(
+                    user=user,
+                    account_type=user_type,
+                    full_name=request.POST.get("full_name", ""),
+                    business_name=request.POST.get("business_name", ""),
+                    organization_name=request.POST.get("organization_name", ""),
+                    phone=request.POST.get("phone", ""),
+                    cnic=request.POST.get("cnic", ""),
+                    business_address=request.POST.get("business_address", ""),
+                    city=request.POST.get("city", ""),
+                    country=request.POST.get("country", "Pakistan"),
+                    store_description=request.POST.get("store_description", ""),
+                    product_categories=request.POST.get("product_categories", ""),
+                    brand_info=request.POST.get("brand_info", ""),
+                    tax_info=request.POST.get("tax_info", ""),
+                    bank_details=request.POST.get("bank_details", ""),
+                    business_certificate=request.FILES.get("business_certificate"),
+                    id_document=request.FILES.get("id_document"),
+                    store_logo=request.FILES.get("store_logo"),
+                    store_banner=request.FILES.get("store_banner"),
+                )
+                AuditLog.objects.create(user=user, action=f"Submitted {user_type} seller application")
+
             auth_login(request, user)
             if email:
                 _send_verification_email(request, user)
+            AuditLog.objects.create(user=user, action="Account created")
+
+            if user_type in ("individual", "organization"):
+                messages.success(request, "Account created! Your seller application is pending review.")
+                return redirect("seller_dashboard")
+
             messages.success(request, "Account created. Welcome to 19Bees.")
             return redirect("home")
 
     return render(request, "daraz/signup.html", {
         "google_client_id": settings.GOOGLE_CLIENT_ID,
         "ref_code": request.GET.get("ref", ""),
+        "categories": Product.CATEGORY_CHOICES,
     })
 
 
@@ -610,7 +654,7 @@ def delete_address(request, pk):
 
 
 def store_page(request, seller_name):
-    products = Product.objects.filter(seller_name=seller_name)
+    products = Product.objects.filter(seller_name=seller_name, approval_status="approved")
     return render(request, "daraz/store.html", {
         "seller_name": seller_name,
         "products": products,
@@ -742,7 +786,7 @@ def search_suggest(request):
     q = request.GET.get("q", "").strip()
     if not q or len(q) < 2:
         return JsonResponse({"results": []})
-    names = list(Product.objects.filter(name__icontains=q).values_list("name", flat=True)[:6])
+    names = list(Product.objects.filter(name__icontains=q, approval_status="approved").values_list("name", flat=True)[:6])
     return JsonResponse({"results": names})
 
 
@@ -791,9 +835,16 @@ def seller_dashboard(request):
 def seller_add_product(request):
     seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
     if request.method == "POST":
+        image_url = request.POST.get("image_url", "").strip()
+        uploaded = request.FILES.get("image_file")
+        if uploaded:
+            from django.core.files.storage import default_storage
+            path = default_storage.save(f"products/{uploaded.name}", uploaded)
+            image_url = default_storage.url(path)
+
         Product.objects.create(
             name=request.POST.get("name"),
-            image_url=request.POST.get("image_url"),
+            image_url=image_url,
             price=request.POST.get("price"),
             old_price=request.POST.get("old_price") or None,
             discount_percent=request.POST.get("discount_percent") or 0,
@@ -802,8 +853,9 @@ def seller_add_product(request):
             description=request.POST.get("description", ""),
             seller_account=seller,
             seller_name=seller.display_name,
+            approval_status="pending",
         )
-        messages.success(request, "Product added to your store.")
+        messages.success(request, "Product submitted for review. It will go live once approved by an admin.")
         return redirect("seller_dashboard")
     return render(request, "daraz/seller_add_product.html", {
         "categories": Product.CATEGORY_CHOICES,
@@ -843,3 +895,43 @@ def seller_delete_product(request, pk):
 def product_quick_view(request, pk):
     product = get_object_or_404(Product, pk=pk)
     return render(request, "daraz/partials/quick_view.html", {"product": product})
+
+
+def _is_owner(user):
+    return user.is_authenticated and user.is_staff
+
+
+@login_required
+def owner_dashboard(request):
+    if not _is_owner(request.user):
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("Staff access only.")
+
+    total_customers = User.objects.filter(seller_account__isnull=True).count()
+    total_sellers = SellerAccount.objects.filter(account_type="individual").count()
+    total_organizations = SellerAccount.objects.filter(account_type="organization").count()
+    total_products = Product.objects.count()
+    total_orders = Order.objects.count()
+    total_revenue = sum(o.total for o in Order.objects.exclude(status="cancelled"))
+    pending_sellers = SellerAccount.objects.filter(status="pending")
+    active_sellers = SellerAccount.objects.filter(status="approved").count()
+    inactive_sellers = SellerAccount.objects.filter(status__in=["rejected", "suspended"]).count()
+    recent_orders = Order.objects.order_by("-created_at")[:10]
+    top_sellers = sorted(
+        SellerAccount.objects.filter(status="approved"),
+        key=lambda s: s.lifetime_sales, reverse=True
+    )[:5]
+
+    return render(request, "daraz/owner_dashboard.html", {
+        "total_customers": total_customers,
+        "total_sellers": total_sellers,
+        "total_organizations": total_organizations,
+        "total_products": total_products,
+        "total_orders": total_orders,
+        "total_revenue": total_revenue,
+        "pending_sellers": pending_sellers,
+        "active_sellers": active_sellers,
+        "inactive_sellers": inactive_sellers,
+        "recent_orders": recent_orders,
+        "top_sellers": top_sellers,
+    })

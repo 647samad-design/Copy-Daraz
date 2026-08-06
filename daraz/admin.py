@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
-    Notification, SearchLog, SellerAccount,
+    Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
 )
 
 
@@ -23,10 +23,21 @@ class QuestionInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "seller_name", "is_flash_sale")
-    list_filter = ("category", "is_flash_sale")
+    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "seller_name", "approval_status", "is_flash_sale")
+    list_filter = ("category", "is_flash_sale", "approval_status")
     search_fields = ("name",)
     inlines = [ProductImageInline, ReviewInline, QuestionInline]
+    actions = ["approve_products", "reject_products"]
+
+    def approve_products(self, request, queryset):
+        queryset.update(approval_status="approved")
+        self.message_user(request, f"{queryset.count()} product(s) approved and now live.")
+    approve_products.short_description = "Approve selected products (make live)"
+
+    def reject_products(self, request, queryset):
+        queryset.update(approval_status="rejected")
+        self.message_user(request, f"{queryset.count()} product(s) rejected.")
+    reject_products.short_description = "Reject selected products"
 
 
 @admin.register(Review)
@@ -89,12 +100,14 @@ class SearchLogAdmin(admin.ModelAdmin):
 
 @admin.register(SellerAccount)
 class SellerAccountAdmin(admin.ModelAdmin):
-    list_display = ("display_name", "user", "account_type", "status", "commission_rate", "created_at")
+    list_display = ("display_name", "user", "account_type", "status", "commission_rate", "effective_commission_rate", "city", "country", "created_at")
     list_filter = ("account_type", "status")
-    actions = ["approve_sellers", "reject_sellers"]
+    search_fields = ("business_name", "organization_name", "full_name", "user__username", "cnic")
+    readonly_fields = ("created_at",)
+    actions = ["approve_sellers", "reject_sellers", "suspend_sellers"]
 
     def approve_sellers(self, request, queryset):
-        from .models import Notification
+        from .models import Notification, AuditLog
         for seller in queryset:
             seller.status = "approved"
             seller.save(update_fields=["status"])
@@ -103,10 +116,61 @@ class SellerAccountAdmin(admin.ModelAdmin):
                 message="Your seller account has been approved! You can now list products.",
                 link="/seller/dashboard/",
             )
+            AuditLog.objects.create(user=request.user, action=f"Approved seller #{seller.id} ({seller.display_name})")
         self.message_user(request, f"{queryset.count()} seller(s) approved.")
     approve_sellers.short_description = "Approve selected sellers"
 
     def reject_sellers(self, request, queryset):
+        from .models import AuditLog
         queryset.update(status="rejected")
+        for seller in queryset:
+            AuditLog.objects.create(user=request.user, action=f"Rejected seller #{seller.id} ({seller.display_name})")
         self.message_user(request, f"{queryset.count()} seller(s) rejected.")
     reject_sellers.short_description = "Reject selected sellers"
+
+    def suspend_sellers(self, request, queryset):
+        from .models import AuditLog
+        queryset.update(status="suspended")
+        for seller in queryset:
+            AuditLog.objects.create(user=request.user, action=f"Suspended seller #{seller.id} ({seller.display_name})")
+        self.message_user(request, f"{queryset.count()} seller(s) suspended.")
+    suspend_sellers.short_description = "Suspend selected sellers"
+
+
+@admin.register(ReturnRequest)
+class ReturnRequestAdmin(admin.ModelAdmin):
+    list_display = ("order_item", "user", "status", "created_at")
+    list_filter = ("status",)
+    actions = ["mark_approved", "mark_rejected", "mark_refunded"]
+
+    def mark_approved(self, request, queryset):
+        queryset.update(status="approved")
+    mark_approved.short_description = "Mark as approved"
+
+    def mark_rejected(self, request, queryset):
+        queryset.update(status="rejected")
+    mark_rejected.short_description = "Mark as rejected"
+
+    def mark_refunded(self, request, queryset):
+        queryset.update(status="refunded")
+    mark_refunded.short_description = "Mark as refunded"
+
+
+@admin.register(SellerReview)
+class SellerReviewAdmin(admin.ModelAdmin):
+    list_display = ("seller", "user", "rating", "created_at")
+
+
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(admin.ModelAdmin):
+    list_display = ("site_name", "tax_percent")
+
+    def has_add_permission(self, request):
+        return not SiteSettings.objects.exists()
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ("action", "user", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("action", "user__username")

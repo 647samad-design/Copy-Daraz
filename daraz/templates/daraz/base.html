@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 {% load daraz_extras %}
+{% load static %}
 <html lang="{{ current_lang }}" dir="{% if current_lang == 'ur' %}rtl{% else %}ltr{% endif %}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22><polygon points=%2220,2 35,11 35,29 20,38 5,29 5,11%22 fill=%22%23ffc93c%22/><ellipse cx=%2220%22 cy=%2220%22 rx=%226.5%22 ry=%225%22 fill=%22%232b2b2b%22/></svg>">
+    <link rel="icon" href="{% static 'daraz/images/logo.png' %}">
     <title>{% block title %}19Bees{% endblock %}</title>
     <meta name="description" content="{% block meta_description %}19Bees - a Daraz-inspired online marketplace practice project. Shop skincare, electronics, fashion, groceries and more.{% endblock %}">
     <meta property="og:title" content="{% block og_title %}19Bees{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Shop everything at 19Bees{% endblock %}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
-        body { background: #f5f5f5; transition: background 0.2s ease, color 0.2s ease; }
+        body { background: #F3F4F6; color: #111827; transition: background 0.2s ease, color 0.2s ease; }
 
         html[data-theme="dark"] body { background: #14151a; color: #ddd; }
         html[data-theme="dark"] .section, html[data-theme="dark"] .product-card,
@@ -38,7 +39,7 @@
         .search-suggestions { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #eee; z-index: 250; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .search-suggestions.show { display: block; }
         .search-suggestions a { display: block; padding: 8px 14px; font-size: 13px; color: #333; text-decoration: none; }
-        .search-suggestions a:hover { background: #fff6f2; color: #f85606; }
+        .search-suggestions a:hover { background: #EFF6FF; color: #60A5FA; }
         .trending-row { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
         .trending-row a { font-size: 11px; color: #fff; opacity: 0.85; text-decoration: none; }
         .trending-row a:hover { text-decoration: underline; }
@@ -46,7 +47,7 @@
 
         .site-header { position: sticky; top: 0; z-index: 200; }
         .topbar {
-            background: #f85606; color: #fff; font-size: 12px; text-transform: uppercase;
+            background: #374151; color: #fff; font-size: 12px; text-transform: uppercase;
             display: flex; justify-content: flex-end; gap: 24px; padding: 6px 40px;
             overflow: hidden; transition: max-height 0.25s ease, padding 0.25s ease, opacity 0.2s ease;
             max-height: 40px;
@@ -59,21 +60,21 @@
         .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 300; text-transform: none; }
         .lang-dropdown.open .lang-menu { display: block; }
         .lang-menu a { display: block; padding: 8px 14px; color: #333; font-size: 13px; }
-        .lang-menu a:hover { background: #fff6f2; color: #f85606; }
+        .lang-menu a:hover { background: #EFF6FF; color: #60A5FA; }
         .navbar .lang-dropdown { color: #fff; font-size: 13px; white-space: nowrap; }
 
         .navbar {
-            background: #f85606; display: flex; align-items: center;
-            gap: 24px; padding: 16px 40px;
+            background: #374151; display: flex; align-items: center;
+            gap: 24px; padding: 14px 40px;
         }
         .logo { color: #fff; font-size: 30px; font-weight: bold; text-decoration: none; white-space: nowrap; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
-        .logo-mark { width: 30px; height: 30px; }
+        .logo-mark { height: 42px; width: auto; }
         .search-form { flex: 1; display: flex; max-width: 900px; margin: 6px 0; }
         .search-input { flex: 1; padding: 13px 18px; border: none; border-radius: 3px 0 0 3px; font-size: 15px; outline: none; }
-        .search-btn { background: #ffb9a3; border: none; padding: 0 22px; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 18px; color: #f85606; }
+        .search-btn { background: #93C5FD; border: none; padding: 0 22px; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 18px; color: #60A5FA; }
         .cart-link { color: #fff; text-decoration: none; position: relative; display: flex; align-items: center; }
         .cart-link svg { width: 28px; height: 28px; }
-        .cart-badge { position: absolute; top: -8px; right: -10px; background: #fff; color: #f85606; font-size: 11px; font-weight: bold; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
+        .cart-badge { position: absolute; top: -8px; right: -10px; background: #fff; color: #60A5FA; font-size: 11px; font-weight: bold; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
 
         .sidebar {
             position: fixed; left: 0; top: 45%; transform: translateY(-50%);
@@ -88,7 +89,7 @@
             border-bottom: 1px solid #f0f0f0; text-decoration: none;
         }
         .sidebar a:last-child { border-bottom: none; }
-        .sidebar a:hover { color: #f85606; background: #fff6f2; }
+        .sidebar a:hover { color: #60A5FA; background: #EFF6FF; }
         .sidebar svg { width: 18px; height: 18px; }
 
         .app-modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; align-items: center; justify-content: center; }
@@ -105,7 +106,7 @@
         .section { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
         .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .section-header h2 { font-size: 20px; font-weight: 500; color: #333; }
-        .section-header .sub { color: #f85606; font-size: 14px; }
+        .section-header .sub { color: #60A5FA; font-size: 14px; }
 
         .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
 
@@ -113,21 +114,21 @@
         .sort-bar select { padding: 6px 10px; border: 1px solid #ddd; font-size: 13px; }
         .pagination { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }
         .pagination a, .pagination span { padding: 6px 12px; border: 1px solid #ddd; font-size: 13px; text-decoration: none; color: #333; }
-        .pagination .current { background: #f85606; color: #fff; border-color: #f85606; }
+        .pagination .current { background: #60A5FA; color: #fff; border-color: #60A5FA; }
         .stock-badge { font-size: 11px; margin-top: 4px; }
         .stock-badge.low { color: #e67e22; }
         .stock-badge.out { color: #c0392b; font-weight: bold; }
         .wishlist-heart { position: relative; }
         .wishlist-heart form { position: absolute; top: 8px; right: 8px; z-index: 5; }
         .wishlist-heart button { background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; font-size: 15px; color: #ccc; }
-        .wishlist-heart button.active { color: #f85606; }
+        .wishlist-heart button.active { color: #60A5FA; }
         .status-progress { display: flex; align-items: center; margin: 14px 0; }
         .status-step { flex: 1; text-align: center; font-size: 11px; color: #999; position: relative; }
         .status-step .dot { width: 12px; height: 12px; border-radius: 50%; background: #ddd; margin: 0 auto 4px; }
-        .status-step.done .dot { background: #f85606; }
-        .status-step.done { color: #f85606; }
+        .status-step.done .dot { background: #60A5FA; }
+        .status-step.done { color: #60A5FA; }
         .status-line { position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: #ddd; z-index: -1; }
-        .status-step.done .status-line { background: #f85606; }
+        .status-step.done .status-line { background: #60A5FA; }
         .cancel-btn { background: #fff; border: 1px solid #c0392b; color: #c0392b; padding: 6px 14px; font-size: 12px; cursor: pointer; margin-top: 8px; }
         .coupon-box { display: flex; gap: 8px; margin: 14px 0; }
         .coupon-box input { flex: 1; padding: 9px; border: 1px solid #ddd; font-size: 13px; }
@@ -136,9 +137,9 @@
         .product-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .product-card img { width: 100%; height: 150px; object-fit: cover; margin-bottom: 10px; }
         .product-card .pname { font-size: 13px; height: 36px; overflow: hidden; margin-bottom: 6px; }
-        .product-card .price { color: #f85606; font-size: 17px; font-weight: bold; }
+        .product-card .price { color: #60A5FA; font-size: 17px; font-weight: bold; }
         .product-card .old-price { color: #999; font-size: 12px; text-decoration: line-through; margin-top: 2px; }
-        .product-card .discount { color: #f85606; font-size: 12px; margin-left: 6px; }
+        .product-card .discount { color: #60A5FA; font-size: 12px; margin-left: 6px; }
         .product-card .card-rating { color: #f5a623; font-size: 11px; margin-top: 6px; }
         .product-card .card-rating .rcount { color: #999; margin-left: 4px; }
 
@@ -146,14 +147,14 @@
         .category-box { background: #fff; border-right: 1px solid #eee; border-bottom: 1px solid #eee; text-align: center; padding: 20px 10px 16px; text-decoration: none; color: #333; font-size: 13px; }
         .category-box img { width: 100%; height: 90px; object-fit: contain; display: block; margin-bottom: 10px; }
         .category-box .cname { line-height: 1.3; }
-        .category-box:hover { color: #f85606; }
+        .category-box:hover { color: #60A5FA; }
         @media (max-width: 900px) { .category-grid { grid-template-columns: repeat(4, 1fr); } }
 
         .footer { background: #f0f0f0; margin-top: 30px; padding: 30px 40px 10px; }
         .footer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; margin-bottom: 24px; }
         .footer-col h3 { font-size: 15px; font-weight: 500; margin-bottom: 12px; color: #333; }
         .footer-col a { display: block; font-size: 13px; color: #555; text-decoration: none; margin-bottom: 8px; }
-        .footer-col a:hover { color: #f85606; }
+        .footer-col a:hover { color: #60A5FA; }
         .footer-col p { font-size: 13px; color: #666; line-height: 1.6; }
         .app-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
         .app-badge { border: 1px solid #ccc; border-radius: 4px; padding: 6px 12px; font-size: 12px; color: #333; background: #fff; }
@@ -179,21 +180,21 @@
         .toast.warning { background: #e67e22; }
         .toast.info { background: #333; }
 
-        .newsletter-box { background: #fff6f2; border: 1px solid #ffd9c7; padding: 16px; margin-top: 10px; }
+        .newsletter-box { background: #EFF6FF; border: 1px solid #DBEAFE; padding: 16px; margin-top: 10px; }
         .newsletter-box p { font-size: 12px; color: #666; margin-bottom: 8px; }
         .newsletter-box form { display: flex; gap: 6px; }
         .newsletter-box input { flex: 1; padding: 8px; border: 1px solid #ddd; font-size: 12px; }
-        .newsletter-box button { background: #f85606; color: #fff; border: none; padding: 0 14px; cursor: pointer; font-size: 12px; }
+        .newsletter-box button { background: #60A5FA; color: #fff; border: none; padding: 0 14px; cursor: pointer; font-size: 12px; }
 
-        .chat-bubble { position: fixed; bottom: 24px; right: 24px; width: 54px; height: 54px; border-radius: 50%; background: #f85606; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 400; }
+        .chat-bubble { position: fixed; bottom: 24px; right: 24px; width: 54px; height: 54px; border-radius: 50%; background: #60A5FA; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 400; }
         .chat-window { position: fixed; bottom: 90px; right: 24px; width: 280px; background: #fff; border: 1px solid #eee; box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 400; display: none; }
         .chat-window.open { display: block; }
-        .chat-header { background: #f85606; color: #fff; padding: 12px; font-size: 13px; font-weight: 500; }
+        .chat-header { background: #60A5FA; color: #fff; padding: 12px; font-size: 13px; font-weight: 500; }
         .chat-body { padding: 12px; font-size: 12px; color: #444; max-height: 200px; overflow-y: auto; }
-        .chat-msg { background: #f5f5f5; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+        .chat-msg { background: #F3F4F6; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
         .chat-input-row { display: flex; border-top: 1px solid #eee; }
         .chat-input-row input { flex: 1; border: none; padding: 10px; font-size: 12px; }
-        .chat-input-row button { background: #f85606; color: #fff; border: none; padding: 0 14px; cursor: pointer; }
+        .chat-input-row button { background: #60A5FA; color: #fff; border: none; padding: 0 14px; cursor: pointer; }
 
         @media (max-width: 700px) {
             .topbar { flex-wrap: wrap; gap: 10px; padding: 6px 14px; justify-content: center; }
@@ -224,6 +225,9 @@
             <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
             {% if user.is_authenticated %}
             <span>Hi, <a href="{% url 'profile' %}" style="text-decoration:underline;">{{ user.username }}</a></span>
+            {% if user.is_staff %}
+            <a href="{% url 'owner_dashboard' %}">Owner Dashboard</a>
+            {% endif %}
             {% if user.seller_account %}
             <a href="{% url 'seller_dashboard' %}">Seller Dashboard</a>
             {% endif %}
@@ -238,17 +242,7 @@
 
         <div class="navbar">
             <a href="{% url 'home' %}" class="logo">
-                <svg viewBox="0 0 40 40" class="logo-mark">
-                    <polygon points="20,2 35,11 35,29 20,38 5,29 5,11" fill="#ffc93c"/>
-                    <polygon points="20,7 30,13 30,27 20,33 10,27 10,13" fill="#fff3d0"/>
-                    <ellipse cx="20" cy="20" rx="6.5" ry="5" fill="#2b2b2b"/>
-                    <rect x="13.5" y="17" width="13" height="2" fill="#ffc93c"/>
-                    <rect x="13.5" y="21" width="13" height="2" fill="#ffc93c"/>
-                    <circle cx="20" cy="13" r="2.3" fill="#2b2b2b"/>
-                    <path d="M14 12 Q10 8 15 7 Q16 11 14 12Z" fill="#fff" opacity="0.9"/>
-                    <path d="M26 12 Q30 8 25 7 Q24 11 26 12Z" fill="#fff" opacity="0.9"/>
-                </svg>
-                19Bees
+                <img src="{% static 'daraz/images/logo.png' %}" alt="19Bees" class="logo-mark">
             </a>
             <div style="flex:1;position:relative;max-width:900px;">
                 <form class="search-form" action="{% url 'home' %}" method="get" style="max-width:none;margin:6px 0;">
@@ -517,7 +511,7 @@
             if (!text) return;
             const userMsg = document.createElement('div');
             userMsg.className = 'chat-msg';
-            userMsg.style.background = '#fff6f2';
+            userMsg.style.background = '#EFF6FF';
             userMsg.textContent = text;
             body.appendChild(userMsg);
             input.value = '';

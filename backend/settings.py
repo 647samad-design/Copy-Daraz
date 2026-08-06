@@ -144,6 +144,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
@@ -155,6 +158,7 @@ if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_HOST = 'smtp.gmail.com'
     EMAIL_PORT = 587
+    EMAIL_TIMEOUT = 10
     EMAIL_USE_TLS = True
     DEFAULT_FROM_EMAIL = f'19Bees <{EMAIL_HOST_USER}>'
 else:

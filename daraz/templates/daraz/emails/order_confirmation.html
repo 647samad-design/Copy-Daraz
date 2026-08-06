@@ -1,6 +1,6 @@
 {% extends "daraz/emails/_base_email.html" %}
 {% block email_body %}
-    <h2 style="margin:0 0 6px;color:#1c1c1c;">Order confirmed! &#127881;</h2>
+    <h2 style="margin:0 0 6px;color:#374151;">Order confirmed! &#127881;</h2>
     <p style="margin:0 0 18px;color:#666;">Hi {{ order.full_name }}, thanks for shopping with 19Bees.</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:4px;margin-bottom:18px;">
@@ -23,12 +23,12 @@
         {% endfor %}
         <tr>
             <td style="padding:10px 0;font-weight:bold;">Total</td>
-            <td style="padding:10px 0;font-weight:bold;text-align:right;color:#1c1c1c;">Rs.{{ order.total }}</td>
+            <td style="padding:10px 0;font-weight:bold;text-align:right;color:#374151;">Rs.{{ order.total }}</td>
         </tr>
     </table>
 
     <p style="margin:0 0 4px;font-size:12px;color:#999;">Delivering to</p>
     <p style="margin:0 0 18px;">{{ order.address }}, {{ order.city }} &middot; {{ order.phone }}</p>
 
-    <a href="{{ invoice_url }}" style="display:inline-block;background:#ffc93c;color:#1c1c1c;text-decoration:none;padding:11px 26px;border-radius:4px;font-weight:bold;font-size:13px;">Download invoice</a>
+    <a href="{{ invoice_url }}" style="display:inline-block;background:#60A5FA;color:#374151;text-decoration:none;padding:11px 26px;border-radius:4px;font-weight:bold;font-size:13px;">Download invoice</a>
 {% endblock %}

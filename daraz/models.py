@@ -27,7 +27,7 @@ class Product(models.Model):
     ]
 
     name = models.CharField(max_length=255)
-    image_url = models.URLField()
+    image_url = models.CharField(max_length=500)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     old_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     discount_percent = models.PositiveIntegerField(default=0)
@@ -37,6 +37,12 @@ class Product(models.Model):
     stock = models.PositiveIntegerField(default=50)
     seller_name = models.CharField(max_length=100, default="19Bees Mall")
     seller_account = models.ForeignKey("SellerAccount", related_name="products", on_delete=models.SET_NULL, null=True, blank=True)
+    APPROVAL_CHOICES = [
+        ("approved", "Approved"),
+        ("pending", "Pending review"),
+        ("rejected", "Rejected"),
+    ]
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="approved")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -55,6 +61,7 @@ class Review(models.Model):
     username = models.CharField(max_length=100)
     rating = models.PositiveSmallIntegerField(default=5)
     comment = models.TextField()
+    is_verified_purchase = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -145,7 +152,7 @@ class Coupon(models.Model):
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, related_name="extra_images", on_delete=models.CASCADE)
-    image_url = models.URLField()
+    image_url = models.CharField(max_length=500)
 
     def __str__(self):
         return f"Image for {self.product.name}"
@@ -230,15 +237,36 @@ class SellerAccount(models.Model):
         ("pending", "Pending approval"),
         ("approved", "Approved"),
         ("rejected", "Rejected"),
+        ("suspended", "Suspended"),
     ]
 
     user = models.OneToOneField("auth.User", related_name="seller_account", on_delete=models.CASCADE)
     account_type = models.CharField(max_length=20, choices=ACCOUNT_TYPE_CHOICES, default="individual")
-    business_name = models.CharField(max_length=150, blank=True)
-    phone = models.CharField(max_length=30, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    # Registration details (per marketplace onboarding spec)
+    full_name = models.CharField(max_length=150, blank=True)
+    business_name = models.CharField(max_length=150, blank=True)
+    organization_name = models.CharField(max_length=150, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    cnic = models.CharField("CNIC / National ID", max_length=30, blank=True)
+    business_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True, default="Pakistan")
+    store_description = models.TextField(blank=True)
+    product_categories = models.CharField(max_length=255, blank=True, help_text="Comma-separated categories the store will sell")
+    brand_info = models.TextField(blank=True)
+    tax_info = models.CharField(max_length=100, blank=True)
+    bank_details = models.CharField(max_length=255, blank=True)
+
+    business_certificate = models.FileField(upload_to="seller_docs/certificates/", blank=True, null=True)
+    id_document = models.FileField(upload_to="seller_docs/ids/", blank=True, null=True)
+    store_logo = models.ImageField(upload_to="seller_docs/logos/", blank=True, null=True)
+    store_banner = models.ImageField(upload_to="seller_docs/banners/", blank=True, null=True)
+
+    admin_note = models.CharField(max_length=255, blank=True, help_text="Internal note, e.g. reason for rejection or requested info")
 
     def save(self, *args, **kwargs):
         if self.pk is None and not kwargs.get("update_fields"):
@@ -249,5 +277,104 @@ class SellerAccount(models.Model):
     def display_name(self):
         return self.business_name or self.user.username
 
+    @property
+    def lifetime_sales(self):
+        from django.db.models import Sum, F
+        items = OrderItem.objects.filter(product__seller_account=self)
+        total = 0
+        for i in items:
+            total += i.subtotal
+        return total
+
+    @property
+    def effective_commission_rate(self):
+        """
+        Tiered commission: the more a seller sells, the lower their commission rate,
+        rewarding high-volume sellers. Base rate is the individual/organization rate;
+        thresholds reduce it as lifetime sales grow.
+        """
+        base = float(self.commission_rate)
+        sales = float(self.lifetime_sales)
+        if sales >= 200000:
+            discount = 5
+        elif sales >= 50000:
+            discount = 2
+        else:
+            discount = 0
+        return max(base - discount, 3)
+
+    @property
+    def average_rating(self):
+        reviews = self.seller_reviews.all()
+        if not reviews:
+            return 0
+        return round(sum(r.rating for r in reviews) / len(reviews), 1)
+
     def __str__(self):
         return f"{self.display_name} ({self.get_account_type_display()}, {self.status})"
+
+
+class SellerReview(models.Model):
+    seller = models.ForeignKey(SellerAccount, related_name="seller_reviews", on_delete=models.CASCADE)
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
+    rating = models.PositiveSmallIntegerField(default=5)
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("seller", "user")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} rated {self.seller.display_name} {self.rating}/5"
+
+
+class ReturnRequest(models.Model):
+    STATUS_CHOICES = [
+        ("requested", "Requested"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("refunded", "Refunded"),
+    ]
+    order_item = models.ForeignKey("OrderItem", related_name="return_requests", on_delete=models.CASCADE)
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="requested")
+    admin_note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Return: {self.order_item.product_name} ({self.status})"
+
+
+class SiteSettings(models.Model):
+    """A single-row table for site-wide settings, editable from the admin panel."""
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    site_name = models.CharField(max_length=100, default="19Bees")
+
+    class Meta:
+        verbose_name = "Site settings"
+        verbose_name_plural = "Site settings"
+
+    def __str__(self):
+        return "Site settings"
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class AuditLog(models.Model):
+    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL)
+    action = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.action} ({self.user})"

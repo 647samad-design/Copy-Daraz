@@ -21,7 +21,7 @@
             </td>
             {% endfor %}
         </tr>
-        <tr><th>Price</th>{% for p in products %}<td style="color:#f85606;font-weight:bold;">Rs.{{ p.price }}</td>{% endfor %}</tr>
+        <tr><th>Price</th>{% for p in products %}<td style="color:#60A5FA;font-weight:bold;">Rs.{{ p.price }}</td>{% endfor %}</tr>
         <tr><th>Category</th>{% for p in products %}<td>{{ p.get_category_display }}</td>{% endfor %}</tr>
         <tr><th>Rating</th>{% for p in products %}<td>{{ p.average_rating }}/5 ({{ p.reviews.count }})</td>{% endfor %}</tr>
         <tr><th>Stock</th>{% for p in products %}<td>{% if p.stock > 0 %}{{ p.stock }} available{% else %}Out of stock{% endif %}</td>{% endfor %}</tr>

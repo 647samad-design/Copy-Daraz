@@ -6,34 +6,34 @@
     .product-info { flex: 1; background: #fff; border: 1px solid #eee; padding: 20px; }
     .product-info h1 { font-size: 22px; font-weight: 500; margin-bottom: 12px; }
     .price-block { margin: 16px 0; }
-    .price-block .price { color: #f85606; font-size: 30px; font-weight: bold; }
+    .price-block .price { color: #60A5FA; font-size: 30px; font-weight: bold; }
     .price-block .old-price { color: #999; font-size: 16px; text-decoration: line-through; margin-left: 10px; }
-    .price-block .discount { color: #f85606; margin-left: 8px; }
+    .price-block .discount { color: #60A5FA; margin-left: 8px; }
     .btn-row { display: flex; gap: 12px; margin-top: 20px; }
     .btn-buy, .btn-cart { padding: 12px 30px; border: none; font-size: 15px; cursor: pointer; border-radius: 2px; }
     .btn-buy { background: #4cc9f0; color: #fff; }
-    .btn-cart { background: #f85606; color: #fff; }
+    .btn-cart { background: #60A5FA; color: #fff; }
     .rating-line { color: #f5a623; margin-bottom: 10px; }
     .desc-box { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
     .reviews-box { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
     .review-form { display: flex; flex-direction: column; gap: 10px; max-width: 500px; margin-bottom: 24px; }
     .review-form input, .review-form select, .review-form textarea { padding: 8px; border: 1px solid #ddd; font-size: 14px; }
-    .review-form button { align-self: flex-start; background: #f85606; color: #fff; border: none; padding: 10px 24px; cursor: pointer; }
+    .review-form button { align-self: flex-start; background: #60A5FA; color: #fff; border: none; padding: 10px 24px; cursor: pointer; }
     .review-item { border-bottom: 1px solid #eee; padding: 14px 0; }
     .review-item .stars { color: #f5a623; }
     .review-item .rname { font-weight: 500; margin-right: 8px; }
     .thumb-row { display: flex; gap: 8px; margin-top: 10px; }
     .thumb-row img { width: 55px; height: 55px; object-fit: cover; border: 1px solid #eee; cursor: pointer; }
-    .thumb-row img.active { border-color: #f85606; }
+    .thumb-row img.active { border-color: #60A5FA; }
     .seller-link { font-size: 12px; color: #666; margin-bottom: 10px; }
-    .seller-link a { color: #f85606; text-decoration: none; }
+    .seller-link a { color: #60A5FA; text-decoration: none; }
     .qna-box { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
     .qna-form { display: flex; gap: 10px; margin-bottom: 18px; }
     .qna-form input { flex: 1; padding: 9px; border: 1px solid #ddd; font-size: 13px; }
-    .qna-form button { background: #f85606; color: #fff; border: none; padding: 0 18px; cursor: pointer; }
+    .qna-form button { background: #60A5FA; color: #fff; border: none; padding: 0 18px; cursor: pointer; }
     .qna-item { border-bottom: 1px solid #f0f0f0; padding: 10px 0; font-size: 13px; }
     .qna-item .q { font-weight: 500; }
-    .qna-item .a { color: #666; margin-top: 4px; padding-left: 14px; border-left: 2px solid #f85606; }
+    .qna-item .a { color: #666; margin-top: 4px; padding-left: 14px; border-left: 2px solid #60A5FA; }
 {% endblock %}
 {% block content %}
 
@@ -44,7 +44,7 @@
             <form method="post" action="{% url 'toggle_wishlist' product.id %}" style="position:absolute;top:10px;right:10px;">
                 {% csrf_token %}
                 <input type="hidden" name="next" value="{% url 'product_detail' product.id %}">
-                <button type="submit" style="background:#fff;border:1px solid #eee;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;color:{% if in_wishlist %}#f85606{% else %}#ccc{% endif %};">&#9829;</button>
+                <button type="submit" style="background:#fff;border:1px solid #eee;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;color:{% if in_wishlist %}#60A5FA{% else %}#ccc{% endif %};">&#9829;</button>
             </form>
             {% endif %}
             {% if gallery|length > 1 %}

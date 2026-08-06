@@ -5,25 +5,27 @@
     .sd-status.pending { background: #fff8e1; color: #b8860b; border: 1px solid #ffe082; }
     .sd-status.approved { background: #e8f8f0; color: #1e8449; border: 1px solid #a3e4c1; }
     .sd-status.rejected { background: #fdeceb; color: #c0392b; border: 1px solid #f5b7b1; }
+    .sd-status.suspended { background: #fdeceb; color: #7f1d1d; border: 1px solid #f5b7b1; }
     .sd-stats { display: flex; gap: 14px; margin-bottom: 20px; }
     .sd-stat { flex: 1; background: #fff; border: 1px solid #eee; padding: 16px; text-align: center; }
-    .sd-stat .num { font-size: 22px; font-weight: bold; color: #1c1c1c; }
+    .sd-stat .num { font-size: 22px; font-weight: bold; color: #374151; }
     .sd-stat .label { font-size: 11px; color: #888; margin-top: 4px; }
     .sd-section { background: #fff; border: 1px solid #eee; padding: 20px; margin-bottom: 20px; }
     .sd-section h2 { font-size: 16px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
-    .add-btn { background: #ffc93c; color: #1c1c1c; padding: 8px 16px; text-decoration: none; font-size: 12px; font-weight: bold; border-radius: 4px; }
+    .add-btn { background: #60A5FA; color: #374151; padding: 8px 16px; text-decoration: none; font-size: 12px; font-weight: bold; border-radius: 4px; }
     .sd-product-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
     .sd-product-row img { width: 46px; height: 46px; object-fit: cover; border: 1px solid #eee; }
     .sd-product-row .name { flex: 1; }
-    .sd-product-row a { font-size: 12px; color: #f85606; margin-left: 10px; }
+    .sd-product-row a { font-size: 12px; color: #60A5FA; margin-left: 10px; }
     .sd-order-row { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; display: flex; justify-content: space-between; }
 {% endblock %}
 {% block content %}
 <div class="sd-wrap">
     <div class="sd-status {{ seller.status }}">
         {% if seller.status == "pending" %}Your seller application is pending review. You'll be notified once approved.
-        {% elif seller.status == "approved" %}You're an approved {{ seller.get_account_type_display|lower }} &middot; Commission rate: {{ seller.commission_rate }}%
-        {% else %}Your application was not approved.
+        {% elif seller.status == "approved" %}You're an approved {{ seller.get_account_type_display|lower }} &middot; Base commission: {{ seller.commission_rate }}% &middot; Current rate (after volume discount): {{ seller.effective_commission_rate }}%
+        {% elif seller.status == "suspended" %}Your seller account has been suspended. Contact support for details.
+        {% else %}Your application was not approved.{% if seller.admin_note %} Reason: {{ seller.admin_note }}{% endif %}
         {% endif %}
     </div>
 

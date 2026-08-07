@@ -4,7 +4,7 @@
     </div>
     <div style="flex:1;">
         <h2 style="font-size:18px;margin-bottom:8px;">{{ product.name }}</h2>
-        <div style="color:#000000;font-size:13px;margin-bottom:8px;">&#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} reviews</div>
+        <div style="color:#f5a623;font-size:13px;margin-bottom:8px;">&#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} reviews</div>
         <div style="margin-bottom:10px;">
             <span style="color:#000000;font-size:22px;font-weight:bold;">Rs.{{ product.price }}</span>
             {% if product.old_price %}<span style="color:#999;font-size:13px;text-decoration:line-through;margin-left:8px;">Rs.{{ product.old_price }}</span>{% endif %}

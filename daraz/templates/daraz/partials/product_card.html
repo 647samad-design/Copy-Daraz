@@ -30,7 +30,7 @@
     {% if product.stock > 0 %}
     <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form" style="border-top:1px solid #f5f5f5;">
         {% csrf_token %}
-        <button type="submit" style="width:100%;background:#000000;color:#fff;border:none;padding:8px 0;font-size:12px;cursor:pointer;margin-top:4px;">{{ t.add_to_cart|default:"Add to cart" }}</button>
+        <button type="submit" class="card-add-cart">{{ t.add_to_cart|default:"Add to cart" }}</button>
     </form>
     {% endif %}
 </div>

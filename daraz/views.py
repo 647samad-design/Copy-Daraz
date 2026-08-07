@@ -528,12 +528,12 @@ def set_language(request, lang_code):
 
 def help_support(request):
     faqs = [
-        ("How do I place an order?", "Add products to your cart, go to Cart, click 'Proceed to Checkout', fill in your delivery details and confirm. You must be logged in to check out."),
-        ("What payment methods are available?", "Cash on delivery, credit/debit card, and 19Bees wallet (demo options — no real payment is processed on this practice site)."),
+        ("How do I place an order?", "Add products to your cart, go to Cart, click 'Proceed to Checkout', fill in your delivery details and confirm."),
+        ("What payment methods are available?", "Cash on delivery, credit/debit card, and 19Bees wallet."),
         ("How can I track my order?", "Go to 'My orders' from the top menu after logging in to see all your past orders and their status."),
-        ("Can I return a product?", "This is a learning project, so returns aren't processed automatically, but in a real store you'd typically get 7-14 days to request a return from your order page."),
+        ("Can I return a product?", "Yes — go to your order in 'My orders' and request a return within 7-14 days of delivery. Our team will review and follow up."),
         ("How do I change the site language?", "Use the 'Change language' option in the top bar to switch between English, Urdu, and Roman Urdu."),
-        ("I forgot my password, what do I do?", "This demo site doesn't yet have a password-reset flow. Please sign up with a new username for now."),
+        ("I forgot my password, what do I do?", "Click 'Forgot password?' on the login page and follow the link sent to your email to set a new password."),
     ]
     return render(request, "daraz/help.html", {"faqs": faqs})
 
@@ -543,7 +543,7 @@ def sell_on_daraz(request):
         "page_title": "Sell on 19Bees",
         "sections": [
             ("Reach more buyers", "Register your shop and list your products in front of shoppers browsing every category on 19Bees — from electronics to fashion to groceries."),
-            ("Two account types", "Individual sellers pay a 10% platform commission. Organizations / registered businesses pay 20% and get a dedicated business profile."),
+            ("Two account types", "Individual sellers pay a 10% platform commission. Organizations / registered businesses pay 20%, with rates that improve as your sales grow."),
             ("Simple onboarding", "Apply below, get approved, and start listing products from your own seller dashboard — track sales, commission, and earnings in one place."),
         ],
         "cta_url": "/become-seller/",
@@ -555,8 +555,8 @@ def about_us(request):
     return render(request, "daraz/static_page.html", {
         "page_title": "About 19Bees",
         "sections": [
-            ("What this is", "19Bees is a practice e-commerce project built to learn how modern online marketplaces work end to end — browsing, cart, checkout, and order tracking."),
-            ("Not a real store", "It is not affiliated with any real marketplace. It's a personal Django learning project styled after popular shopping sites, with working accounts, cart totals, and order history."),
+            ("Who we are", "19Bees is an online marketplace connecting buyers with individual sellers and businesses across every category — skincare, electronics, fashion, groceries, and more."),
+            ("Our mission", "We're building a trusted, easy-to-use platform where anyone can shop with confidence and where sellers of any size can grow their business."),
         ],
     })
 
@@ -565,8 +565,9 @@ def terms_page(request):
     return render(request, "daraz/static_page.html", {
         "page_title": "Terms and Conditions",
         "sections": [
-            ("Practice project", "This site is a learning demo. No real payments are processed and no goods are actually shipped."),
-            ("Accounts", "Any account you create here is only used to demonstrate login, cart, and order features."),
+            ("Using 19Bees", "By creating an account or placing an order on 19Bees, you agree to these terms. Please use the platform responsibly and in accordance with applicable laws."),
+            ("Accounts", "You're responsible for keeping your account credentials secure. Seller accounts are subject to review and approval before going live."),
+            ("Orders and payments", "Orders are confirmed once payment or cash-on-delivery details are submitted. Pricing and availability may change without notice."),
         ],
     })
 
@@ -575,8 +576,8 @@ def privacy_page(request):
     return render(request, "daraz/static_page.html", {
         "page_title": "Privacy Policy",
         "sections": [
-            ("What we store", "Only what's needed to demo the site: your username, email (if provided), cart contents, and any orders you place."),
-            ("No sharing", "Nothing you enter here is shared with third parties — this is a local/personal practice project, not a live commercial service."),
+            ("What we collect", "We collect the information you provide when creating an account, placing an order, or applying to sell — such as your name, email, address, and payment details."),
+            ("How we use it", "Your information is used to process orders, provide support, and improve your experience on 19Bees. We do not sell your personal data to third parties."),
         ],
     })
 

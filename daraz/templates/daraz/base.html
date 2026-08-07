@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="{% static 'daraz/images/logo.png' %}">
     <title>{% block title %}19Bees{% endblock %}</title>
-    <meta name="description" content="{% block meta_description %}19Bees - a Daraz-inspired online marketplace practice project. Shop skincare, electronics, fashion, groceries and more.{% endblock %}">
+    <meta name="description" content="{% block meta_description %}19Bees - your online marketplace for skincare, electronics, fashion, groceries and more. Shop from trusted individual sellers and businesses.{% endblock %}">
     <meta property="og:title" content="{% block og_title %}19Bees{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Shop everything at 19Bees{% endblock %}">
     <style>
@@ -53,7 +53,8 @@
             max-height: 40px;
         }
         .site-header.scrolled .topbar { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
-        .topbar a { text-decoration: none; letter-spacing: 0.3px; }
+        .topbar a { text-decoration: none; letter-spacing: 0.3px; margin-left: 20px; }
+        .topbar a:first-child { margin-left: 0; }
         .topbar a:hover { text-decoration: underline; }
         .lang-dropdown { position: relative; cursor: pointer; }
         .lang-current::after { content: " ▾"; }
@@ -68,7 +69,8 @@
             gap: 24px; padding: 14px 40px;
         }
         .logo { color: #fff; font-size: 30px; font-weight: bold; text-decoration: none; white-space: nowrap; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
-        .logo-mark { height: 42px; width: auto; }
+        .logo-mark { height: 60px; width: auto; display: block; }
+        .logo { padding: 2px 0; }
         .search-form { flex: 1; display: flex; max-width: 900px; margin: 6px 0; }
         .search-input { flex: 1; padding: 13px 18px; border: none; border-radius: 3px 0 0 3px; font-size: 15px; outline: none; }
         .search-btn { background: #93C5FD; border: none; padding: 0 22px; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 18px; color: #60A5FA; }
@@ -139,7 +141,7 @@
         .product-card .pname { font-size: 13px; height: 36px; overflow: hidden; margin-bottom: 6px; }
         .product-card .price { color: #60A5FA; font-size: 17px; font-weight: bold; }
         .product-card .old-price { color: #999; font-size: 12px; text-decoration: line-through; margin-top: 2px; }
-        .product-card .discount { color: #60A5FA; font-size: 12px; margin-left: 6px; }
+        .product-card .discount { color: #DC2626; font-size: 12px; margin-left: 6px; font-weight: bold; }
         .product-card .card-rating { color: #f5a623; font-size: 11px; margin-top: 6px; }
         .product-card .card-rating .rcount { color: #999; margin-left: 4px; }
 
@@ -391,7 +393,7 @@
         </div>
 
         <div class="footer-bottom">
-            &copy; 2026 19Bees. A student practice project inspired by online marketplaces, built with Django.
+            &copy; 2026 19Bees. Your online marketplace for everyday essentials.
         </div>
     </div>
 
@@ -519,7 +521,7 @@
             setTimeout(() => {
                 const reply = document.createElement('div');
                 reply.className = 'chat-msg';
-                reply.textContent = "Thanks for your message! This is a demo widget, so a real support agent isn't connected here.";
+                reply.textContent = "Thanks for your message! Our support team typically replies within a few hours.";
                 body.appendChild(reply);
                 body.scrollTop = body.scrollHeight;
             }, 700);

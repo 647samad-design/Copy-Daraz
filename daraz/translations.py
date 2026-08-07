@@ -34,7 +34,7 @@ TRANSLATIONS = {
         "logout": "Logout",
         "my_orders": "My orders",
         "help_support": "Help & Support",
-        "sell_on": "Sell on Daraz",
+        "sell_on": "Sell on 19Bees",
         "save_more": "Save more on app",
         "change_language": "Change language",
         # Home sections
@@ -110,7 +110,7 @@ TRANSLATIONS = {
         "download_app_desc": "Download the 19Bees app for a faster, easier shopping experience with exclusive app-only deals.",
         # Help page
         "help_title": "Help & Support",
-        "still_need_help": "Still need help? This is a practice project, but in a real store you'd reach support via live chat, email, or phone from this page.",
+        "still_need_help": "Still need help? Reach us via live chat, email, or phone from this page.",
     },
     "ur": {
         "sort_default": "ترتیب: ڈیفالٹ",
@@ -146,7 +146,7 @@ TRANSLATIONS = {
         "logout": "لاگ آؤٹ",
         "my_orders": "میرے آرڈرز",
         "help_support": "مدد و معاونت",
-        "sell_on": "دراز پر فروخت کریں",
+        "sell_on": "19Bees پر فروخت کریں",
         "save_more": "ایپ پر مزید بچت کریں",
         "change_language": "زبان تبدیل کریں",
         "flash_sale": "فلیش سیل",
@@ -215,7 +215,7 @@ TRANSLATIONS = {
         "happy_shopping": "خوشگوار خریداری",
         "download_app_desc": "تیز اور آسان خریداری کے تجربے کے لیے کاپی دراز ایپ ڈاؤن لوڈ کریں۔",
         "help_title": "مدد و معاونت",
-        "still_need_help": "مزید مدد چاہیے؟ یہ ایک پریکٹس پراجیکٹ ہے، لیکن اصل اسٹور میں آپ لائیو چیٹ، ای میل یا فون کے ذریعے رابطہ کر سکتے ہیں۔",
+        "still_need_help": "مزید مدد چاہیے؟ لائیو چیٹ، ای میل یا فون کے ذریعے ہم سے رابطہ کریں۔",
     },
     "roman": {
         "sort_default": "Sort: Default",
@@ -251,7 +251,7 @@ TRANSLATIONS = {
         "logout": "Logout",
         "my_orders": "Mere orders",
         "help_support": "Madad aur support",
-        "sell_on": "Daraz par bechain",
+        "sell_on": "19Bees par bechain",
         "save_more": "App par zyada bachat karein",
         "change_language": "Zaban tabdeel karein",
         "flash_sale": "Flash sale",
@@ -320,7 +320,7 @@ TRANSLATIONS = {
         "happy_shopping": "Khushgawar shopping",
         "download_app_desc": "Tez aur asaan shopping ke liye 19Bees app download karein.",
         "help_title": "Madad aur support",
-        "still_need_help": "Aur madad chahiye? Yeh practice project hai, lekin real store mein aap live chat, email, ya phone se support le sakte hain.",
+        "still_need_help": "Aur madad chahiye? Live chat, email, ya phone se hum se raabta karein.",
     },
 }
 

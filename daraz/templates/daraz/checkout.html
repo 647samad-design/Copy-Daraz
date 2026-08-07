@@ -4,21 +4,16 @@
     .checkout-form { flex: 1; background: #fff; border: 1px solid #eee; padding: 24px; }
     .checkout-form h2 { font-size: 18px; font-weight: 500; margin-bottom: 16px; }
     .checkout-form input, .checkout-form select { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 14px; }
-    .checkout-form button { background: #60A5FA; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; }
+    .checkout-form button { background: #000000; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; }
     .summary { width: 320px; background: #fff; border: 1px solid #eee; padding: 20px; }
     .summary h3 { font-size: 16px; margin-bottom: 12px; }
     .summary-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f5f5f5; }
-    .summary-total { display: flex; justify-content: space-between; font-size: 17px; font-weight: bold; color: #60A5FA; margin-top: 12px; }
+    .summary-total { display: flex; justify-content: space-between; font-size: 17px; font-weight: bold; color: #000000; margin-top: 12px; }
 {% endblock %}
 {% block content %}
 <div class="checkout-wrap">
     <div class="checkout-form">
         <h2>{{ t.delivery_details }}</h2>
-        {% if not user.is_authenticated %}
-        <div style="background:#EFF6FF;border:1px solid #DBEAFE;padding:10px 14px;font-size:12px;margin-bottom:14px;">
-            Checking out as a guest. <a href="{% url 'login' %}" style="color:#60A5FA;">Login</a> to save your address and track this order later.
-        </div>
-        {% endif %}
         {% if addresses %}
         <select id="saved-address-select" onchange="fillAddress(this)" style="margin-bottom:14px;">
             <option value="">-- Choose a saved address --</option>
@@ -30,9 +25,6 @@
         <form method="post">
             {% csrf_token %}
             <input type="text" id="id_full_name" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username|default:'' }}" required>
-            {% if not user.is_authenticated %}
-            <input type="email" name="guest_email" placeholder="Email (for order confirmation)" required>
-            {% endif %}
             <input type="text" id="id_address" name="address" placeholder="{{ t.street_address }}" required>
             <input type="text" id="id_city" name="city" placeholder="{{ t.city }}" required>
             <input type="text" id="id_phone" name="phone" placeholder="{{ t.phone_number }}" required>

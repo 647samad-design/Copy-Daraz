@@ -8,15 +8,15 @@
     .cart-row img { width: 70px; height: 70px; object-fit: cover; border: 1px solid #eee; }
     .cart-row .info { flex: 1; }
     .cart-row .name { font-size: 14px; margin-bottom: 4px; }
-    .cart-row .price { color: #60A5FA; font-weight: bold; }
+    .cart-row .price { color: #000000; font-weight: bold; }
     .qty-controls { display: flex; align-items: center; gap: 8px; }
     .qty-controls button { width: 26px; height: 26px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
     .qty-controls form { display: inline; }
     .subtotal { width: 100px; text-align: right; font-weight: bold; }
     .remove-btn { color: #999; background: none; border: none; cursor: pointer; font-size: 13px; text-decoration: underline; }
     .cart-summary { display: flex; justify-content: flex-end; padding: 20px; gap: 20px; align-items: center; }
-    .cart-summary .total { font-size: 20px; font-weight: bold; color: #60A5FA; }
-    .checkout-btn { background: #60A5FA; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; text-decoration: none; }
+    .cart-summary .total { font-size: 20px; font-weight: bold; color: #000000; }
+    .checkout-btn { background: #000000; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; text-decoration: none; }
 {% endblock %}
 {% block content %}
 <div class="cart-wrap">
@@ -30,7 +30,7 @@
     {% endif %}
 
     {% for row in items %}
-    <div class="cart-row">
+    <div class="cart-row" data-product-id="{{ row.product.id }}">
         <input type="checkbox" class="item-check" value="{{ row.product.id }}">
         <img src="{{ row.product.image_url }}" alt="{{ row.product.name }}" loading="lazy">
         <div class="info">
@@ -38,34 +38,34 @@
             <div class="price">Rs.{{ row.product.price }}</div>
         </div>
         <div class="qty-controls">
-            <form method="post" action="{% url 'update_cart_item' row.product.id %}">
+            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="decrease">
                 <button type="submit">-</button>
             </form>
-            <span>{{ row.qty }}</span>
-            <form method="post" action="{% url 'update_cart_item' row.product.id %}">
+            <span class="qty-value">{{ row.qty }}</span>
+            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="increase">
                 <button type="submit">+</button>
             </form>
         </div>
-        <div class="subtotal">Rs.{{ row.subtotal }}</div>
-        <form method="post" action="{% url 'update_cart_item' row.product.id %}">
+        <div class="subtotal">Rs.<span class="row-subtotal">{{ row.subtotal }}</span></div>
+        <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">
             {% csrf_token %}
             <input type="hidden" name="action" value="remove">
             <button class="remove-btn" type="submit">{{ t.remove }}</button>
         </form>
     </div>
     {% empty %}
-    <div style="padding:30px;text-align:center;color:#888;">
-        {{ t.empty_cart }} <a href="{% url 'home' %}" style="color:#60A5FA;">{{ t.continue_shopping }}</a>
+    <div style="padding:30px;text-align:center;color:#888;" id="empty-cart-msg">
+        {{ t.empty_cart }} <a href="{% url 'home' %}" style="color:#000000;">{{ t.continue_shopping }}</a>
     </div>
     {% endfor %}
 
     {% if items %}
     <div class="cart-summary">
-        <span>{{ t.total }}: <span class="total">Rs.{{ total }}</span></span>
+        <span>{{ t.total }}: <span class="total" id="cart-total-value">Rs.{{ total }}</span></span>
         <a class="checkout-btn" href="{% url 'checkout' %}">{{ t.checkout }}</a>
     </div>
     {% endif %}
@@ -90,5 +90,59 @@ function bulkRemove() {
     document.body.appendChild(form);
     form.submit();
 }
+
+// Cart +/-/remove buttons update quantities and totals in place, no page reload.
+(function () {
+    document.addEventListener('submit', function (e) {
+        const form = e.target.closest('.ajax-cart-update-form');
+        if (!form) return;
+        e.preventDefault();
+        const row = form.closest('.cart-row');
+
+        fetch(form.action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            body: new FormData(form),
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) return;
+
+                if (data.removed) {
+                    row.remove();
+                    const remaining = document.querySelectorAll('.cart-row').length;
+                    if (remaining === 0) {
+                        window.location.reload();
+                        return;
+                    }
+                } else {
+                    row.querySelector('.qty-value').textContent = data.product_qty;
+                    row.querySelector('.row-subtotal').textContent = data.product_subtotal;
+                }
+
+                const totalEl = document.getElementById('cart-total-value');
+                if (totalEl) totalEl.textContent = 'Rs.' + data.cart_total;
+
+                document.querySelectorAll('.cart-link').forEach(function (link) {
+                    let badge = link.querySelector('.cart-badge');
+                    if (data.cart_count > 0) {
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'cart-badge';
+                            link.appendChild(badge);
+                        }
+                        badge.textContent = data.cart_count;
+                    } else if (badge) {
+                        badge.remove();
+                    }
+                });
+
+                const header = document.querySelector('.cart-header');
+                if (header) {
+                    header.textContent = header.textContent.replace(/\(\d+ items?\)/, '(' + data.cart_count + (data.cart_count === 1 ? ' item)' : ' items)'));
+                }
+            });
+    });
+})();
 </script>
 {% endblock %}

@@ -5,6 +5,10 @@ from .models import (
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
 )
 
+admin.site.site_header = "19Bees Administration"
+admin.site.site_title = "19Bees Admin"
+admin.site.index_title = "Store Management"
+
 
 class ReviewInline(admin.TabularInline):
     model = Review
@@ -23,11 +27,21 @@ class QuestionInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "seller_name", "approval_status", "is_flash_sale")
+    list_display = ("name", "category", "price", "old_price", "discount_percent", "stock", "stock_status", "seller_name", "approval_status", "is_flash_sale")
     list_filter = ("category", "is_flash_sale", "approval_status")
-    search_fields = ("name",)
+    search_fields = ("name", "seller_name", "description")
+    list_editable = ("price", "stock")
+    list_per_page = 50
     inlines = [ProductImageInline, ReviewInline, QuestionInline]
-    actions = ["approve_products", "reject_products"]
+    actions = ["approve_products", "reject_products", "mark_flash_sale", "unmark_flash_sale"]
+
+    def stock_status(self, obj):
+        if obj.stock <= 0:
+            return "Out of stock"
+        if obj.stock <= 5:
+            return f"Low ({obj.stock})"
+        return "In stock"
+    stock_status.short_description = "Stock status"
 
     def approve_products(self, request, queryset):
         queryset.update(approval_status="approved")
@@ -39,63 +53,109 @@ class ProductAdmin(admin.ModelAdmin):
         self.message_user(request, f"{queryset.count()} product(s) rejected.")
     reject_products.short_description = "Reject selected products"
 
+    def mark_flash_sale(self, request, queryset):
+        queryset.update(is_flash_sale=True)
+        self.message_user(request, f"{queryset.count()} product(s) added to flash sale.")
+    mark_flash_sale.short_description = "Add to flash sale"
+
+    def unmark_flash_sale(self, request, queryset):
+        queryset.update(is_flash_sale=False)
+        self.message_user(request, f"{queryset.count()} product(s) removed from flash sale.")
+    unmark_flash_sale.short_description = "Remove from flash sale"
+
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin):
     list_display = ("username", "product", "rating", "created_at")
     list_filter = ("rating",)
+    search_fields = ("username", "product__name", "comment")
+    date_hierarchy = "created_at"
 
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
+    readonly_fields = ("product", "product_name", "price", "quantity")
+    can_delete = False
 
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "full_name", "city", "status", "total", "created_at")
-    list_filter = ("status",)
+    list_display = ("id", "user", "full_name", "city", "phone", "payment_method", "status", "total", "created_at")
+    list_filter = ("status", "payment_method", "created_at")
+    search_fields = ("id", "full_name", "user__username", "phone", "city")
+    list_editable = ("status",)
+    date_hierarchy = "created_at"
     inlines = [OrderItemInline]
+    actions = ["mark_confirmed", "mark_shipped", "mark_delivered", "mark_cancelled"]
+
+    def mark_confirmed(self, request, queryset):
+        queryset.update(status="confirmed")
+    mark_confirmed.short_description = "Mark selected orders as Confirmed"
+
+    def mark_shipped(self, request, queryset):
+        queryset.update(status="shipped")
+    mark_shipped.short_description = "Mark selected orders as Shipped"
+
+    def mark_delivered(self, request, queryset):
+        queryset.update(status="delivered")
+    mark_delivered.short_description = "Mark selected orders as Delivered"
+
+    def mark_cancelled(self, request, queryset):
+        queryset.update(status="cancelled")
+    mark_cancelled.short_description = "Mark selected orders as Cancelled"
 
 
 @admin.register(Wishlist)
 class WishlistAdmin(admin.ModelAdmin):
     list_display = ("user", "product", "created_at")
+    search_fields = ("user__username", "product__name")
 
 
 @admin.register(Coupon)
 class CouponAdmin(admin.ModelAdmin):
     list_display = ("code", "percent_off", "active")
+    list_editable = ("active",)
+    search_fields = ("code",)
 
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "phone")
+    search_fields = ("user__username", "phone")
 
 
 @admin.register(Address)
 class AddressAdmin(admin.ModelAdmin):
     list_display = ("user", "label", "city", "phone")
+    search_fields = ("user__username", "city", "phone")
 
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ("product", "username", "question", "answer")
+    search_fields = ("product__name", "username", "question")
 
 
 @admin.register(NewsletterSubscriber)
 class NewsletterSubscriberAdmin(admin.ModelAdmin):
     list_display = ("email", "created_at")
+    search_fields = ("email",)
+    date_hierarchy = "created_at"
 
 
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
     list_display = ("user", "message", "is_read", "created_at")
+    list_filter = ("is_read",)
+    search_fields = ("user__username", "message")
 
 
 @admin.register(SearchLog)
 class SearchLogAdmin(admin.ModelAdmin):
     list_display = ("query", "count")
+    search_fields = ("query",)
+    ordering = ("-count",)
 
 
 @admin.register(SellerAccount)
@@ -104,6 +164,7 @@ class SellerAccountAdmin(admin.ModelAdmin):
     list_filter = ("account_type", "status")
     search_fields = ("business_name", "organization_name", "full_name", "user__username", "cnic")
     readonly_fields = ("created_at",)
+    date_hierarchy = "created_at"
     actions = ["approve_sellers", "reject_sellers", "suspend_sellers"]
 
     def approve_sellers(self, request, queryset):
@@ -141,6 +202,8 @@ class SellerAccountAdmin(admin.ModelAdmin):
 class ReturnRequestAdmin(admin.ModelAdmin):
     list_display = ("order_item", "user", "status", "created_at")
     list_filter = ("status",)
+    search_fields = ("user__username",)
+    date_hierarchy = "created_at"
     actions = ["mark_approved", "mark_rejected", "mark_refunded"]
 
     def mark_approved(self, request, queryset):
@@ -159,6 +222,7 @@ class ReturnRequestAdmin(admin.ModelAdmin):
 @admin.register(SellerReview)
 class SellerReviewAdmin(admin.ModelAdmin):
     list_display = ("seller", "user", "rating", "created_at")
+    search_fields = ("seller__display_name", "user__username")
 
 
 @admin.register(SiteSettings)
@@ -174,3 +238,4 @@ class AuditLogAdmin(admin.ModelAdmin):
     list_display = ("action", "user", "created_at")
     list_filter = ("created_at",)
     search_fields = ("action", "user__username")
+    date_hierarchy = "created_at"

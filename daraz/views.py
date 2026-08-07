@@ -279,8 +279,9 @@ def resend_verification(request):
 
 
 def login_view(request):
+    next_url = request.POST.get("next") or request.GET.get("next") or "home"
     if request.user.is_authenticated:
-        return redirect("home")
+        return redirect(next_url)
 
     if request.method == "POST":
         username = request.POST.get("username", "").strip()
@@ -288,11 +289,12 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user is not None:
             auth_login(request, user)
-            return redirect("home")
+            return redirect(next_url)
         messages.error(request, "Incorrect username or password.")
 
     return render(request, "daraz/login.html", {
         "google_client_id": settings.GOOGLE_CLIENT_ID,
+        "next": next_url,
     })
 
 
@@ -304,19 +306,26 @@ def logout_view(request):
 @csrf_exempt
 def google_auth(request):
     """
-    Receives the Google Identity Services credential (ID token) from the
-    frontend, verifies it with Google, and logs the user in (creating an
-    account on first sign-in). Requires GOOGLE_CLIENT_ID to be configured.
+    Receives the Google Identity Services credential from the frontend.
+    The <div id="g_id_onload" data-login_uri="..."> flow makes Google's
+    library submit a real browser POST here and then expects an HTTP
+    redirect back — NOT a JSON body — otherwise the user sees raw JSON
+    text on screen instead of being logged in. Requires GOOGLE_CLIENT_ID
+    to be configured.
     """
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
 
+    next_url = request.POST.get("next") or request.GET.get("next") or "home"
+
     if not settings.GOOGLE_CLIENT_ID:
-        return JsonResponse({"error": "Google sign-in is not configured on this server."}, status=400)
+        messages.error(request, "Google sign-in is not configured on this server.")
+        return redirect("login")
 
     token = request.POST.get("credential")
     if not token:
-        return JsonResponse({"error": "Missing credential"}, status=400)
+        messages.error(request, "Google sign-in failed: missing credential.")
+        return redirect("login")
 
     try:
         from google.oauth2 import id_token
@@ -325,21 +334,23 @@ def google_auth(request):
         idinfo = id_token.verify_oauth2_token(
             token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
         )
-    except Exception as exc:
-        return JsonResponse({"error": f"Invalid Google token: {exc}"}, status=400)
+    except Exception:
+        messages.error(request, "Google sign-in failed: invalid token.")
+        return redirect("login")
 
     email = idinfo.get("email")
     name = idinfo.get("name", email.split("@")[0] if email else "google_user")
 
     if not email:
-        return JsonResponse({"error": "Google account has no email"}, status=400)
+        messages.error(request, "Your Google account has no email on file.")
+        return redirect("login")
 
     user, created = User.objects.get_or_create(
         username=email,
         defaults={"email": email, "first_name": name},
     )
     auth_login(request, user)
-    return JsonResponse({"success": True, "redirect": "/"})
+    return redirect(next_url)
 
 
 def _get_cart_items(request):
@@ -365,21 +376,49 @@ def cart_count(request):
     return sum(cart.values())
 
 
+def _is_ajax(request):
+    return (
+        request.headers.get("x-requested-with") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("accept", "")
+    )
+
+
 def add_to_cart(request, pk):
     product = get_object_or_404(Product, pk=pk)
+
     if product.stock <= 0:
-        messages.error(request, f"{product.name} is out of stock.")
+        msg = f"{product.name} is out of stock."
+        if _is_ajax(request):
+            return JsonResponse({"ok": False, "error": msg}, status=400)
+        messages.error(request, msg)
         return redirect(request.POST.get("next") or request.GET.get("next") or "cart")
+
     cart = request.session.get("cart", {})
     key = str(pk)
     qty = int(request.POST.get("quantity", 1)) if request.method == "POST" else 1
     new_qty = cart.get(key, 0) + qty
+    warning = None
     if new_qty > product.stock:
         new_qty = product.stock
-        messages.warning(request, f"Only {product.stock} of {product.name} left in stock.")
+        warning = f"Only {product.stock} of {product.name} left in stock."
     cart[key] = new_qty
     request.session["cart"] = cart
     request.session.modified = True
+
+    cart_total_count = sum(cart.values())
+
+    if _is_ajax(request):
+        return JsonResponse({
+            "ok": True,
+            "message": f"{product.name} added to cart.",
+            "warning": warning,
+            "cart_count": cart_total_count,
+            "product_id": product.id,
+            "product_qty": new_qty,
+        })
+
+    if warning:
+        messages.warning(request, warning)
     messages.success(request, f"{product.name} added to cart.")
     next_url = request.POST.get("next") or request.GET.get("next") or "cart"
     return redirect(next_url)
@@ -389,9 +428,14 @@ def update_cart_item(request, pk):
     cart = request.session.get("cart", {})
     key = str(pk)
     action = request.POST.get("action")
+    warning = None
     if key in cart:
         if action == "increase":
-            cart[key] += 1
+            product = Product.objects.filter(pk=pk).first()
+            if product and cart[key] >= product.stock:
+                warning = f"Only {product.stock} of {product.name} available."
+            else:
+                cart[key] += 1
         elif action == "decrease":
             cart[key] -= 1
             if cart[key] <= 0:
@@ -400,6 +444,20 @@ def update_cart_item(request, pk):
             del cart[key]
     request.session["cart"] = cart
     request.session.modified = True
+
+    if _is_ajax(request):
+        items, total, count = _get_cart_items(request)
+        row = next((i for i in items if str(i["product"].id) == key), None)
+        return JsonResponse({
+            "ok": True,
+            "warning": warning,
+            "cart_count": count,
+            "cart_total": str(total),
+            "removed": row is None,
+            "product_id": pk,
+            "product_qty": row["qty"] if row else 0,
+            "product_subtotal": str(row["subtotal"]) if row else "0",
+        })
     return redirect("cart")
 
 
@@ -412,6 +470,7 @@ def cart_view(request):
     })
 
 
+@login_required
 def checkout_view(request):
     items, total, count = _get_cart_items(request)
     if not items:
@@ -432,11 +491,10 @@ def checkout_view(request):
                 messages.error(request, f"Not enough stock for {item['product'].name}.")
                 return redirect("cart")
 
-        guest_email = request.POST.get("guest_email", "").strip()
         order = Order.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            guest_email=guest_email if not request.user.is_authenticated else "",
-            full_name=request.POST.get("full_name", request.user.username if request.user.is_authenticated else "Guest"),
+            user=request.user,
+            guest_email="",
+            full_name=request.POST.get("full_name", request.user.username),
             address=request.POST.get("address", ""),
             city=request.POST.get("city", ""),
             phone=request.POST.get("phone", ""),

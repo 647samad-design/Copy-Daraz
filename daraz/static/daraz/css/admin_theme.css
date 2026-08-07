@@ -1,0 +1,52 @@
+/* 19Bees admin — black & white theme override for the default Django admin. */
+:root {
+    --primary: #000000;
+    --secondary: #000000;
+    --accent: #000000;
+    --primary-fg: #fff;
+
+    --header-color: #fff;
+    --header-branding-color: #fff;
+    --header-bg: #000000;
+    --header-link-color: #fff;
+
+    --breadcrumbs-fg: #e5e5e5;
+    --breadcrumbs-link-fg: #fff;
+    --breadcrumbs-bg: #1a1a1a;
+
+    --link-fg: #000000;
+    --link-hover-color: #333;
+    --link-selected-fg: #000000;
+
+    --selected-bg: #f0f0f0;
+    --selected-row: #f5f5f5;
+
+    --button-bg: #000000;
+    --button-fg: #fff;
+    --button-hover-bg: #333;
+    --default-button-bg: #000000;
+    --default-button-hover-bg: #333;
+    --close-button-bg: #666;
+    --close-button-hover-bg: #333;
+    --delete-button-bg: #ba2121;
+    --delete-button-hover-bg: #a41515;
+
+    --object-tools-bg: #000000;
+    --object-tools-hover-bg: #333;
+}
+
+#header { background: var(--header-bg); color: var(--header-color); }
+#branding h1, #branding h1 a:link, #branding h1 a:visited { color: #fff; }
+div.breadcrumbs { background: var(--breadcrumbs-bg); color: var(--breadcrumbs-fg); }
+div.breadcrumbs a { color: var(--breadcrumbs-link-fg); }
+.module h2, .module caption, .inline-group h2 { background: #000000; color: #fff; }
+a:link, a:visited { color: #000000; }
+.button, input[type=submit], input[type=button], .submit-row input, a.button {
+    background: #000000; color: #fff;
+}
+.button:hover, input[type=submit]:hover, input[type=button]:hover { background: #333; }
+.button.default, input[type=submit].default, .submit-row input.default {
+    background: #000000;
+}
+.selector-chosen h2 { background: #000000; }
+table thead th { background: #f0f0f0; }

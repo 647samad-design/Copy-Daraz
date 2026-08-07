@@ -3,7 +3,7 @@
     .orders-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
     .order-card { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
     .order-card .top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px; }
-    .order-card .status { color: #60A5FA; font-weight: 500; }
+    .order-card .status { color: #000000; font-weight: 500; }
     .order-items { display: flex; flex-direction: column; gap: 10px; }
     .order-item-row { display: flex; align-items: center; gap: 12px; }
     .order-item-row img { width: 50px; height: 50px; object-fit: cover; border: 1px solid #eee; }
@@ -51,14 +51,14 @@
             </div>
             {% endfor %}
         </div>
-        <div style="margin-top:10px;font-weight:bold;color:#60A5FA;text-align:right;">{{ t.total }}: Rs.{{ order.total }}</div>
+        <div style="margin-top:10px;font-weight:bold;color:#000000;text-align:right;">{{ t.total }}: Rs.{{ order.total }}</div>
         {% if order.status == "pending" or order.status == "confirmed" %}
         <form method="post" action="{% url 'cancel_order' order.id %}" style="text-align:right;">
             {% csrf_token %}
             <button type="submit" class="cancel-btn">{{ t.cancel_order }}</button>
         </form>
         {% endif %}
-        <a href="{% url 'invoice_pdf' order.id %}" style="font-size:12px;color:#60A5FA;text-align:right;display:block;margin-top:6px;">Download invoice</a>
+        <a href="{% url 'invoice_pdf' order.id %}" style="font-size:12px;color:#000000;text-align:right;display:block;margin-top:6px;">Download invoice</a>
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">{{ t.no_orders }}</div>

@@ -981,24 +981,21 @@ def owner_dashboard(request):
 
     seller_earnings = []
     total_commission_earned = 0
-    total_seller_payouts = 0
+    total_still_owed = 0
     for s in top_sellers:
-        sales = float(s.lifetime_sales)
-        rate = s.effective_commission_rate
-        commission = round(sales * rate / 100, 2)
-        net = round(sales - commission, 2)
         units_sold = OrderItem.objects.filter(product__seller_account=s).aggregate(
             total=Sum("quantity")
         )["total"] or 0
         seller_earnings.append({
-            "seller": s, "sales": sales, "rate": rate,
-            "commission": commission, "net": net, "units_sold": units_sold,
+            "seller": s, "sales": float(s.lifetime_sales), "rate": s.effective_commission_rate,
+            "commission": round(float(s.lifetime_sales) * s.effective_commission_rate / 100, 2),
+            "net": s.net_earnings, "owed": s.amount_owed, "units_sold": units_sold,
         })
     for s in approved_sellers:
         sales = float(s.lifetime_sales)
         commission = sales * s.effective_commission_rate / 100
         total_commission_earned += commission
-        total_seller_payouts += (sales - commission)
+        total_still_owed += s.amount_owed
 
     return render(request, "daraz/owner_dashboard.html", {
         "total_customers": total_customers,
@@ -1014,5 +1011,5 @@ def owner_dashboard(request):
         "top_sellers": top_sellers,
         "seller_earnings": seller_earnings,
         "total_commission_earned": round(total_commission_earned, 2),
-        "total_seller_payouts": round(total_seller_payouts, 2),
+        "total_still_owed": round(total_still_owed, 2),
     })

@@ -163,22 +163,23 @@ class SellerAccountAdmin(admin.ModelAdmin):
     list_display = (
         "display_name", "user", "account_type", "status",
         "products_sold_count", "total_sales_display", "commission_owed_display",
-        "net_earnings_display", "commission_rate", "effective_commission_rate",
-        "city", "country", "created_at",
+        "net_earnings_display", "total_paid_out", "amount_owed_display",
+        "commission_rate", "effective_commission_rate", "city", "country", "created_at",
     )
     list_filter = ("account_type", "status")
     search_fields = ("business_name", "organization_name", "full_name", "user__username", "cnic")
     readonly_fields = (
         "created_at", "products_sold_count", "total_sales_display",
-        "commission_owed_display", "net_earnings_display",
+        "commission_owed_display", "net_earnings_display", "amount_owed_display",
     )
     date_hierarchy = "created_at"
-    actions = ["approve_sellers", "reject_sellers", "suspend_sellers"]
+    actions = ["approve_sellers", "reject_sellers", "suspend_sellers", "mark_fully_paid_out"]
 
     fieldsets = (
         ("Account", {"fields": ("user", "account_type", "status", "commission_rate", "admin_note", "created_at")}),
         ("Earnings summary", {"fields": (
-            "products_sold_count", "total_sales_display", "commission_owed_display", "net_earnings_display",
+            "products_sold_count", "total_sales_display", "commission_owed_display",
+            "net_earnings_display", "total_paid_out", "amount_owed_display",
         )}),
         ("Registration details", {"fields": (
             "full_name", "business_name", "organization_name", "phone", "cnic",
@@ -206,12 +207,25 @@ class SellerAccountAdmin(admin.ModelAdmin):
     commission_owed_display.short_description = "Commission owed"
 
     def net_earnings_display(self, obj):
-        sales = float(obj.lifetime_sales)
-        rate = obj.effective_commission_rate
-        owed = sales * rate / 100
-        net = sales - owed
-        return f"Rs.{net:.2f}"
+        return f"Rs.{obj.net_earnings:.2f}"
     net_earnings_display.short_description = "Seller's net earnings (after commission)"
+
+    def amount_owed_display(self, obj):
+        return f"Rs.{obj.amount_owed:.2f}"
+    amount_owed_display.short_description = "Still owed to seller"
+
+    def mark_fully_paid_out(self, request, queryset):
+        count = 0
+        for seller in queryset:
+            seller.total_paid_out = seller.net_earnings
+            seller.save(update_fields=["total_paid_out"])
+            AuditLog.objects.create(
+                user=request.user,
+                action=f"Recorded full payout of Rs.{seller.net_earnings:.2f} to seller #{seller.id} ({seller.display_name})",
+            )
+            count += 1
+        self.message_user(request, f"Marked {count} seller(s) as fully paid out.")
+    mark_fully_paid_out.short_description = "Mark selected sellers as fully paid out"
 
     def approve_sellers(self, request, queryset):
         from .models import Notification, AuditLog

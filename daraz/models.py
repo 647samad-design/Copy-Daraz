@@ -244,6 +244,10 @@ class SellerAccount(models.Model):
     account_type = models.CharField(max_length=20, choices=ACCOUNT_TYPE_CHOICES, default="individual")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10)
+    total_paid_out = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="Total amount already paid to this seller (recorded by admin after each payout)."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Registration details (per marketplace onboarding spec)
@@ -272,6 +276,19 @@ class SellerAccount(models.Model):
         if self.pk is None and not kwargs.get("update_fields"):
             self.commission_rate = 20 if self.account_type == "organization" else 10
         super().save(*args, **kwargs)
+
+    @property
+    def net_earnings(self):
+        """Seller's total earnings after the platform's commission is deducted."""
+        sales = float(self.lifetime_sales)
+        commission = sales * self.effective_commission_rate / 100
+        return round(sales - commission, 2)
+
+    @property
+    def amount_owed(self):
+        """Net earnings not yet paid out to the seller. Never negative."""
+        owed = float(self.net_earnings) - float(self.total_paid_out)
+        return round(max(owed, 0), 2)
 
     @property
     def display_name(self):

@@ -23,6 +23,13 @@
     .od-mini-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
     .od-mini-table th, .od-mini-table td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; text-align: left; }
     .od-export-link { float: right; font-size: 12px; color: #000000; text-decoration: underline; }
+    .od-chart { display: flex; align-items: flex-end; gap: 14px; height: 200px; padding-top: 10px; }
+    .od-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+    .od-bar-value { font-size: 11px; color: #666; margin-bottom: 6px; }
+    .od-bar-track { width: 100%; max-width: 46px; flex: 1; background: #f0f0f0; border-radius: 4px 4px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .od-bar-fill { width: 100%; background: #000000; border-radius: 4px 4px 0 0; min-height: 2px; transition: height 0.4s ease; }
+    .od-bar-label { font-size: 11px; color: #333; margin-top: 8px; text-align: center; line-height: 1.4; }
+    .od-bar-label span { color: #999; font-size: 10px; }
     .od-earnings-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .od-earnings-table th, .od-earnings-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: left; }
     .od-earnings-table th { font-weight: 600; color: #666; font-size: 12px; }
@@ -42,6 +49,11 @@
     html[data-theme="dark"] .od-alert-box.danger { background: #2a1414; border-color: #DC2626; }
     html[data-theme="dark"] .od-mini-table th, html[data-theme="dark"] .od-mini-table td { border-color: #333; color: #ddd; }
     html[data-theme="dark"] .od-export-link { color: #fff; }
+    html[data-theme="dark"] .od-bar-track { background: #2a2b33; }
+    html[data-theme="dark"] .od-bar-fill { background: #eee; }
+    html[data-theme="dark"] .od-bar-value { color: #999; }
+    html[data-theme="dark"] .od-bar-label { color: #ccc; }
+    html[data-theme="dark"] .od-bar-label span { color: #777; }
 {% endblock %}
 {% block content %}
 <div class="od-wrap">
@@ -58,6 +70,19 @@
         <div class="od-card"><div class="num">{{ inactive_sellers }}</div><div class="label">Inactive / Rejected Sellers</div></div>
         <div class="od-card accent"><div class="num">Rs.{{ total_commission_earned }}</div><div class="label">Platform Commission Earned</div></div>
         <div class="od-card"><div class="num">Rs.{{ total_still_owed }}</div><div class="label">Still Owed to Sellers (unpaid)</div></div>
+    </div>
+
+    <div class="od-section od-chart-section">
+        <h2>Revenue &mdash; last 7 days</h2>
+        <div class="od-chart">
+            {% for d in daily_revenue %}
+            <div class="od-bar-col">
+                <div class="od-bar-value">Rs.{{ d.amount|floatformat:0 }}</div>
+                <div class="od-bar-track"><div class="od-bar-fill" style="height:{{ d.pct }}%;"></div></div>
+                <div class="od-bar-label">{{ d.label }}<br><span>{{ d.date }}</span></div>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 
     <div class="od-section od-alerts">

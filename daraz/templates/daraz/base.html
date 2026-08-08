@@ -197,7 +197,10 @@
         .category-box:hover { color: #000000; }
         @media (max-width: 900px) { .category-grid { grid-template-columns: repeat(4, 1fr); } }
 
-        .footer { background: #f0f0f0; margin-top: 30px; padding: 30px 40px 10px; border-top: 3px solid #000000; }
+        .footer { background: #f0f0f0; margin-top: 30px; padding: 0 40px 10px; border-top: 3px solid #000000; }
+        .trust-strip { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; padding: 20px 0; border-bottom: 1px solid #ddd; margin-bottom: 26px; }
+        .trust-item { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; color: #333; }
+        .trust-item svg { width: 26px; height: 26px; color: #000000; flex-shrink: 0; }
         .footer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; margin-bottom: 24px; }
         .footer-col h3 { font-size: 15px; font-weight: 500; margin-bottom: 14px; color: #333; display: flex; align-items: center; gap: 8px; }
         .footer-col h3 svg { width: 18px; height: 18px; flex-shrink: 0; color: #000000; }
@@ -221,6 +224,9 @@
         .footer-about h3 { font-size: 15px; margin-bottom: 10px; color: #333; }
         .footer-about p { font-size: 13px; color: #666; line-height: 1.7; margin-bottom: 10px; max-width: 900px; }
         html[data-theme="dark"] .footer { border-top-color: #444; }
+        html[data-theme="dark"] .trust-strip { border-bottom-color: #333; }
+        html[data-theme="dark"] .trust-item { color: #ddd; }
+        html[data-theme="dark"] .trust-item svg { color: #eee; }
         html[data-theme="dark"] .footer-col h3 svg { color: #eee; }
         html[data-theme="dark"] .social-icon { border-color: #444; color: #ccc; }
         html[data-theme="dark"] .social-icon:hover { background: #eee; color: #111; border-color: #eee; }
@@ -397,6 +403,12 @@
     {% block content %}{% endblock %}
 
     <div class="footer">
+        <div class="trust-strip">
+            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="6" width="15" height="12" rx="2"/><path d="M16 10h3.5L22 13.5V18h-6"/><circle cx="6" cy="19" r="1.6"/><circle cx="17.5" cy="19" r="1.6"/></svg><span>Fast &amp; reliable delivery</span></div>
+            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z"/><path d="m9 12 2 2 4-4"/></svg><span>Secure payments</span></div>
+            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg><span>Easy returns</span></div>
+            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span>24/7 support</span></div>
+        </div>
         <div class="footer-cols">
             <div class="footer-col">
                 <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3M3 11v5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H3m18 8a4 4 0 0 1-4 4h-3"/></svg>{{ t.customer_care }}</h3>

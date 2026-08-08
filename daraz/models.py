@@ -90,7 +90,16 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     coupon_code = models.CharField(max_length=30, blank=True)
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tracking_number = models.CharField(max_length=60, blank=True)
+    courier_name = models.CharField(max_length=60, blank=True)
+    estimated_delivery = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    CANCELLABLE_STATUSES = ("pending", "confirmed")
+
+    @property
+    def is_cancellable(self):
+        return self.status in self.CANCELLABLE_STATUSES
 
     @property
     def total(self):
@@ -109,6 +118,17 @@ class Order(models.Model):
                 message=f"Order #{self.id} is now {self.get_status_display()}.",
                 link=f"/my-orders/",
             )
+            if self.status == "delivered" and old_status != "delivered":
+                points_earned = int(self.total // 100)
+                if points_earned > 0:
+                    profile, _ = Profile.objects.get_or_create(user=self.user)
+                    profile.loyalty_points += points_earned
+                    profile.save(update_fields=["loyalty_points"])
+                    Notification.objects.create(
+                        user=self.user,
+                        message=f"You earned {points_earned} loyalty points from order #{self.id}!",
+                        link="/profile/",
+                    )
 
     def __str__(self):
         return f"Order #{self.id} - {self.user.username}"
@@ -120,6 +140,13 @@ class OrderItem(models.Model):
     product_name = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
+    FULFILLMENT_CHOICES = [
+        ("pending", "Pending"),
+        ("packed", "Packed"),
+        ("handed_to_courier", "Handed to courier"),
+        ("delivered", "Delivered"),
+    ]
+    fulfillment_status = models.CharField(max_length=20, choices=FULFILLMENT_CHOICES, default="pending")
 
     @property
     def subtotal(self):
@@ -164,6 +191,7 @@ class Profile(models.Model):
     email_verified = models.BooleanField(default=False)
     referral_code = models.CharField(max_length=12, unique=True, blank=True)
     referred_by = models.CharField(max_length=12, blank=True)
+    loyalty_points = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f"{self.user.username}'s profile"
@@ -353,15 +381,36 @@ class ReturnRequest(models.Model):
         ("rejected", "Rejected"),
         ("refunded", "Refunded"),
     ]
+    REFUND_METHOD_CHOICES = [
+        ("original_payment", "Original payment method"),
+        ("wallet_credit", "19Bees wallet credit"),
+    ]
     order_item = models.ForeignKey("OrderItem", related_name="return_requests", on_delete=models.CASCADE)
     user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
     reason = models.TextField()
+    refund_method = models.CharField(max_length=20, choices=REFUND_METHOD_CHOICES, default="original_payment")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="requested")
     admin_note = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        old_status = None
+        if not is_new:
+            old_status = ReturnRequest.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+        super().save(*args, **kwargs)
+        if not is_new and old_status and old_status != self.status:
+            messages_by_status = {
+                "approved": f"Your return for '{self.order_item.product_name}' was approved. Refund is being processed via {self.get_refund_method_display()}.",
+                "rejected": f"Your return request for '{self.order_item.product_name}' was rejected." + (f" Note: {self.admin_note}" if self.admin_note else ""),
+                "refunded": f"Refund of Rs.{self.order_item.subtotal} for '{self.order_item.product_name}' has been issued via {self.get_refund_method_display()}.",
+            }
+            msg = messages_by_status.get(self.status)
+            if msg:
+                Notification.objects.create(user=self.user, message=msg, link="/my-orders/")
 
     def __str__(self):
         return f"Return: {self.order_item.product_name} ({self.status})"

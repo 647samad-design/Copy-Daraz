@@ -30,6 +30,7 @@
         <div class="stats-row">
             <div class="stat-box"><div class="num">{{ orders_count }}</div><div class="label">Orders</div></div>
             <div class="stat-box"><div class="num">{{ addresses.count }}</div><div class="label">Saved addresses</div></div>
+            <div class="stat-box"><div class="num">{{ profile.loyalty_points }}</div><div class="label">Loyalty points</div></div>
         </div>
         {% if request.user.email %}
         {% if profile.email_verified %}

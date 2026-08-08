@@ -43,6 +43,8 @@ urlpatterns = [
     path('order/success/<int:order_id>/', views.order_success, name='order_success'),
     path('order/cancel/<int:order_id>/', views.cancel_order, name='cancel_order'),
     path('my-orders/', views.my_orders, name='my_orders'),
+    path('order/<int:pk>/cancel/', views.cancel_order, name='cancel_order'),
+    path('order-item/<int:item_id>/return/', views.request_return, name='request_return'),
     path('wishlist/', views.wishlist_view, name='wishlist'),
     path('wishlist/toggle/<int:pk>/', views.toggle_wishlist, name='toggle_wishlist'),
     path('set-language/<str:lang_code>/', views.set_language, name='set_language'),
@@ -70,6 +72,7 @@ urlpatterns = [
 
     path('become-seller/', views.become_seller, name='become_seller'),
     path('seller/dashboard/', views.seller_dashboard, name='seller_dashboard'),
+    path('seller/order-item/<int:item_id>/status/', views.update_fulfillment_status, name='update_fulfillment_status'),
     path('seller/product/add/', views.seller_add_product, name='seller_add_product'),
     path('seller/product/<int:pk>/edit/', views.seller_edit_product, name='seller_edit_product'),
     path('seller/product/<int:pk>/delete/', views.seller_delete_product, name='seller_delete_product'),

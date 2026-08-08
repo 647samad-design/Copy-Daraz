@@ -1,5 +1,9 @@
-/* 19Bees admin — black & white theme override for the default Django admin. */
-:root {
+/* 19Bees admin — black & white theme override for the default Django admin.
+   Scoped separately for light mode (default) and Django's own built-in
+   dark mode (toggled via the moon icon, which sets html[data-theme="dark"]),
+   so text never goes invisible when the admin's dark mode is switched on. */
+
+:root, html[data-theme="light"] {
     --primary: #000000;
     --secondary: #000000;
     --accent: #000000;
@@ -35,18 +39,62 @@
     --object-tools-hover-bg: #333;
 }
 
+html[data-theme="dark"] {
+    --primary: #e5e5e5;
+    --secondary: #e5e5e5;
+    --accent: #e5e5e5;
+    --primary-fg: #000;
+
+    --header-color: #fff;
+    --header-branding-color: #fff;
+    --header-bg: #000000;
+    --header-link-color: #fff;
+
+    --breadcrumbs-fg: #ccc;
+    --breadcrumbs-link-fg: #fff;
+    --breadcrumbs-bg: #000000;
+
+    --link-fg: #9ecbff;
+    --link-hover-color: #cfe6ff;
+    --link-selected-fg: #9ecbff;
+
+    --selected-bg: #2a2b33;
+    --selected-row: #1e1f26;
+
+    --button-bg: #e5e5e5;
+    --button-fg: #111;
+    --button-hover-bg: #fff;
+    --default-button-bg: #e5e5e5;
+    --default-button-hover-bg: #fff;
+    --close-button-bg: #555;
+    --close-button-hover-bg: #333;
+    --delete-button-bg: #b23b3b;
+    --delete-button-hover-bg: #c94747;
+
+    --object-tools-bg: #e5e5e5;
+    --object-tools-hover-bg: #fff;
+}
+
 #header { background: var(--header-bg); color: var(--header-color); }
 #branding h1, #branding h1 a:link, #branding h1 a:visited { color: #fff; }
 div.breadcrumbs { background: var(--breadcrumbs-bg); color: var(--breadcrumbs-fg); }
 div.breadcrumbs a { color: var(--breadcrumbs-link-fg); }
 .module h2, .module caption, .inline-group h2 { background: #000000; color: #fff; }
-a:link, a:visited { color: #000000; }
+html[data-theme="dark"] .module h2, html[data-theme="dark"] .module caption, html[data-theme="dark"] .inline-group h2 {
+    background: #1e1f26; color: #fff;
+}
+a:link, a:visited { color: var(--link-fg); }
 .button, input[type=submit], input[type=button], .submit-row input, a.button {
-    background: #000000; color: #fff;
+    background: var(--button-bg); color: var(--button-fg);
 }
-.button:hover, input[type=submit]:hover, input[type=button]:hover { background: #333; }
+.button:hover, input[type=submit]:hover, input[type=button]:hover { background: var(--button-hover-bg); }
 .button.default, input[type=submit].default, .submit-row input.default {
-    background: #000000;
+    background: var(--button-bg); color: var(--button-fg);
 }
-.selector-chosen h2 { background: #000000; }
+.selector-chosen h2 { background: #000000; color: #fff; }
+html[data-theme="dark"] .selector-chosen h2 { background: #1e1f26; }
 table thead th { background: #f0f0f0; }
+html[data-theme="dark"] table thead th { background: #1e1f26; color: #eee; }
+html[data-theme="dark"] #changelist-filter, html[data-theme="dark"] .module {
+    background: #14151a; border-color: #2a2b33;
+}

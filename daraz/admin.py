@@ -120,10 +120,15 @@ class OrderItemInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "full_name", "city", "phone", "payment_method", "status", "total", "created_at")
+    list_display = ("id", "user", "full_name", "city", "phone", "payment_method", "status", "tracking_number", "total", "created_at")
     list_filter = ("status", "payment_method", "created_at")
-    search_fields = ("id", "full_name", "user__username", "phone", "city")
+    search_fields = ("id", "full_name", "user__username", "phone", "city", "tracking_number")
     list_editable = ("status",)
+    fields = (
+        "user", "guest_email", "full_name", "address", "city", "phone",
+        "payment_method", "status", "tracking_number", "courier_name", "estimated_delivery",
+        "coupon_code", "discount_amount",
+    )
     date_hierarchy = "created_at"
     inlines = [OrderItemInline]
     actions = ["mark_confirmed", "mark_shipped", "mark_delivered", "mark_cancelled", "export_orders_csv"]
@@ -350,23 +355,30 @@ class SellerAccountAdmin(admin.ModelAdmin):
 
 @admin.register(ReturnRequest)
 class ReturnRequestAdmin(admin.ModelAdmin):
-    list_display = ("order_item", "user", "status", "created_at")
-    list_filter = ("status",)
+    list_display = ("order_item", "user", "status", "refund_method", "created_at")
+    list_filter = ("status", "refund_method")
     search_fields = ("user__username",)
     date_hierarchy = "created_at"
     actions = ["mark_approved", "mark_rejected", "mark_refunded"]
 
     def mark_approved(self, request, queryset):
-        queryset.update(status="approved")
+        self._bulk_status(queryset, "approved")
     mark_approved.short_description = "Mark as approved"
 
     def mark_rejected(self, request, queryset):
-        queryset.update(status="rejected")
+        self._bulk_status(queryset, "rejected")
     mark_rejected.short_description = "Mark as rejected"
 
     def mark_refunded(self, request, queryset):
-        queryset.update(status="refunded")
+        self._bulk_status(queryset, "refunded")
     mark_refunded.short_description = "Mark as refunded"
+
+    def _bulk_status(self, queryset, new_status):
+        # Loop + individual .save() so the model's save() override fires
+        # (notifies the customer) - queryset.update() would skip that.
+        for obj in queryset:
+            obj.status = new_status
+            obj.save(update_fields=["status"])
 
 
 @admin.register(SellerReview)

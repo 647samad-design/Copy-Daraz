@@ -186,10 +186,19 @@ def signup_view(request):
             if ref:
                 referrer_profile = Profile.objects.filter(referral_code=ref).first()
                 if referrer_profile:
+                    referrer_coupon_code = "REF-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                    new_user_coupon_code = "WELCOME-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                    Coupon.objects.create(code=referrer_coupon_code, percent_off=10)
+                    Coupon.objects.create(code=new_user_coupon_code, percent_off=10)
                     Notification.objects.create(
                         user=referrer_profile.user,
-                        message=f"{username} joined using your referral link!",
+                        message=f"{username} joined using your referral link! Here's a 10% off code for you: {referrer_coupon_code}",
                         link="/profile/",
+                    )
+                    Notification.objects.create(
+                        user=user,
+                        message=f"Welcome! Here's a 10% off code for your first order: {new_user_coupon_code}",
+                        link="/cart/",
                     )
 
             if user_type in ("individual", "organization"):
@@ -571,9 +580,50 @@ def order_success(request, order_id):
 
 
 @login_required
+def request_return(request, item_id):
+    item = get_object_or_404(OrderItem, pk=item_id, order__user=request.user)
+    if item.order.status != "delivered":
+        messages.error(request, "Returns can only be requested for delivered orders.")
+        return redirect("my_orders")
+    if item.return_requests.exclude(status="rejected").exists():
+        messages.error(request, "A return request already exists for this item.")
+        return redirect("my_orders")
+
+    if request.method == "POST":
+        reason = request.POST.get("reason", "").strip()
+        refund_method = request.POST.get("refund_method", "original_payment")
+        if not reason:
+            messages.error(request, "Please describe the reason for your return.")
+        else:
+            ReturnRequest.objects.create(
+                order_item=item, user=request.user, reason=reason, refund_method=refund_method,
+            )
+            messages.success(request, "Return request submitted. We'll review it shortly.")
+            return redirect("my_orders")
+
+    return render(request, "daraz/request_return.html", {"item": item})
+
+
+@login_required
 def my_orders(request):
     orders = Order.objects.filter(user=request.user).order_by("-created_at")
     return render(request, "daraz/my_orders.html", {"orders": orders})
+
+
+@login_required
+def cancel_order(request, pk):
+    order = get_object_or_404(Order, pk=pk, user=request.user)
+    if request.method == "POST" and order.is_cancellable:
+        order.status = "cancelled"
+        order.save(update_fields=["status"])
+        for item in order.items.select_related("product"):
+            if item.product:
+                item.product.stock += item.quantity
+                item.product.save(update_fields=["stock"])
+        messages.success(request, f"Order #{order.id} has been cancelled.")
+    else:
+        messages.error(request, "This order can no longer be cancelled.")
+    return redirect("my_orders")
 
 
 def set_language(request, lang_code):
@@ -870,6 +920,17 @@ def become_seller(request):
 
 
 @login_required
+def update_fulfillment_status(request, item_id):
+    item = get_object_or_404(OrderItem, pk=item_id, product__seller_account__user=request.user)
+    new_status = request.POST.get("fulfillment_status")
+    if request.method == "POST" and new_status in dict(OrderItem.FULFILLMENT_CHOICES):
+        item.fulfillment_status = new_status
+        item.save(update_fields=["fulfillment_status"])
+        messages.success(request, f"Marked '{item.product_name}' as {item.get_fulfillment_status_display()}.")
+    return redirect("seller_dashboard")
+
+
+@login_required
 def seller_dashboard(request):
     seller = get_object_or_404(SellerAccount, user=request.user)
     products = Product.objects.filter(seller_account=seller)
@@ -972,6 +1033,19 @@ def owner_dashboard(request):
     total_products = Product.objects.count()
     total_orders = Order.objects.count()
     total_revenue = sum(o.total for o in Order.objects.exclude(status="cancelled"))
+
+    from datetime import timedelta
+    from django.utils import timezone
+    today = timezone.localdate()
+    daily_revenue = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_orders = Order.objects.filter(created_at__date=day).exclude(status="cancelled")
+        day_total = sum(o.total for o in day_orders)
+        daily_revenue.append({"label": day.strftime("%a"), "date": day.strftime("%d %b"), "amount": float(day_total)})
+    max_daily = max([d["amount"] for d in daily_revenue] or [1]) or 1
+    for d in daily_revenue:
+        d["pct"] = round((d["amount"] / max_daily) * 100, 1) if max_daily else 0
     pending_sellers = SellerAccount.objects.filter(status="pending")
     active_sellers = SellerAccount.objects.filter(status="approved").count()
     inactive_sellers = SellerAccount.objects.filter(status__in=["rejected", "suspended"]).count()
@@ -1025,4 +1099,5 @@ def owner_dashboard(request):
         "pending_products_count": pending_products_count,
         "low_stock_count": low_stock_count,
         "out_of_stock_count": out_of_stock_count,
+        "daily_revenue": daily_revenue,
     })

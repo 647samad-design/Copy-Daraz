@@ -17,7 +17,8 @@
     .sd-product-row img { width: 46px; height: 46px; object-fit: cover; border: 1px solid #eee; }
     .sd-product-row .name { flex: 1; }
     .sd-product-row a { font-size: 12px; color: #000000; margin-left: 10px; }
-    .sd-order-row { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; display: flex; justify-content: space-between; }
+    .sd-order-row { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .sd-status-form select { font-size: 11px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
 
     html[data-theme="dark"] .sd-stat, html[data-theme="dark"] .sd-section { background: #1e1f26; border-color: #333; }
     html[data-theme="dark"] .sd-stat .num { color: #fff; }
@@ -25,6 +26,7 @@
     html[data-theme="dark"] .sd-product-row, html[data-theme="dark"] .sd-order-row { border-color: #333; }
     html[data-theme="dark"] .sd-product-row img { border-color: #333; }
     html[data-theme="dark"] .sd-product-row a { color: #fff; }
+    html[data-theme="dark"] .sd-status-form select { background: #2a2b33; color: #eee; border-color: #444; }
 {% endblock %}
 {% block content %}
 <div class="sd-wrap">
@@ -64,6 +66,14 @@
         <div class="sd-order-row">
             <span>{{ item.product_name }} x{{ item.quantity }} &middot; Order #{{ item.order.id }}</span>
             <span>Rs.{{ item.subtotal }}</span>
+            <form method="post" action="{% url 'update_fulfillment_status' item.id %}" class="sd-status-form">
+                {% csrf_token %}
+                <select name="fulfillment_status" onchange="this.form.submit()">
+                    {% for value, label in item.FULFILLMENT_CHOICES %}
+                    <option value="{{ value }}" {% if item.fulfillment_status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </form>
         </div>
         {% empty %}
         <p style="font-size:13px;color:#888;">No sales yet.</p>

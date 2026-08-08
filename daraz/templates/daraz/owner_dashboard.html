@@ -11,12 +11,17 @@
     .od-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
     .od-badge { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
     .od-approve-link { color: #000000; font-size: 12px; }
+    .od-earnings-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .od-earnings-table th, .od-earnings-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: left; }
+    .od-earnings-table th { font-weight: 600; color: #666; font-size: 12px; }
 
     html[data-theme="dark"] .od-card, html[data-theme="dark"] .od-section { background: #1e1f26; border-color: #333; }
     html[data-theme="dark"] .od-card .num { color: #fff; }
     html[data-theme="dark"] .od-card .label { color: #999; }
     html[data-theme="dark"] .od-card.accent .num { color: #fff; }
-    html[data-theme="dark"] .od-row { border-color: #333; }
+    html[data-theme="dark"] .od-row, html[data-theme="dark"] .od-earnings-table th, html[data-theme="dark"] .od-earnings-table td { border-color: #333; }
+    html[data-theme="dark"] .od-earnings-table th { color: #999; }
+    html[data-theme="dark"] .od-earnings-table td { color: #ddd; }
     html[data-theme="dark"] .od-approve-link { color: #fff; }
 {% endblock %}
 {% block content %}
@@ -32,6 +37,28 @@
         <div class="od-card accent"><div class="num">Rs.{{ total_revenue }}</div><div class="label">Total Revenue</div></div>
         <div class="od-card"><div class="num">{{ active_sellers }}</div><div class="label">Active Sellers</div></div>
         <div class="od-card"><div class="num">{{ inactive_sellers }}</div><div class="label">Inactive / Rejected Sellers</div></div>
+        <div class="od-card accent"><div class="num">Rs.{{ total_commission_earned }}</div><div class="label">Platform Commission Earned</div></div>
+        <div class="od-card"><div class="num">Rs.{{ total_seller_payouts }}</div><div class="label">Total Owed to Sellers (net)</div></div>
+    </div>
+
+    <div class="od-section">
+        <h2>Top sellers &mdash; sales, commission &amp; net earnings</h2>
+        <table class="od-earnings-table">
+            <tr><th>Seller</th><th>Type</th><th>Units sold</th><th>Total sales</th><th>Commission rate</th><th>Commission owed</th><th>Net earnings</th></tr>
+            {% for row in seller_earnings %}
+            <tr>
+                <td>{{ row.seller.display_name }}</td>
+                <td>{{ row.seller.get_account_type_display }}</td>
+                <td>{{ row.units_sold }}</td>
+                <td>Rs.{{ row.sales|floatformat:2 }}</td>
+                <td>{{ row.rate }}%</td>
+                <td>Rs.{{ row.commission|floatformat:2 }}</td>
+                <td><strong>Rs.{{ row.net|floatformat:2 }}</strong></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" style="text-align:center;color:#888;">No approved sellers with sales yet.</td></tr>
+            {% endfor %}
+        </table>
     </div>
 
     <div class="od-section">

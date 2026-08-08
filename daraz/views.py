@@ -7,7 +7,7 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse, HttpResponse
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -976,10 +976,29 @@ def owner_dashboard(request):
     active_sellers = SellerAccount.objects.filter(status="approved").count()
     inactive_sellers = SellerAccount.objects.filter(status__in=["rejected", "suspended"]).count()
     recent_orders = Order.objects.order_by("-created_at")[:10]
-    top_sellers = sorted(
-        SellerAccount.objects.filter(status="approved"),
-        key=lambda s: s.lifetime_sales, reverse=True
-    )[:5]
+    approved_sellers = SellerAccount.objects.filter(status="approved")
+    top_sellers = sorted(approved_sellers, key=lambda s: s.lifetime_sales, reverse=True)[:5]
+
+    seller_earnings = []
+    total_commission_earned = 0
+    total_seller_payouts = 0
+    for s in top_sellers:
+        sales = float(s.lifetime_sales)
+        rate = s.effective_commission_rate
+        commission = round(sales * rate / 100, 2)
+        net = round(sales - commission, 2)
+        units_sold = OrderItem.objects.filter(product__seller_account=s).aggregate(
+            total=Sum("quantity")
+        )["total"] or 0
+        seller_earnings.append({
+            "seller": s, "sales": sales, "rate": rate,
+            "commission": commission, "net": net, "units_sold": units_sold,
+        })
+    for s in approved_sellers:
+        sales = float(s.lifetime_sales)
+        commission = sales * s.effective_commission_rate / 100
+        total_commission_earned += commission
+        total_seller_payouts += (sales - commission)
 
     return render(request, "daraz/owner_dashboard.html", {
         "total_customers": total_customers,
@@ -993,4 +1012,7 @@ def owner_dashboard(request):
         "inactive_sellers": inactive_sellers,
         "recent_orders": recent_orders,
         "top_sellers": top_sellers,
+        "seller_earnings": seller_earnings,
+        "total_commission_earned": round(total_commission_earned, 2),
+        "total_seller_payouts": round(total_seller_payouts, 2),
     })

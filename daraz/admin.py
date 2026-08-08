@@ -160,12 +160,58 @@ class SearchLogAdmin(admin.ModelAdmin):
 
 @admin.register(SellerAccount)
 class SellerAccountAdmin(admin.ModelAdmin):
-    list_display = ("display_name", "user", "account_type", "status", "commission_rate", "effective_commission_rate", "city", "country", "created_at")
+    list_display = (
+        "display_name", "user", "account_type", "status",
+        "products_sold_count", "total_sales_display", "commission_owed_display",
+        "net_earnings_display", "commission_rate", "effective_commission_rate",
+        "city", "country", "created_at",
+    )
     list_filter = ("account_type", "status")
     search_fields = ("business_name", "organization_name", "full_name", "user__username", "cnic")
-    readonly_fields = ("created_at",)
+    readonly_fields = (
+        "created_at", "products_sold_count", "total_sales_display",
+        "commission_owed_display", "net_earnings_display",
+    )
     date_hierarchy = "created_at"
     actions = ["approve_sellers", "reject_sellers", "suspend_sellers"]
+
+    fieldsets = (
+        ("Account", {"fields": ("user", "account_type", "status", "commission_rate", "admin_note", "created_at")}),
+        ("Earnings summary", {"fields": (
+            "products_sold_count", "total_sales_display", "commission_owed_display", "net_earnings_display",
+        )}),
+        ("Registration details", {"fields": (
+            "full_name", "business_name", "organization_name", "phone", "cnic",
+            "business_address", "city", "country", "store_description",
+            "product_categories", "brand_info", "tax_info", "bank_details",
+        )}),
+        ("Documents", {"fields": ("business_certificate", "id_document", "store_logo", "store_banner")}),
+    )
+
+    def products_sold_count(self, obj):
+        from django.db.models import Sum
+        total = OrderItem.objects.filter(product__seller_account=obj).aggregate(total=Sum("quantity"))["total"]
+        return total or 0
+    products_sold_count.short_description = "Units sold"
+
+    def total_sales_display(self, obj):
+        return f"Rs.{obj.lifetime_sales:.2f}"
+    total_sales_display.short_description = "Total sales"
+
+    def commission_owed_display(self, obj):
+        sales = float(obj.lifetime_sales)
+        rate = obj.effective_commission_rate
+        owed = sales * rate / 100
+        return f"Rs.{owed:.2f} ({rate:g}%)"
+    commission_owed_display.short_description = "Commission owed"
+
+    def net_earnings_display(self, obj):
+        sales = float(obj.lifetime_sales)
+        rate = obj.effective_commission_rate
+        owed = sales * rate / 100
+        net = sales - owed
+        return f"Rs.{net:.2f}"
+    net_earnings_display.short_description = "Seller's net earnings (after commission)"
 
     def approve_sellers(self, request, queryset):
         from .models import Notification, AuditLog

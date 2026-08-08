@@ -979,6 +979,13 @@ def owner_dashboard(request):
     approved_sellers = SellerAccount.objects.filter(status="approved")
     top_sellers = sorted(approved_sellers, key=lambda s: s.lifetime_sales, reverse=True)[:5]
 
+    low_stock_products = Product.objects.filter(stock__gt=0, stock__lte=5).order_by("stock")[:10]
+    out_of_stock_products = Product.objects.filter(stock__lte=0).order_by("-id")[:10]
+    pending_products = Product.objects.filter(approval_status="pending").order_by("-id")[:10]
+    pending_products_count = Product.objects.filter(approval_status="pending").count()
+    low_stock_count = Product.objects.filter(stock__gt=0, stock__lte=5).count()
+    out_of_stock_count = Product.objects.filter(stock__lte=0).count()
+
     seller_earnings = []
     total_commission_earned = 0
     total_still_owed = 0
@@ -1012,4 +1019,10 @@ def owner_dashboard(request):
         "seller_earnings": seller_earnings,
         "total_commission_earned": round(total_commission_earned, 2),
         "total_still_owed": round(total_still_owed, 2),
+        "low_stock_products": low_stock_products,
+        "out_of_stock_products": out_of_stock_products,
+        "pending_products": pending_products,
+        "pending_products_count": pending_products_count,
+        "low_stock_count": low_stock_count,
+        "out_of_stock_count": out_of_stock_count,
     })

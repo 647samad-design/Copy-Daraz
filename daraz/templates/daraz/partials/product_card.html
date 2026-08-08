@@ -24,7 +24,7 @@
         <div class="stock-badge low">{{ t.only_left }} {{ product.stock }}</div>
         {% endif %}
     </a>
-    <a href="{% url 'toggle_compare' product.id %}" style="display:block;text-align:center;font-size:11px;color:#666;text-decoration:none;padding:4px 0;border-top:1px solid #f5f5f5;">
+    <a href="{% url 'toggle_compare' product.id %}" class="compare-link" style="display:block;text-align:center;font-size:11px;text-decoration:none;padding:4px 0;border-top:1px solid #f5f5f5;">
         {% if product.id in compare_ids %}&#10003; In compare{% else %}+ Compare{% endif %}
     </a>
 </div>

@@ -1,9 +1,27 @@
+import csv
 from django.contrib import admin
+from django.http import HttpResponse
+from django.db.models import Sum
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
 )
+
+
+def export_as_csv(modeladmin, request, queryset, field_names):
+    response = HttpResponse(content_type="text/csv")
+    filename = f"{modeladmin.model._meta.verbose_name_plural}_export.csv".replace(" ", "_")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    writer = csv.writer(response)
+    writer.writerow(field_names)
+    for obj in queryset:
+        row = []
+        for field in field_names:
+            value = getattr(obj, field, "")
+            row.append(value() if callable(value) else value)
+        writer.writerow(row)
+    return response
 
 admin.site.site_header = "19Bees Administration"
 admin.site.site_title = "19Bees Admin"
@@ -33,7 +51,28 @@ class ProductAdmin(admin.ModelAdmin):
     list_editable = ("price", "stock")
     list_per_page = 50
     inlines = [ProductImageInline, ReviewInline, QuestionInline]
-    actions = ["approve_products", "reject_products", "mark_flash_sale", "unmark_flash_sale"]
+    actions = ["approve_products", "reject_products", "mark_flash_sale", "unmark_flash_sale", "export_products_csv"]
+
+    def export_products_csv(self, request, queryset):
+        return export_as_csv(self, request, queryset, [
+            "id", "name", "category", "price", "old_price", "stock",
+            "seller_name", "approval_status", "is_flash_sale",
+        ])
+    export_products_csv.short_description = "Export selected products to CSV"
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        action = "Edited" if change else "Created"
+        AuditLog.objects.create(user=request.user, action=f"{action} product #{obj.id} ({obj.name})")
+
+    def delete_model(self, request, obj):
+        AuditLog.objects.create(user=request.user, action=f"Deleted product #{obj.id} ({obj.name})")
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        for obj in queryset:
+            AuditLog.objects.create(user=request.user, action=f"Deleted product #{obj.id} ({obj.name})")
+        super().delete_queryset(request, queryset)
 
     def stock_status(self, obj):
         if obj.stock <= 0:
@@ -87,23 +126,50 @@ class OrderAdmin(admin.ModelAdmin):
     list_editable = ("status",)
     date_hierarchy = "created_at"
     inlines = [OrderItemInline]
-    actions = ["mark_confirmed", "mark_shipped", "mark_delivered", "mark_cancelled"]
+    actions = ["mark_confirmed", "mark_shipped", "mark_delivered", "mark_cancelled", "export_orders_csv"]
+
+    def export_orders_csv(self, request, queryset):
+        return export_as_csv(self, request, queryset, [
+            "id", "user", "full_name", "city", "phone", "payment_method", "status", "total", "created_at",
+        ])
+    export_orders_csv.short_description = "Export selected orders to CSV"
+
+    def save_model(self, request, obj, form, change):
+        old_status = None
+        if change:
+            old_status = Order.objects.filter(pk=obj.pk).values_list("status", flat=True).first()
+        super().save_model(request, obj, form, change)
+        if change and old_status and old_status != obj.status:
+            AuditLog.objects.create(
+                user=request.user,
+                action=f"Changed order #{obj.id} status from {old_status} to {obj.status}",
+            )
 
     def mark_confirmed(self, request, queryset):
-        queryset.update(status="confirmed")
+        self._bulk_status(request, queryset, "confirmed")
     mark_confirmed.short_description = "Mark selected orders as Confirmed"
 
     def mark_shipped(self, request, queryset):
-        queryset.update(status="shipped")
+        self._bulk_status(request, queryset, "shipped")
     mark_shipped.short_description = "Mark selected orders as Shipped"
 
     def mark_delivered(self, request, queryset):
-        queryset.update(status="delivered")
+        self._bulk_status(request, queryset, "delivered")
     mark_delivered.short_description = "Mark selected orders as Delivered"
 
     def mark_cancelled(self, request, queryset):
-        queryset.update(status="cancelled")
+        self._bulk_status(request, queryset, "cancelled")
     mark_cancelled.short_description = "Mark selected orders as Cancelled"
+
+    def _bulk_status(self, request, queryset, new_status):
+        for order in queryset:
+            old_status = order.status
+            if old_status != new_status:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action=f"Changed order #{order.id} status from {old_status} to {new_status}",
+                )
+        queryset.update(status=new_status)
 
 
 @admin.register(Wishlist)
@@ -173,7 +239,31 @@ class SellerAccountAdmin(admin.ModelAdmin):
         "commission_owed_display", "net_earnings_display", "amount_owed_display",
     )
     date_hierarchy = "created_at"
-    actions = ["approve_sellers", "reject_sellers", "suspend_sellers", "mark_fully_paid_out"]
+    actions = ["approve_sellers", "reject_sellers", "suspend_sellers", "mark_fully_paid_out", "export_sellers_csv"]
+
+    def export_sellers_csv(self, request, queryset):
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="sellers_export.csv"'
+        writer = csv.writer(response)
+        writer.writerow([
+            "id", "display_name", "username", "account_type", "status", "units_sold",
+            "total_sales", "commission_rate_pct", "commission_owed", "net_earnings",
+            "total_paid_out", "still_owed", "city", "country", "created_at",
+        ])
+        for s in queryset:
+            units = OrderItem.objects.filter(product__seller_account=s).aggregate(
+                total=Sum("quantity")
+            )["total"] or 0
+            sales = float(s.lifetime_sales)
+            rate = s.effective_commission_rate
+            commission = round(sales * rate / 100, 2)
+            writer.writerow([
+                s.id, s.display_name, s.user.username, s.account_type, s.status, units,
+                f"{sales:.2f}", rate, f"{commission:.2f}", f"{s.net_earnings:.2f}",
+                f"{s.total_paid_out:.2f}", f"{s.amount_owed:.2f}", s.city, s.country, s.created_at,
+            ])
+        return response
+    export_sellers_csv.short_description = "Export selected sellers to CSV"
 
     fieldsets = (
         ("Account", {"fields": ("user", "account_type", "status", "commission_rate", "admin_note", "created_at")}),

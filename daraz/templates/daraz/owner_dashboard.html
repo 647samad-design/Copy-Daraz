@@ -11,6 +11,18 @@
     .od-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
     .od-badge { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
     .od-approve-link { color: #000000; font-size: 12px; }
+    .od-alert-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .od-alert-box { display: block; text-align: center; padding: 16px 10px; border: 1px solid #eee; border-radius: 4px; text-decoration: none; transition: transform 0.15s ease; }
+    .od-alert-box:hover { transform: translateY(-2px); }
+    .od-alert-box.warn { border-color: #f5a623; background: #fff8e9; }
+    .od-alert-box.danger { border-color: #DC2626; background: #fdeceb; }
+    .od-alert-num { font-size: 26px; font-weight: bold; color: #111827; }
+    .od-alert-box.warn .od-alert-num { color: #b8860b; }
+    .od-alert-box.danger .od-alert-num { color: #DC2626; }
+    .od-alert-label { font-size: 12px; color: #6B7280; margin-top: 4px; }
+    .od-mini-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+    .od-mini-table th, .od-mini-table td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; text-align: left; }
+    .od-export-link { float: right; font-size: 12px; color: #000000; text-decoration: underline; }
     .od-earnings-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .od-earnings-table th, .od-earnings-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: left; }
     .od-earnings-table th { font-weight: 600; color: #666; font-size: 12px; }
@@ -23,6 +35,13 @@
     html[data-theme="dark"] .od-earnings-table th { color: #999; }
     html[data-theme="dark"] .od-earnings-table td { color: #ddd; }
     html[data-theme="dark"] .od-approve-link { color: #fff; }
+    html[data-theme="dark"] .od-alert-box { border-color: #333; }
+    html[data-theme="dark"] .od-alert-num { color: #fff; }
+    html[data-theme="dark"] .od-alert-label { color: #999; }
+    html[data-theme="dark"] .od-alert-box.warn { background: #2a2410; border-color: #b8860b; }
+    html[data-theme="dark"] .od-alert-box.danger { background: #2a1414; border-color: #DC2626; }
+    html[data-theme="dark"] .od-mini-table th, html[data-theme="dark"] .od-mini-table td { border-color: #333; color: #ddd; }
+    html[data-theme="dark"] .od-export-link { color: #fff; }
 {% endblock %}
 {% block content %}
 <div class="od-wrap">
@@ -39,6 +58,28 @@
         <div class="od-card"><div class="num">{{ inactive_sellers }}</div><div class="label">Inactive / Rejected Sellers</div></div>
         <div class="od-card accent"><div class="num">Rs.{{ total_commission_earned }}</div><div class="label">Platform Commission Earned</div></div>
         <div class="od-card"><div class="num">Rs.{{ total_still_owed }}</div><div class="label">Still Owed to Sellers (unpaid)</div></div>
+    </div>
+
+    <div class="od-section od-alerts">
+        <h2>Needs your attention</h2>
+        <div class="od-alert-grid">
+            <a href="{% url 'admin:daraz_selleraccount_changelist' %}?status__exact=pending" class="od-alert-box {% if pending_sellers.count %}warn{% endif %}">
+                <div class="od-alert-num">{{ pending_sellers.count }}</div>
+                <div class="od-alert-label">Pending seller approvals</div>
+            </a>
+            <a href="{% url 'admin:daraz_product_changelist' %}?approval_status__exact=pending" class="od-alert-box {% if pending_products_count %}warn{% endif %}">
+                <div class="od-alert-num">{{ pending_products_count }}</div>
+                <div class="od-alert-label">Pending product approvals</div>
+            </a>
+            <a href="{% url 'admin:daraz_product_changelist' %}?stock__lte=5&stock__gt=0" class="od-alert-box {% if low_stock_count %}warn{% endif %}">
+                <div class="od-alert-num">{{ low_stock_count }}</div>
+                <div class="od-alert-label">Low stock (&le;5 left)</div>
+            </a>
+            <a href="{% url 'admin:daraz_product_changelist' %}?stock__lte=0" class="od-alert-box {% if out_of_stock_count %}danger{% endif %}">
+                <div class="od-alert-num">{{ out_of_stock_count }}</div>
+                <div class="od-alert-label">Out of stock</div>
+            </a>
+        </div>
     </div>
 
     <div class="od-section">

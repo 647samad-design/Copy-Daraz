@@ -1,6 +1,6 @@
 <div class="wishlist-heart">
     {% if user.is_authenticated %}
-    <form method="post" action="{% url 'toggle_wishlist' product.id %}">
+    <form method="post" action="{% url 'toggle_wishlist' product.id %}" class="wishlist-form">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.path }}">
         <button type="submit" class="{% if product.id in wishlist_ids %}active{% endif %}">&#9829;</button>

@@ -34,6 +34,21 @@
     .qna-item { border-bottom: 1px solid #f0f0f0; padding: 10px 0; font-size: 13px; }
     .qna-item .q { font-weight: 500; }
     .qna-item .a { color: #666; margin-top: 4px; padding-left: 14px; border-left: 2px solid #000000; }
+
+    html[data-theme="dark"] .product-image, html[data-theme="dark"] .product-info {
+        background: #1e1f26 !important; border-color: #333 !important;
+    }
+    html[data-theme="dark"] .price-block .price { color: #fff; }
+    html[data-theme="dark"] .review-form input, html[data-theme="dark"] .review-form select,
+    html[data-theme="dark"] .review-form textarea, html[data-theme="dark"] .qna-form input {
+        background: #2a2b33; color: #eee; border-color: #444;
+    }
+    html[data-theme="dark"] .review-item, html[data-theme="dark"] .thumb-row img { border-color: #333; }
+    html[data-theme="dark"] .thumb-row img.active { border-color: #fff; }
+    html[data-theme="dark"] .seller-link a { color: #fff; }
+    html[data-theme="dark"] .seller-link, html[data-theme="dark"] .qna-item .a { color: #aaa; }
+    html[data-theme="dark"] .qna-item .a { border-left-color: #666; }
+    html[data-theme="dark"] .qna-item { border-color: #333; }
 {% endblock %}
 {% block content %}
 

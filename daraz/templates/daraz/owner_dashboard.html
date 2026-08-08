@@ -11,6 +11,13 @@
     .od-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
     .od-badge { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
     .od-approve-link { color: #000000; font-size: 12px; }
+
+    html[data-theme="dark"] .od-card, html[data-theme="dark"] .od-section { background: #1e1f26; border-color: #333; }
+    html[data-theme="dark"] .od-card .num { color: #fff; }
+    html[data-theme="dark"] .od-card .label { color: #999; }
+    html[data-theme="dark"] .od-card.accent .num { color: #fff; }
+    html[data-theme="dark"] .od-row { border-color: #333; }
+    html[data-theme="dark"] .od-approve-link { color: #fff; }
 {% endblock %}
 {% block content %}
 <div class="od-wrap">

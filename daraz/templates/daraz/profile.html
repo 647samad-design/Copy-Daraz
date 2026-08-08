@@ -14,6 +14,14 @@
     .address-card .del-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; color: #999; cursor: pointer; font-size: 12px; }
     .add-address-form input { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ddd; font-size: 12px; box-sizing: border-box; }
     .add-address-form button { background: #333; color: #fff; border: none; padding: 8px 16px; font-size: 12px; cursor: pointer; }
+
+    html[data-theme="dark"] .profile-card input, html[data-theme="dark"] .add-address-form input {
+        background: #2a2b33; color: #eee; border-color: #444;
+    }
+    html[data-theme="dark"] .stat-box { background: #17181d; border-color: #333; }
+    html[data-theme="dark"] .stat-box .num { color: #fff; }
+    html[data-theme="dark"] .stat-box .label { color: #aaa; }
+    html[data-theme="dark"] .address-card { border-color: #333; }
 {% endblock %}
 {% block content %}
 <div class="profile-wrap">

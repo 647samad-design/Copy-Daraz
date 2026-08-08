@@ -27,6 +27,18 @@
     .seller-fields h3 { font-size: 13px; color: #000000; margin: 14px 0 8px; }
     .file-row label { font-size: 11px; color: #6B7280; display: block; margin-bottom: 4px; }
     .file-row { margin-bottom: 12px; }
+
+    html[data-theme="dark"] .auth-box p.sub, html[data-theme="dark"] .auth-box label.field-label,
+    html[data-theme="dark"] .role-option .desc, html[data-theme="dark"] .file-row label { color: #aaa; }
+    html[data-theme="dark"] .auth-box input, html[data-theme="dark"] .auth-box select, html[data-theme="dark"] .auth-box textarea {
+        background: #2a2b33; color: #eee; border-color: #444;
+    }
+    html[data-theme="dark"] .auth-switch a { color: #fff; }
+    html[data-theme="dark"] .auth-divider::before, html[data-theme="dark"] .auth-divider::after { background: #444; }
+    html[data-theme="dark"] .role-option { border-color: #444; }
+    html[data-theme="dark"] .role-option.selected { border-color: #fff; background: #2a2b33; }
+    html[data-theme="dark"] .seller-fields { border-color: #444; }
+    html[data-theme="dark"] .seller-fields h3 { color: #eee; }
 {% endblock %}
 {% block content %}
 <div class="auth-wrap">

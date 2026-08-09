@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /cart/
+Disallow: /checkout/
+Disallow: /my-orders/
+Disallow: /profile/
+Disallow: /wishlist/
+Disallow: /compare/
+Disallow: /notifications/
+Disallow: /login/
+Disallow: /signup/
+Disallow: /seller/
+Disallow: /owner/
+Disallow: /search/
+
+Sitemap: {{ request.scheme }}://{{ request.get_host }}/sitemap.xml

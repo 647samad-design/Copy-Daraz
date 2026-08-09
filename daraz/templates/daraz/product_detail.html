@@ -1,4 +1,40 @@
 {% extends "daraz/base.html" %}
+{% block title %}{{ product.name }} - Rs.{{ product.price }} | 19Bees{% endblock %}
+{% block meta_description %}Buy {{ product.name }} for Rs.{{ product.price }} at 19Bees.{% if product.discount_percent %} Save {{ product.discount_percent }}% off.{% endif %} {{ product.description|truncatewords:20 }}{% endblock %}
+{% block og_type %}product{% endblock %}
+{% block og_title %}{{ product.name }} - Rs.{{ product.price }} | 19Bees{% endblock %}
+{% block og_description %}{{ product.description|truncatewords:25 }}{% endblock %}
+{% block og_image %}{{ product.image_url }}{% endblock %}
+{% block twitter_title %}{{ product.name }} - Rs.{{ product.price }}{% endblock %}
+{% block twitter_description %}{{ product.description|truncatewords:20 }}{% endblock %}
+{% block twitter_image %}{{ product.image_url }}{% endblock %}
+{% block structured_data %}
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "name": "{{ product.name|escapejs }}",
+    "image": "{{ product.image_url }}",
+    "description": "{{ product.description|truncatewords:40|escapejs }}",
+    "sku": "{{ product.id }}",
+    "brand": {"@type": "Brand", "name": "19Bees"},
+    "offers": {
+        "@type": "Offer",
+        "url": "{{ request.scheme }}://{{ request.get_host }}{{ request.path }}",
+        "priceCurrency": "PKR",
+        "price": "{{ product.price }}",
+        "availability": "{% if product.stock > 0 %}https://schema.org/InStock{% else %}https://schema.org/OutOfStock{% endif %}"
+    }
+    {% if product.reviews.count > 0 %}
+    ,"aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "{{ product.average_rating }}",
+        "reviewCount": "{{ product.reviews.count }}"
+    }
+    {% endif %}
+}
+</script>
+{% endblock %}
 {% block extra_css %}
     .product-page { display: flex; gap: 24px; margin: 20px 40px; }
     .product-image { flex: 0 0 400px; background: #fff; border: 1px solid #eee; padding: 16px; }

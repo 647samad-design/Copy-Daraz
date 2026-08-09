@@ -1,4 +1,5 @@
 {% extends "daraz/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
     .profile-wrap { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 40px; align-items: flex-start; }
     .profile-card { flex: 1; background: #fff; border: 1px solid #eee; padding: 24px; }

@@ -6,10 +6,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="{% static 'daraz/images/logo_transparent.png' %}">
-    <title>{% block title %}19Bees{% endblock %}</title>
-    <meta name="description" content="{% block meta_description %}19Bees - your online marketplace for skincare, electronics, fashion, groceries and more. Shop from trusted individual sellers and businesses.{% endblock %}">
-    <meta property="og:title" content="{% block og_title %}19Bees{% endblock %}">
-    <meta property="og:description" content="{% block og_description %}Shop everything at 19Bees{% endblock %}">
+    <title>{% block title %}19Bees — Shop skincare, electronics, fashion & more online in Pakistan{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}19Bees is your online marketplace for skincare, electronics, fashion, groceries and more. Shop from trusted individual sellers and businesses with cash on delivery across Pakistan.{% endblock %}">
+    <link rel="canonical" href="{% block canonical_url %}{{ request.scheme }}://{{ request.get_host }}{{ request.path }}{% endblock %}">
+    <meta name="robots" content="{% block robots_meta %}index, follow{% endblock %}">
+
+    <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+    <meta property="og:site_name" content="19Bees">
+    <meta property="og:title" content="{% block og_title %}19Bees — Shop online in Pakistan{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Shop skincare, electronics, fashion, groceries and more from trusted sellers, with cash on delivery across Pakistan.{% endblock %}">
+    <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}">
+    <meta property="og:image" content="{% block og_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'daraz/images/logo_transparent.png' %}{% endblock %}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}19Bees — Shop online in Pakistan{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}Shop skincare, electronics, fashion, groceries and more from trusted sellers.{% endblock %}">
+    <meta name="twitter:image" content="{% block twitter_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'daraz/images/logo_transparent.png' %}{% endblock %}">
+
+    {% block structured_data %}
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "19Bees",
+        "url": "{{ request.scheme }}://{{ request.get_host }}/",
+        "logo": "{{ request.scheme }}://{{ request.get_host }}{% static 'daraz/images/logo_transparent.png' %}"
+    }
+    </script>
+    {% endblock %}
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
         body { background: #F3F4F6; color: #111827; transition: background 0.2s ease, color 0.2s ease; }

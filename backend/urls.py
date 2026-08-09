@@ -3,10 +3,21 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 from django.conf import settings
 from django.conf.urls.static import static
+from django.contrib.sitemaps.views import sitemap
+from django.views.generic import TemplateView
 from daraz import views
+from daraz.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
+
+sitemaps = {
+    "products": ProductSitemap,
+    "categories": CategorySitemap,
+    "static": StaticViewSitemap,
+}
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='sitemap'),
+    path('robots.txt', TemplateView.as_view(template_name="robots.txt", content_type="text/plain"), name='robots'),
     path('', views.home, name='home'),
     path('search/', views.search_products, name='search_products'),
     path('products/', views.all_products, name='all_products'),

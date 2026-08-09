@@ -2,3 +2,5 @@ django>=6.0
 google-auth
 python-dotenv
 reportlab
+psycopg2-binary
+dj-database-url

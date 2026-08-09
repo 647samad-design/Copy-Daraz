@@ -1,22 +1,36 @@
 {% extends "daraz/base.html" %}
 {% block extra_css %}
     .hero { margin: 0 0 0 0; display: flex; gap: 0; }
-    .slider { position: relative; flex: 1; height: 430px; overflow: hidden; }
-    .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.6s ease-in-out; }
+    .slider { position: relative; flex: 1; height: 430px; overflow: hidden; background: #0b0b0d; }
+    .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.7s ease-in-out; filter: brightness(0.62); }
     .slide.active { opacity: 1; }
-    .slide-caption { position: absolute; left: 40px; top: 50%; transform: translateY(-50%); color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.4); }
-    .slide-caption h1 { font-size: 40px; font-weight: 800; }
-    .slide-caption p { font-size: 16px; margin-top: 8px; }
-    .dots { position: absolute; bottom: 14px; width: 100%; display: flex; justify-content: center; gap: 8px; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.6); }
-    .dot.active { background: #fff; }
+    .slider::after {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 45%, transparent 70%);
+    }
+    .slide-caption { position: absolute; left: 48px; top: 50%; transform: translateY(-50%); color: #fff; z-index: 2; }
+    .slide-caption .eyebrow { display: block; font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: #e8cf8a; margin-bottom: 12px; font-weight: 600; }
+    .slide-caption h1 { font-size: 42px; font-weight: 700; letter-spacing: -0.5px; max-width: 460px; line-height: 1.15; }
+    .slide-caption p { font-size: 15px; margin-top: 12px; color: #d8d8d8; max-width: 380px; }
+    .hero-cta {
+        display: inline-block; margin-top: 22px; background: #c9a24b; color: #0b0b0d; text-decoration: none;
+        padding: 12px 28px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; border-radius: 3px; transition: background 0.15s ease;
+    }
+    .hero-cta:hover { background: #e8cf8a; }
+    .dots { position: absolute; bottom: 18px; width: 100%; display: flex; justify-content: center; gap: 8px; z-index: 2; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background 0.2s ease; }
+    .dot.active { background: #c9a24b; }
 
-    .app-box { width: 260px; background: linear-gradient(160deg, #f0f0f0, #e5e5e5); padding: 20px; text-align: center; }
-    .app-box .app-title { color: #000000; font-weight: bold; font-size: 15px; margin-bottom: 12px; }
-    .qr-pattern { width: 130px; height: 130px; margin: 0 auto 12px; background: #fff; padding: 8px; border-radius: 4px; }
+    .app-box {
+        width: 260px; background: #0b0b0d; border-left: 1px solid #c9a24b; padding: 26px 20px;
+        text-align: center; display: flex; flex-direction: column; justify-content: center;
+    }
+    .app-box .app-title { color: #fff; font-weight: 600; font-size: 14px; margin-bottom: 16px; letter-spacing: 0.3px; }
+    .qr-pattern { width: 130px; height: 130px; margin: 0 auto 16px; background: #fff; padding: 8px; border-radius: 4px; }
     .qr-pattern svg { width: 100%; height: 100%; }
     .app-box .badges { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-    .app-box .badge { background: #222; color: #fff; border-radius: 4px; padding: 8px; font-size: 12px; }
+    .app-box .badge { background: transparent; color: #ccc; border: 1px solid #333; border-radius: 4px; padding: 8px; font-size: 12px; transition: border-color 0.15s ease, color 0.15s ease; }
+    .app-box .badge:hover { border-color: #c9a24b; color: #e8cf8a; }
 {% endblock %}
 {% block content %}
 
@@ -26,8 +40,10 @@
             <img class="slide" src="https://picsum.photos/id/1025/1400/430" alt="slide2">
             <img class="slide" src="https://picsum.photos/id/1035/1400/430" alt="slide3">
             <div class="slide-caption">
+                <span class="eyebrow">19Bees Marketplace</span>
                 <h1>{{ t.welcome }}</h1>
                 <p>{{ t.welcome_sub }}</p>
+                <a href="{% url 'all_products' %}" class="hero-cta">Shop the collection</a>
             </div>
             <div class="dots">
                 <span class="dot active"></span>

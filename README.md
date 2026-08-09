@@ -1,6 +1,6 @@
 # 19Bees
 
-Ek simple Daraz jaisi website ka starter project — Django (Python) ke sath banaya gaya hai.
+Ek simple e-commerce website ka starter project — Django (Python) ke sath banaya gaya hai.
 
 ## Structure
 - **backend/** – Django project settings, urls, wsgi
@@ -55,7 +55,7 @@ OAuth Client yet. Fix it in Google Cloud Console:
 Since Codespaces URLs can change if you rebuild the container, you'll need to re-add the new URL
 each time it changes.
 ## Features
-- Daraz-style navbar with search bar, cart icon with live item count
+- 19Bees-style navbar with search bar, cart icon with live item count
 - Big auto-changing image slider + "Try the app" QR box — shown only on the home page
 - Flash sale, Categories (21 categories, 5+ products each), and Just for you sections
 - Product detail page with working Buy Now / Add to cart and a review form

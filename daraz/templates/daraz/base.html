@@ -40,7 +40,7 @@
 
         html[data-theme="dark"] body { background: #14151a; color: #ddd; }
         html[data-theme="dark"] .section, html[data-theme="dark"] .product-card,
-        html[data-theme="dark"] .category-box, html[data-theme="dark"] .footer,
+        html[data-theme="dark"] .category-box,
         html[data-theme="dark"] .auth-box, html[data-theme="dark"] .cart-wrap,
         html[data-theme="dark"] .checkout-form, html[data-theme="dark"] .summary,
         html[data-theme="dark"] .product-page, html[data-theme="dark"] .desc-box,
@@ -56,12 +56,6 @@
         html[data-theme="dark"] .pagination a, html[data-theme="dark"] .pagination span { color: #ddd; border-color: #444; }
         html[data-theme="dark"] .status-step.done { color: #fff; }
         html[data-theme="dark"] .status-step { color: #999; }
-        html[data-theme="dark"] .footer-col h3, html[data-theme="dark"] .footer-about h3 { color: #eee; }
-        html[data-theme="dark"] .footer-col a { color: #bbb; }
-        html[data-theme="dark"] .footer-col a:hover { color: #fff; }
-        html[data-theme="dark"] .footer-col p, html[data-theme="dark"] .footer-about p, html[data-theme="dark"] .newsletter-box p { color: #aaa; }
-        html[data-theme="dark"] .footer-bottom { color: #999; }
-        html[data-theme="dark"] .app-badge, html[data-theme="dark"] .payment-chip { background: #2a2b33; color: #ddd; border-color: #444; }
         html[data-theme="dark"] .chat-body { color: #ccc; }
         html[data-theme="dark"] .chat-msg { background: #2a2b33; }
         html[data-theme="dark"] .sidebar { background: #1e1f26 !important; border-color: #333 !important; }
@@ -76,7 +70,6 @@
         html[data-theme="dark"] .category-box { background: #1e1f26 !important; }
         html[data-theme="dark"] .category-box:hover { color: #fff; }
         html[data-theme="dark"] .product-card img { opacity: 0.92; }
-        html[data-theme="dark"] .footer { background: #17181d !important; }
         html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea {
             background: #2a2b33; color: #eee; border-color: #444 !important;
         }
@@ -221,40 +214,68 @@
         .category-box:hover { color: #000000; }
         @media (max-width: 900px) { .category-grid { grid-template-columns: repeat(4, 1fr); } }
 
-        .footer { background: #f0f0f0; margin-top: 30px; padding: 0 40px 10px; border-top: 3px solid #000000; }
-        .trust-strip { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; padding: 20px 0; border-bottom: 1px solid #ddd; margin-bottom: 26px; }
-        .trust-item { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; color: #333; }
-        .trust-item svg { width: 26px; height: 26px; color: #000000; flex-shrink: 0; }
-        .footer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; margin-bottom: 24px; }
-        .footer-col h3 { font-size: 15px; font-weight: 500; margin-bottom: 14px; color: #333; display: flex; align-items: center; gap: 8px; }
-        .footer-col h3 svg { width: 18px; height: 18px; flex-shrink: 0; color: #000000; }
-        .footer-col a { display: block; font-size: 13px; color: #555; text-decoration: none; margin-bottom: 8px; transition: color 0.15s ease, transform 0.15s ease; }
-        .footer-col a:hover { color: #000000; transform: translateX(2px); }
-        .footer-col p { font-size: 13px; color: #666; line-height: 1.6; }
-        .app-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-        .app-badge { border: 1px solid #ccc; border-radius: 4px; padding: 6px 12px; font-size: 12px; color: #333; background: #fff; }
-        .social-row { display: flex; gap: 10px; margin-top: 16px; }
+        /* ============ Footer — always dark, gold-accented, theme-independent ============ */
+        :root { --gold: #c9a24b; --gold-soft: #e8cf8a; }
+        .footer { background: #0b0b0d; color: #ddd; margin-top: 40px; padding: 0 40px 18px; border-top: 1px solid var(--gold); }
+
+        .footer-brand-row { text-align: center; padding: 44px 0 30px; }
+        .footer-logo { height: 56px; width: auto; }
+        .footer-tagline { margin-top: 10px; font-size: 13px; letter-spacing: 0.4px; color: #9a9a9a; font-style: italic; }
+
+        .trust-strip { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; padding: 22px 0; border-top: 1px solid #232323; border-bottom: 1px solid #232323; margin-bottom: 30px; }
+        .trust-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 500; color: #d8d8d8; letter-spacing: 0.2px; }
+        .trust-icon {
+            width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--gold); flex-shrink: 0; color: var(--gold-soft);
+        }
+        .trust-icon svg { width: 16px; height: 16px; }
+
+        .footer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 30px; margin-bottom: 34px; }
+        .footer-col h3 {
+            font-size: 12px; font-weight: 600; margin-bottom: 16px; color: var(--gold-soft);
+            text-transform: uppercase; letter-spacing: 1.4px;
+        }
+        .footer-col a { display: block; font-size: 13.5px; color: #b8b8b8; text-decoration: none; margin-bottom: 10px; transition: color 0.15s ease, transform 0.15s ease; width: fit-content; }
+        .footer-col a:hover { color: #fff; transform: translateX(3px); }
+        .footer-col p { font-size: 13px; color: #9a9a9a; line-height: 1.7; }
+
+        .app-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .app-badge { border: 1px solid #333; border-radius: 4px; padding: 6px 12px; font-size: 11.5px; color: #ccc; background: #151515; }
+        .social-row { display: flex; gap: 10px; margin-top: 18px; }
         .social-icon {
             width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
-            border: 1px solid #ccc; border-radius: 50%; color: #333; transition: all 0.15s ease;
+            border: 1px solid #333; border-radius: 50%; color: #ccc; transition: all 0.2s ease;
         }
-        .social-icon svg { width: 16px; height: 16px; }
-        .social-icon:hover { background: #000000; color: #fff; border-color: #000000; transform: translateY(-2px); }
-        .payment-row { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #ddd; padding: 16px 0; }
-        .payment-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; font-size: 11px; background: #fff; color: #444; }
+        .social-icon svg { width: 15px; height: 15px; }
+        .social-icon:hover { background: var(--gold); color: #0b0b0d; border-color: var(--gold); transform: translateY(-3px); }
+
+        .newsletter-strip {
+            display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+            border: 1px solid var(--gold); border-radius: 6px; padding: 26px 32px; margin-bottom: 30px;
+            background: linear-gradient(135deg, rgba(201,162,75,0.07), transparent);
+        }
+        .newsletter-eyebrow { display: block; font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gold-soft); margin-bottom: 6px; }
+        .newsletter-copy h3 { font-size: 17px; font-weight: 500; color: #fff; }
+        .newsletter-form { display: flex; gap: 0; flex: 0 0 auto; }
+        .newsletter-form input {
+            width: 240px; padding: 12px 16px; border: 1px solid #3a3a3a; border-right: none; background: #141414; color: #eee;
+            font-size: 13px; border-radius: 4px 0 0 4px;
+        }
+        .newsletter-form input::placeholder { color: #777; }
+        .newsletter-form input:focus { outline: none; border-color: var(--gold); }
+        .newsletter-form button {
+            background: var(--gold); color: #0b0b0d; border: none; padding: 0 22px; cursor: pointer;
+            font-size: 12.5px; font-weight: 700; letter-spacing: 0.5px; border-radius: 0 4px 4px 0; transition: background 0.15s ease;
+        }
+        .newsletter-form button:hover { background: var(--gold-soft); }
+
+        .payment-row { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #232323; padding: 20px 0; }
+        .payment-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #333; border-radius: 4px; padding: 5px 10px; font-size: 11px; background: #151515; color: #bbb; }
         .payment-chip svg { width: 13px; height: 13px; }
-        .footer-bottom { text-align: center; font-size: 12px; color: #888; padding: 12px 0; }
-        .footer-about { border-top: 1px solid #ddd; padding: 20px 0 10px; }
-        .footer-about h3 { font-size: 15px; margin-bottom: 10px; color: #333; }
-        .footer-about p { font-size: 13px; color: #666; line-height: 1.7; margin-bottom: 10px; max-width: 900px; }
-        html[data-theme="dark"] .footer { border-top-color: #444; }
-        html[data-theme="dark"] .trust-strip { border-bottom-color: #333; }
-        html[data-theme="dark"] .trust-item { color: #ddd; }
-        html[data-theme="dark"] .trust-item svg { color: #eee; }
-        html[data-theme="dark"] .footer-col h3 svg { color: #eee; }
-        html[data-theme="dark"] .social-icon { border-color: #444; color: #ccc; }
-        html[data-theme="dark"] .social-icon:hover { background: #eee; color: #111; border-color: #eee; }
-        html[data-theme="dark"] .payment-row { border-top-color: #333; }
+
+        .footer-bottom { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a7a7a; padding: 14px 0 4px; }
+        .back-to-top { background: none; border: 1px solid #333; color: #ccc; font-size: 11px; padding: 6px 14px; border-radius: 20px; cursor: pointer; transition: all 0.15s ease; }
+        .back-to-top:hover { border-color: var(--gold); color: var(--gold-soft); }
 
         {% block extra_css %}{% endblock %}
 
@@ -270,12 +291,6 @@
         .toast.error { background: #c0392b; }
         .toast.warning { background: #e67e22; }
         .toast.info { background: #333; }
-
-        .newsletter-box { background: #f5f5f5; border: 1px solid #e5e5e5; padding: 16px; margin-top: 10px; }
-        .newsletter-box p { font-size: 12px; color: #666; margin-bottom: 8px; }
-        .newsletter-box form { display: flex; gap: 6px; }
-        .newsletter-box input { flex: 1; padding: 8px; border: 1px solid #ddd; font-size: 12px; }
-        .newsletter-box button { background: #000000; color: #fff; border: none; padding: 0 14px; cursor: pointer; font-size: 12px; }
 
         .chat-bubble { position: fixed; bottom: 24px; right: 24px; width: 54px; height: 54px; border-radius: 50%; background: #000000; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 400; }
         .chat-window { position: fixed; bottom: 90px; right: 24px; width: 280px; background: #fff; border: 1px solid #eee; box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 400; display: none; }
@@ -299,6 +314,12 @@
             .sidebar { display: none; }
             .app-box { display: none; }
             .footer-cols { grid-template-columns: 1fr 1fr; }
+            .footer { padding-left: 20px; padding-right: 20px; }
+            .newsletter-strip { flex-direction: column; align-items: stretch; text-align: center; padding: 22px 20px; }
+            .newsletter-form { flex-direction: column; }
+            .newsletter-form input { width: 100%; border-right: 1px solid #3a3a3a; border-bottom: none; border-radius: 4px 4px 0 0; }
+            .newsletter-form button { border-radius: 0 0 4px 4px; padding: 12px 0; }
+            .footer-bottom { flex-direction: column; gap: 10px; text-align: center; }
         }
     </style>
 </head>
@@ -427,15 +448,20 @@
     {% block content %}{% endblock %}
 
     <div class="footer">
+        <div class="footer-brand-row">
+            <img src="{% static 'daraz/images/logo_transparent.png' %}" alt="19Bees" class="footer-logo">
+            <p class="footer-tagline">Curated essentials, delivered with care — across Pakistan.</p>
+        </div>
+
         <div class="trust-strip">
-            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="6" width="15" height="12" rx="2"/><path d="M16 10h3.5L22 13.5V18h-6"/><circle cx="6" cy="19" r="1.6"/><circle cx="17.5" cy="19" r="1.6"/></svg><span>Fast &amp; reliable delivery</span></div>
-            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z"/><path d="m9 12 2 2 4-4"/></svg><span>Secure payments</span></div>
-            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg><span>Easy returns</span></div>
-            <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span>24/7 support</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="6" width="15" height="12" rx="2"/><path d="M16 10h3.5L22 13.5V18h-6"/><circle cx="6" cy="19" r="1.6"/><circle cx="17.5" cy="19" r="1.6"/></svg></span><span>Fast &amp; reliable delivery</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Secure payments</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg></span><span>Easy returns</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span><span>24/7 support</span></div>
         </div>
         <div class="footer-cols">
             <div class="footer-col">
-                <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3M3 11v5a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2H3m18 8a4 4 0 0 1-4 4h-3"/></svg>{{ t.customer_care }}</h3>
+                <h3>{{ t.customer_care }}</h3>
                 <a href="{% url 'help_support' %}">{{ t.help_center }}</a>
                 <a href="{% url 'help_support' %}">{{ t.how_to_buy }}</a>
                 <a href="#">{{ t.bulk_purchases }}</a>
@@ -443,7 +469,7 @@
                 <a href="{% url 'help_support' %}">{{ t.contact_us }}</a>
             </div>
             <div class="footer-col">
-                <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3 12h18"/></svg>19Bees</h3>
+                <h3>19Bees</h3>
                 <a href="{% url 'about_us' %}">{{ t.about_us }}</a>
                 <a href="{% url 'terms_page' %}">{{ t.terms }}</a>
                 <a href="{% url 'privacy_page' %}">{{ t.privacy }}</a>
@@ -451,7 +477,7 @@
                 <a href="#">{{ t.careers }}</a>
             </div>
             <div class="footer-col">
-                <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.58 9.59a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.83Z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></svg>{{ t.top_categories }}</h3>
+                <h3>{{ t.top_categories }}</h3>
                 <a href="{% url 'category_products' 'skincare' %}">Skin care</a>
                 <a href="{% url 'category_products' 'electronics' %}">Electronics</a>
                 <a href="{% url 'category_products' 'fashion' %}">Fashion</a>
@@ -459,7 +485,7 @@
                 <a href="{% url 'category_products' 'education' %}">Education</a>
             </div>
             <div class="footer-col footer-app-col">
-                <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>{{ t.happy_shopping }}</h3>
+                <h3>{{ t.happy_shopping }}</h3>
                 <p>{{ t.download_app_desc }}</p>
                 <div class="app-badges">
                     <span class="app-badge">App Store</span>
@@ -472,15 +498,19 @@
                     <a href="#" aria-label="X / Twitter" class="social-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 3H21l-6.5 7.4L22 21h-6.2l-4.9-6.4L5.3 21H3.2l6.9-7.9L2.4 3h6.3l4.4 5.9L18.9 3Zm-1.1 16.2h1.2L7.3 4.7H6l11.8 14.5Z"/></svg></a>
                     <a href="#" aria-label="YouTube" class="social-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12s0-3.2-.4-4.7a2.9 2.9 0 0 0-2-2C17.9 5 12 5 12 5s-5.9 0-7.6.3a2.9 2.9 0 0 0-2 2C2 8.8 2 12 2 12s0 3.2.4 4.7a2.9 2.9 0 0 0 2 2C6.1 19 12 19 12 19s5.9 0 7.6-.3a2.9 2.9 0 0 0 2-2C22 15.2 22 12 22 12ZM10 15.5v-7l6 3.5-6 3.5Z"/></svg></a>
                 </div>
-                <div class="newsletter-box">
-                    <p>Subscribe for deals &amp; updates</p>
-                    <form method="post" action="{% url 'newsletter_subscribe' %}">
-                        {% csrf_token %}
-                        <input type="email" name="email" placeholder="Your email" required>
-                        <button type="submit">Join</button>
-                    </form>
-                </div>
             </div>
+        </div>
+
+        <div class="newsletter-strip">
+            <div class="newsletter-copy">
+                <span class="newsletter-eyebrow">Members-only</span>
+                <h3>Get early access to drops &amp; discounts</h3>
+            </div>
+            <form method="post" action="{% url 'newsletter_subscribe' %}" class="newsletter-form">
+                {% csrf_token %}
+                <input type="email" name="email" placeholder="Your email address" required>
+                <button type="submit">Subscribe</button>
+            </form>
         </div>
 
         <div class="payment-row">
@@ -495,7 +525,8 @@
         </div>
 
         <div class="footer-bottom">
-            &copy; 2026 19Bees. Your online marketplace for everyday essentials.
+            <span>&copy; 2026 19Bees. Your online marketplace for everyday essentials.</span>
+            <button class="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">&uarr; Top</button>
         </div>
     </div>
 

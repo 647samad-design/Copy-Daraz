@@ -166,8 +166,12 @@
         .stock-badge.out { color: #c0392b; font-weight: bold; }
         .wishlist-heart { position: relative; }
         .wishlist-heart form.wishlist-form { position: absolute; top: 8px; right: 8px; z-index: 5; }
-        .wishlist-heart form.wishlist-form button { background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; font-size: 15px; color: #ccc; }
-        .wishlist-heart form.wishlist-form button.active { color: #000000; }
+        .wishlist-heart form.wishlist-form button {
+            background: rgba(255,255,255,0.92); border: 1px solid transparent; border-radius: 50%;
+            width: 28px; height: 28px; cursor: pointer; font-size: 15px; color: #ccc; transition: all 0.15s ease;
+        }
+        .wishlist-heart form.wishlist-form button:hover { border-color: #c9a24b; color: #c9a24b; }
+        .wishlist-heart form.wishlist-form button.active { color: #c9a24b; }
         .status-progress { display: flex; align-items: center; margin: 14px 0; }
         .status-step { flex: 1; text-align: center; font-size: 11px; color: #999; position: relative; }
         .status-step .dot { width: 12px; height: 12px; border-radius: 50%; background: #ddd; margin: 0 auto 4px; }
@@ -179,13 +183,22 @@
         .coupon-box { display: flex; gap: 8px; margin: 14px 0; }
         .coupon-box input { flex: 1; padding: 9px; border: 1px solid #ddd; font-size: 13px; }
         .coupon-box button { background: #333; color: #fff; border: none; padding: 0 16px; cursor: pointer; font-size: 13px; }
-        .product-card { border: 1px solid #f0f0f0; padding: 12px; text-decoration: none; color: #333; display: block; }
-        .product-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .product-card img { width: 100%; height: 150px; object-fit: cover; margin-bottom: 10px; }
-        .product-card .pname { font-size: 13px; height: 36px; overflow: hidden; margin-bottom: 6px; }
+        .product-card {
+            border: 1px solid #eee; padding: 12px; text-decoration: none; color: #333; display: block;
+            border-radius: 4px; transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; position: relative;
+        }
+        .product-card:hover { border-color: #c9a24b; box-shadow: 0 8px 20px rgba(0,0,0,0.08); transform: translateY(-3px); }
+        .product-card .img-wrap { overflow: hidden; border-radius: 3px; margin-bottom: 10px; }
+        .product-card img { width: 100%; height: 150px; object-fit: cover; display: block; transition: transform 0.35s ease; }
+        .product-card:hover img { transform: scale(1.06); }
+        .product-card .pname { font-size: 13px; height: 36px; overflow: hidden; margin-bottom: 6px; transition: color 0.15s ease; }
+        .product-card:hover .pname { color: #000000; }
         .product-card .price { color: #000000; font-size: 17px; font-weight: bold; }
         .product-card .old-price { color: #999; font-size: 12px; text-decoration: line-through; margin-top: 2px; }
-        .product-card .discount { color: #DC2626; font-size: 12px; margin-left: 6px; font-weight: bold; }
+        .product-card .discount {
+            display: inline-block; background: #0b0b0d; color: #e8cf8a; font-size: 10.5px; font-weight: 700;
+            margin-left: 6px; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.2px; vertical-align: middle;
+        }
         .product-card .card-rating { color: #f5a623; font-size: 11px; margin-top: 6px; }
         .product-card .card-rating .rcount { color: #999; margin-left: 4px; }
         html[data-theme="dark"] .product-card .price { color: #fff; }

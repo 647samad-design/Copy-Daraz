@@ -25,12 +25,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-g1db5^p$##5gwm4i=me%_1v^189j4%5rj2le5vy00^^*-=($w8'
+# Reads SECRET_KEY from the environment (.env locally, your host's env vars in
+# production). Falls back to a generated dev-only key so nothing breaks if it's
+# not set yet - but you should set a real SECRET_KEY before going live.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-fallback-only-set-a-real-SECRET_KEY-env-var-before-deploying',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Defaults to True so local/Codespaces testing keeps working as-is.
+# Set DEBUG=False as an environment variable on your production host.
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+# Defaults to allow-all so Codespaces/dev previews (which get a new random
+# hostname each time) keep working. Once you have a real domain, set
+# ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com as an environment variable
+# on your production host to lock this down.
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
 # Codespaces (and similar cloud dev environments) serve the site over HTTPS through
 # a proxy, so Django needs to trust that forwarded scheme and the dynamic preview

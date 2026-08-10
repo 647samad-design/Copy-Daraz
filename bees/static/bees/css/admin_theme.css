@@ -1,100 +1,146 @@
-/* 19Bees admin — black & white theme override for the default Django admin.
-   Scoped separately for light mode (default) and Django's own built-in
-   dark mode (toggled via the moon icon, which sets html[data-theme="dark"]),
-   so text never goes invisible when the admin's dark mode is switched on. */
+/* 19Bees admin — premium black + gold theme, matching the storefront's
+   navbar/footer identity. Scoped separately for light mode (default) and
+   Django's own built-in dark mode (the moon icon, which sets
+   html[data-theme="dark"]), so text never goes invisible either way. */
 
 :root, html[data-theme="light"] {
-    --primary: #000000;
-    --secondary: #000000;
-    --accent: #000000;
+    --primary: #0b0b0d;
+    --secondary: #0b0b0d;
+    --accent: #c9a24b;
     --primary-fg: #fff;
 
     --header-color: #fff;
-    --header-branding-color: #fff;
-    --header-bg: #000000;
+    --header-branding-color: #e8cf8a;
+    --header-bg: #0b0b0d;
     --header-link-color: #fff;
 
     --breadcrumbs-fg: #e5e5e5;
     --breadcrumbs-link-fg: #fff;
-    --breadcrumbs-bg: #1a1a1a;
+    --breadcrumbs-bg: #17181c;
 
-    --link-fg: #000000;
-    --link-hover-color: #333;
-    --link-selected-fg: #000000;
+    --link-fg: #8a6d1f;
+    --link-hover-color: #c9a24b;
+    --link-selected-fg: #8a6d1f;
 
-    --selected-bg: #f0f0f0;
-    --selected-row: #f5f5f5;
+    --selected-bg: #fbf4e2;
+    --selected-row: #fdf9ee;
 
-    --button-bg: #000000;
+    --button-bg: #0b0b0d;
     --button-fg: #fff;
-    --button-hover-bg: #333;
-    --default-button-bg: #000000;
-    --default-button-hover-bg: #333;
+    --button-hover-bg: #c9a24b;
+    --default-button-bg: #0b0b0d;
+    --default-button-hover-bg: #c9a24b;
     --close-button-bg: #666;
     --close-button-hover-bg: #333;
     --delete-button-bg: #ba2121;
     --delete-button-hover-bg: #a41515;
 
-    --object-tools-bg: #000000;
-    --object-tools-hover-bg: #333;
+    --object-tools-bg: #0b0b0d;
+    --object-tools-hover-bg: #c9a24b;
 }
 
 html[data-theme="dark"] {
-    --primary: #e5e5e5;
-    --secondary: #e5e5e5;
-    --accent: #e5e5e5;
-    --primary-fg: #000;
+    --primary: #e8cf8a;
+    --secondary: #e8cf8a;
+    --accent: #e8cf8a;
+    --primary-fg: #0b0b0d;
 
     --header-color: #fff;
-    --header-branding-color: #fff;
-    --header-bg: #000000;
+    --header-branding-color: #e8cf8a;
+    --header-bg: #0b0b0d;
     --header-link-color: #fff;
 
     --breadcrumbs-fg: #ccc;
     --breadcrumbs-link-fg: #fff;
-    --breadcrumbs-bg: #000000;
+    --breadcrumbs-bg: #0b0b0d;
 
-    --link-fg: #9ecbff;
-    --link-hover-color: #cfe6ff;
-    --link-selected-fg: #9ecbff;
+    --link-fg: #d9bb6a;
+    --link-hover-color: #e8cf8a;
+    --link-selected-fg: #d9bb6a;
 
-    --selected-bg: #2a2b33;
-    --selected-row: #1e1f26;
+    --selected-bg: #2a2717;
+    --selected-row: #1e1c12;
 
-    --button-bg: #e5e5e5;
-    --button-fg: #111;
-    --button-hover-bg: #fff;
-    --default-button-bg: #e5e5e5;
-    --default-button-hover-bg: #fff;
+    --button-bg: #2a2b33;
+    --button-fg: #eee;
+    --button-hover-bg: #c9a24b;
+    --default-button-bg: #c9a24b;
+    --default-button-hover-bg: #e8cf8a;
     --close-button-bg: #555;
     --close-button-hover-bg: #333;
     --delete-button-bg: #b23b3b;
     --delete-button-hover-bg: #c94747;
 
-    --object-tools-bg: #e5e5e5;
-    --object-tools-hover-bg: #fff;
+    --object-tools-bg: #2a2b33;
+    --object-tools-hover-bg: #c9a24b;
 }
 
-#header { background: var(--header-bg); color: var(--header-color); }
-#branding h1, #branding h1 a:link, #branding h1 a:visited { color: #fff; }
+/* ---------- Header & branding ---------- */
+#header { background: var(--header-bg); color: var(--header-color); border-bottom: 1px solid #c9a24b; }
+#branding h1, #branding h1 a:link, #branding h1 a:visited { color: var(--header-branding-color); font-weight: 600; letter-spacing: 0.3px; }
+#user-tools a { border-bottom: 1px solid transparent; }
+#user-tools a:hover { border-bottom-color: #c9a24b; color: #e8cf8a; }
+
+/* ---------- Breadcrumbs ---------- */
 div.breadcrumbs { background: var(--breadcrumbs-bg); color: var(--breadcrumbs-fg); }
 div.breadcrumbs a { color: var(--breadcrumbs-link-fg); }
-.module h2, .module caption, .inline-group h2 { background: #000000; color: #fff; }
+
+/* ---------- Module headers (dashboard app groups, fieldset legends) ---------- */
+.module h2, .module caption, .inline-group h2 {
+    background: #0b0b0d; color: #fff; border-left: 3px solid #c9a24b;
+}
 html[data-theme="dark"] .module h2, html[data-theme="dark"] .module caption, html[data-theme="dark"] .inline-group h2 {
-    background: #1e1f26; color: #fff;
+    background: #17181c; color: #fff; border-left: 3px solid #c9a24b;
 }
+
+/* ---------- Links & buttons ---------- */
 a:link, a:visited { color: var(--link-fg); }
+a:hover { color: var(--link-hover-color); }
 .button, input[type=submit], input[type=button], .submit-row input, a.button {
-    background: var(--button-bg); color: var(--button-fg);
+    background: var(--button-bg); color: var(--button-fg); border-radius: 4px; transition: background 0.15s ease;
 }
-.button:hover, input[type=submit]:hover, input[type=button]:hover { background: var(--button-hover-bg); }
+.button:hover, input[type=submit]:hover, input[type=button]:hover { background: var(--button-hover-bg); color: #0b0b0d; }
 .button.default, input[type=submit].default, .submit-row input.default {
-    background: var(--button-bg); color: var(--button-fg);
+    background: #c9a24b; color: #0b0b0d; font-weight: 600;
 }
-.selector-chosen h2 { background: #000000; color: #fff; }
-html[data-theme="dark"] .selector-chosen h2 { background: #1e1f26; }
-table thead th { background: #f0f0f0; }
-html[data-theme="dark"] table thead th { background: #1e1f26; color: #eee; }
+.button.default:hover, input[type=submit].default:hover { background: #e8cf8a; }
+.object-tools a.addlink { background: var(--object-tools-bg); }
+.object-tools a.addlink:hover { background: var(--object-tools-hover-bg); color: #0b0b0d; }
+
+/* ---------- Tables (changelist) ---------- */
+.selector-chosen h2 { background: #0b0b0d; color: #fff; }
+html[data-theme="dark"] .selector-chosen h2 { background: #17181c; }
+table thead th { background: #0b0b0d; color: #e8cf8a; font-weight: 600; }
+html[data-theme="dark"] table thead th { background: #17181c; color: #e8cf8a; }
+#changelist-filter { border-left: 1px solid #eee; }
 html[data-theme="dark"] #changelist-filter, html[data-theme="dark"] .module {
-    background: #14151a; border-color: #2a2b33;
+    background: #121216; border-color: #2a2b33;
 }
+#changelist-filter h2 { background: #0b0b0d; color: #e8cf8a; }
+#result_list tbody tr:hover { background: #fdf9ee; }
+html[data-theme="dark"] #result_list tbody tr:hover { background: #1e1c12; }
+
+/* ---------- Dashboard app list cards ---------- */
+.app-bees, .app-auth {
+    border-radius: 4px; overflow: hidden; border: 1px solid #eee;
+}
+html[data-theme="dark"] .app-bees, html[data-theme="dark"] .app-auth { border-color: #2a2b33; }
+
+/* ---------- Login page ---------- */
+.login #header { border-bottom: none; }
+.login .submit-row input { background: #c9a24b; color: #0b0b0d; font-weight: 600; }
+.login .submit-row input:hover { background: #e8cf8a; }
+
+/* ---------- Custom dashboard summary cards (see admin/index.html) ---------- */
+.bees-admin-summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px;
+}
+.bees-admin-card {
+    background: #0b0b0d; color: #fff; border-radius: 6px; padding: 18px 20px; border-left: 3px solid #c9a24b;
+    text-decoration: none; display: block; transition: transform 0.15s ease;
+}
+.bees-admin-card:hover { transform: translateY(-2px); color: #fff; }
+.bees-admin-card .num { font-size: 26px; font-weight: 700; color: #e8cf8a; }
+.bees-admin-card .label { font-size: 12px; color: #bbb; margin-top: 4px; letter-spacing: 0.2px; }
+.bees-admin-welcome { font-size: 13px; color: #666; margin-bottom: 18px; }
+html[data-theme="dark"] .bees-admin-welcome { color: #999; }

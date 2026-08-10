@@ -401,3 +401,25 @@ class AuditLogAdmin(admin.ModelAdmin):
     list_filter = ("created_at",)
     search_fields = ("action", "user__username")
     date_hierarchy = "created_at"
+
+
+# ---- Custom admin dashboard: live summary cards on the /admin/ home page ----
+import types
+from django.contrib.admin.sites import AdminSite
+from django.utils import timezone
+
+
+def _bees_index(self, request, extra_context=None):
+    extra_context = extra_context or {}
+    extra_context["bees_stats"] = {
+        "orders_today": Order.objects.filter(created_at__date=timezone.localdate()).count(),
+        "total_orders": Order.objects.count(),
+        "total_products": Product.objects.count(),
+        "pending_sellers": SellerAccount.objects.filter(status="pending").count(),
+        "pending_products": Product.objects.filter(approval_status="pending").count(),
+        "low_stock": Product.objects.filter(stock__gt=0, stock__lte=5).count(),
+    }
+    return AdminSite.index(self, request, extra_context)
+
+
+admin.site.index = types.MethodType(_bees_index, admin.site)

@@ -27,6 +27,13 @@
     html[data-theme="dark"] .sd-product-row img { border-color: #333; }
     html[data-theme="dark"] .sd-product-row a { color: #fff; }
     html[data-theme="dark"] .sd-status-form select { background: #2a2b33; color: #eee; border-color: #444; }
+
+    @media (max-width: 700px) {
+        .sd-wrap { margin: 12px; }
+        .sd-stats { flex-wrap: wrap; }
+        .sd-stat { flex: 1 1 45%; }
+        .sd-order-row { flex-wrap: wrap; }
+    }
 {% endblock %}
 {% block content %}
 <div class="sd-wrap">

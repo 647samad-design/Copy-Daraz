@@ -16,6 +16,11 @@
     }
     html[data-theme="dark"] .summary-row { border-color: #333; }
     html[data-theme="dark"] .summary-total { color: #fff; }
+
+    @media (max-width: 700px) {
+        .checkout-wrap { flex-direction: column; margin: 12px; }
+        .checkout-form, .summary { width: 100%; }
+    }
 {% endblock %}
 {% block content %}
 <div class="checkout-wrap">

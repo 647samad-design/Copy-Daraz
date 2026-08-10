@@ -28,6 +28,18 @@
     html[data-theme="dark"] .qty-controls button { background: #2a2b33; border-color: #444; color: #eee; }
     html[data-theme="dark"] .subtotal { color: #eee; }
     html[data-theme="dark"] #empty-cart-msg a { color: #fff; }
+
+    @media (max-width: 700px) {
+        .cart-wrap { margin: 12px; }
+        .cart-row { flex-wrap: wrap; gap: 10px; padding: 14px; }
+        .cart-row img { width: 56px; height: 56px; }
+        .cart-row .info { flex: 1 1 auto; min-width: 120px; }
+        .qty-controls { order: 3; }
+        .subtotal { order: 4; width: auto; margin-left: auto; }
+        .remove-btn { order: 5; }
+        .cart-summary { flex-wrap: wrap; justify-content: space-between; padding: 16px; }
+        .bulk-bar { flex-wrap: wrap; }
+    }
 {% endblock %}
 {% block content %}
 <div class="cart-wrap">

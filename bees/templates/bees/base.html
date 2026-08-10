@@ -217,6 +217,9 @@
         html[data-theme="dark"] .qv-oldprice { color: #aaa; }
         html[data-theme="dark"] .qv-desc { color: #bbb; }
         html[data-theme="dark"] .qv-detail-link { color: #fff; }
+        .qv-layout { display: flex; gap: 20px; }
+        .qv-image-col { flex: 0 0 220px; }
+        .qv-text-col { flex: 1; min-width: 0; }
         .compare-link { color: #666; }
         html[data-theme="dark"] .compare-link { color: #aaa; border-top-color: #333 !important; }
 
@@ -333,6 +336,17 @@
             .newsletter-form input { width: 100%; border-right: 1px solid #3a3a3a; border-bottom: none; border-radius: 4px 4px 0 0; }
             .newsletter-form button { border-radius: 0 0 4px 4px; padding: 12px 0; }
             .footer-bottom { flex-direction: column; gap: 10px; text-align: center; }
+            .qv-layout { flex-direction: column; }
+            .qv-image-col { flex: none; }
+            .app-modal { padding: 18px; }
+            .hero { flex-direction: column; }
+            .slider { height: 260px; }
+            .slide-caption { left: 20px; right: 20px; }
+            .slide-caption h1 { font-size: 26px; }
+            .slide-caption p { font-size: 13px; }
+            .chat-window { width: calc(100vw - 32px); right: 16px; }
+            .trust-strip { gap: 12px; }
+            .trust-item { font-size: 11px; }
         }
     </style>
 </head>
@@ -428,7 +442,7 @@
     </div>
 
     <div class="app-modal-backdrop" id="quick-view-modal" onclick="if(event.target===this) this.classList.remove('open')">
-        <div class="app-modal" style="width:600px;text-align:left;">
+        <div class="app-modal" style="width:min(600px, 92vw);text-align:left;">
             <button class="close-btn" onclick="document.getElementById('quick-view-modal').classList.remove('open')">&times;</button>
             <div id="quick-view-body" style="min-height:120px;display:flex;align-items:center;justify-content:center;color:#999;font-size:13px;">Loading...</div>
         </div>

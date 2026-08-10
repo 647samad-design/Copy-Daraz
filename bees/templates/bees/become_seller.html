@@ -1,7 +1,7 @@
 {% extends "bees/base.html" %}
 {% block extra_css %}
     .seller-wrap { display: flex; justify-content: center; margin: 40px 20px; }
-    .seller-box { width: 480px; background: #fff; border: 1px solid #eee; padding: 30px; }
+    .seller-box { width: min(480px, 100%); background: #fff; border: 1px solid #eee; padding: 30px; }
     .seller-box h1 { font-size: 20px; margin-bottom: 6px; }
     .seller-box p.sub { font-size: 13px; color: #666; margin-bottom: 20px; }
     .type-options { display: flex; gap: 12px; margin-bottom: 18px; }

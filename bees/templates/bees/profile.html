@@ -23,6 +23,13 @@
     html[data-theme="dark"] .stat-box .num { color: #fff; }
     html[data-theme="dark"] .stat-box .label { color: #aaa; }
     html[data-theme="dark"] .address-card { border-color: #333; }
+
+    @media (max-width: 700px) {
+        .profile-wrap { margin: 12px; gap: 14px; }
+        .profile-card { flex: 1 1 100%; }
+        .stats-row { flex-wrap: wrap; }
+        .stat-box { flex: 1 1 45%; }
+    }
 {% endblock %}
 {% block content %}
 <div class="profile-wrap">

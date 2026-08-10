@@ -85,6 +85,14 @@
     html[data-theme="dark"] .seller-link, html[data-theme="dark"] .qna-item .a { color: #aaa; }
     html[data-theme="dark"] .qna-item .a { border-left-color: #666; }
     html[data-theme="dark"] .qna-item { border-color: #333; }
+
+    @media (max-width: 700px) {
+        .product-page { flex-direction: column; margin: 12px; gap: 14px; }
+        .product-image { flex: none; padding: 10px; }
+        .product-image img { height: 260px; }
+        .price-block .price { font-size: 24px; }
+        .thumb-row img { width: 50px; height: 50px; }
+    }
 {% endblock %}
 {% block content %}
 

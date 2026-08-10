@@ -1,8 +1,8 @@
-<div style="display:flex;gap:20px;">
-    <div style="flex:0 0 220px;">
+<div class="qv-layout">
+    <div class="qv-image-col">
         <img src="{{ product.image_url }}" alt="{{ product.name }}" style="width:100%;height:220px;object-fit:cover;">
     </div>
-    <div style="flex:1;">
+    <div class="qv-text-col">
         <h2 class="qv-title" style="font-size:18px;margin-bottom:8px;">{{ product.name }}</h2>
         <div style="color:#f5a623;font-size:13px;margin-bottom:8px;">&#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} reviews</div>
         <div style="margin-bottom:10px;">

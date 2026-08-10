@@ -1,7 +1,7 @@
 {% extends "bees/base.html" %}
 {% block extra_css %}
     .pf-wrap { display: flex; justify-content: center; margin: 30px 20px; }
-    .pf-box { width: 480px; background: #fff; border: 1px solid #eee; padding: 26px; }
+    .pf-box { width: min(480px, 100%); background: #fff; border: 1px solid #eee; padding: 26px; }
     .pf-box h1 { font-size: 18px; margin-bottom: 18px; }
     .pf-box input, .pf-box select, .pf-box textarea { width: 100%; padding: 9px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 13px; box-sizing: border-box; }
     .pf-box button { background: #000000; color: #ffffff; border: none; padding: 11px 24px; font-size: 14px; cursor: pointer; font-weight: bold; }

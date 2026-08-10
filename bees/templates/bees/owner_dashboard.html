@@ -54,6 +54,18 @@
     html[data-theme="dark"] .od-bar-value { color: #999; }
     html[data-theme="dark"] .od-bar-label { color: #ccc; }
     html[data-theme="dark"] .od-bar-label span { color: #777; }
+
+    @media (max-width: 900px) {
+        .od-grid, .od-alert-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 700px) {
+        .od-section, .od-card { margin-left: 12px; margin-right: 12px; }
+        .od-chart { gap: 6px; }
+        .od-bar-label { font-size: 10px; }
+        .od-bar-value { font-size: 10px; }
+        .od-earnings-table-wrap { overflow-x: auto; }
+        .od-earnings-table { min-width: 640px; }
+    }
 {% endblock %}
 {% block content %}
 <div class="od-wrap">
@@ -109,6 +121,7 @@
 
     <div class="od-section">
         <h2>Top sellers &mdash; sales, commission &amp; net earnings</h2>
+        <div class="od-earnings-table-wrap">
         <table class="od-earnings-table">
             <tr><th>Seller</th><th>Type</th><th>Units sold</th><th>Total sales</th><th>Commission rate</th><th>Commission owed</th><th>Net earnings</th><th>Still unpaid</th></tr>
             {% for row in seller_earnings %}
@@ -126,6 +139,7 @@
             <tr><td colspan="8" style="text-align:center;color:#888;">No approved sellers with sales yet.</td></tr>
             {% endfor %}
         </table>
+        </div>
     </div>
 
     <div class="od-section">

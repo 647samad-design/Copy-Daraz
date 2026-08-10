@@ -28,6 +28,15 @@
     html[data-theme="dark"] .order-item-row .sub { color: #eee; }
     .order-total-line, .order-invoice-link { color: #000000; }
     html[data-theme="dark"] .order-total-line, html[data-theme="dark"] .order-invoice-link { color: #fff; }
+
+    @media (max-width: 700px) {
+        .orders-wrap { margin: 12px; }
+        .order-card { padding: 14px; }
+        .order-card .top { flex-wrap: wrap; gap: 6px; }
+        .order-item-row { flex-wrap: wrap; }
+        .order-item-row .name { flex: 1 1 60%; }
+        .tracking-info { flex-direction: column; gap: 6px; }
+    }
 {% endblock %}
 {% block content %}
 <div class="orders-wrap">

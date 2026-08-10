@@ -116,6 +116,7 @@ html[data-theme="dark"] table thead th { background: #17181c; color: #e8cf8a; }
 html[data-theme="dark"] #changelist-filter, html[data-theme="dark"] .module {
     background: #121216; border-color: #2a2b33;
 }
+html, body { overflow-y: auto !important; height: auto !important; }
 #changelist-filter h2 { background: #0b0b0d; color: #e8cf8a; }
 #result_list tbody tr:hover { background: #fdf9ee; }
 html[data-theme="dark"] #result_list tbody tr:hover { background: #1e1c12; }

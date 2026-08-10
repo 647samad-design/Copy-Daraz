@@ -134,14 +134,16 @@ html[data-theme="dark"] .app-bees, html[data-theme="dark"] .app-auth { border-co
 
 /* ---------- Custom dashboard summary cards (see admin/index.html) ---------- */
 .bees-admin-summary {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px;
+    display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 24px;
 }
 .bees-admin-card {
     background: #0b0b0d; color: #fff; border-radius: 6px; padding: 18px 20px; border-left: 3px solid #c9a24b;
     text-decoration: none; display: block; transition: transform 0.15s ease;
+    flex: 1 1 160px; min-width: 150px; box-sizing: border-box;
 }
 .bees-admin-card:hover { transform: translateY(-2px); color: #fff; }
 .bees-admin-card .num { font-size: 26px; font-weight: 700; color: #e8cf8a; }
 .bees-admin-card .label { font-size: 12px; color: #bbb; margin-top: 4px; letter-spacing: 0.2px; }
+.dashboard #content { width: min(600px, 100%); }
 .bees-admin-welcome { font-size: 13px; color: #666; margin-bottom: 18px; }
 html[data-theme="dark"] .bees-admin-welcome { color: #999; }

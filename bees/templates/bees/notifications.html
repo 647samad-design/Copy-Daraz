@@ -1,0 +1,27 @@
+{% extends "bees/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .notif-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
+    .notif-item { padding: 14px 20px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    .notif-item a { color: #333; text-decoration: none; }
+    .notif-item .time { color: #999; font-size: 11px; margin-top: 4px; }
+    .notif-item.unread { background: #f5f5f5; }
+
+    html[data-theme="dark"] .notif-wrap { background: #1e1f26; border-color: #333; }
+    html[data-theme="dark"] .notif-item { border-color: #333; }
+    html[data-theme="dark"] .notif-item a { color: #eee; }
+    html[data-theme="dark"] .notif-item.unread { background: #2a2b33; }
+{% endblock %}
+{% block content %}
+<div class="notif-wrap">
+    <div style="padding:16px 20px;font-size:18px;font-weight:500;border-bottom:1px solid #eee;">Notifications</div>
+    {% for n in notifications %}
+    <div class="notif-item {% if not n.is_read %}unread{% endif %}">
+        <a href="{{ n.link|default:'#' }}">{{ n.message }}</a>
+        <div class="time">{{ n.created_at|date:"d M Y, h:i A" }}</div>
+    </div>
+    {% empty %}
+    <div style="padding:30px;text-align:center;color:#888;">No notifications yet.</div>
+    {% endfor %}
+</div>
+{% endblock %}

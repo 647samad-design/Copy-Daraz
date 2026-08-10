@@ -1,0 +1,29 @@
+{% extends "bees/base.html" %}
+{% block extra_css %}
+    .help-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 24px; }
+    .help-wrap h1 { font-size: 20px; margin-bottom: 16px; }
+    .faq-item { border-bottom: 1px solid #f0f0f0; padding: 14px 0; }
+    .faq-q { font-weight: 500; margin-bottom: 6px; color: #333; }
+    .faq-a { font-size: 13px; color: #666; line-height: 1.6; }
+    .contact-box { margin-top: 20px; background: #f5f5f5; border: 1px solid #e5e5e5; padding: 16px; font-size: 13px; color: #555; }
+
+    html[data-theme="dark"] .help-wrap { background: #1e1f26; border-color: #333; }
+    html[data-theme="dark"] .faq-item { border-color: #333; }
+    html[data-theme="dark"] .faq-q { color: #eee; }
+    html[data-theme="dark"] .faq-a { color: #aaa; }
+    html[data-theme="dark"] .contact-box { background: #17181d; border-color: #333; color: #ccc; }
+{% endblock %}
+{% block content %}
+<div class="help-wrap">
+    <h1>{{ t.help_title }}</h1>
+    {% for question, answer in faqs %}
+    <div class="faq-item">
+        <div class="faq-q">{{ question }}</div>
+        <div class="faq-a">{{ answer }}</div>
+    </div>
+    {% endfor %}
+    <div class="contact-box">
+        {{ t.still_need_help }}
+    </div>
+</div>
+{% endblock %}

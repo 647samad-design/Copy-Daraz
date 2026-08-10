@@ -63,7 +63,7 @@ USE_X_FORWARDED_HOST = True
 # Application definition
 
 INSTALLED_APPS = [
-    'daraz',
+    'bees',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -82,7 +82,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'daraz.middleware.NoCacheMiddleware',
+    'bees.middleware.NoCacheMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -97,12 +97,12 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'daraz.context_processors.cart_count',
-                'daraz.context_processors.wishlist_ids',
-                'daraz.context_processors.site_language',
-                'daraz.context_processors.trending_searches',
-                'daraz.context_processors.unread_notifications',
-                'daraz.context_processors.compare_count',
+                'bees.context_processors.cart_count',
+                'bees.context_processors.wishlist_ids',
+                'bees.context_processors.site_language',
+                'bees.context_processors.trending_searches',
+                'bees.context_processors.unread_notifications',
+                'bees.context_processors.compare_count',
             ],
         },
     },

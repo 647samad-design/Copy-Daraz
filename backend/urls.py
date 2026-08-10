@@ -5,8 +5,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib.sitemaps.views import sitemap
 from django.views.generic import TemplateView
-from daraz import views
-from daraz.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
+from bees import views
+from bees.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
 
 sitemaps = {
     "products": ProductSitemap,
@@ -29,21 +29,21 @@ urlpatterns = [
     path('auth/google/', views.google_auth, name='google_auth'),
 
     path('password-reset/', auth_views.PasswordResetView.as_view(
-        template_name='daraz/auth/password_reset_form.html',
-        email_template_name='daraz/auth/password_reset_email.html',
-        html_email_template_name='daraz/emails/password_reset.html',
-        subject_template_name='daraz/auth/password_reset_subject.txt',
+        template_name='bees/auth/password_reset_form.html',
+        email_template_name='bees/auth/password_reset_email.html',
+        html_email_template_name='bees/emails/password_reset.html',
+        subject_template_name='bees/auth/password_reset_subject.txt',
         success_url='/password-reset/done/',
     ), name='password_reset'),
     path('password-reset/done/', auth_views.PasswordResetDoneView.as_view(
-        template_name='daraz/auth/password_reset_done.html',
+        template_name='bees/auth/password_reset_done.html',
     ), name='password_reset_done'),
     path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
-        template_name='daraz/auth/password_reset_confirm.html',
+        template_name='bees/auth/password_reset_confirm.html',
         success_url='/reset/done/',
     ), name='password_reset_confirm'),
     path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
-        template_name='daraz/auth/password_reset_complete.html',
+        template_name='bees/auth/password_reset_complete.html',
     ), name='password_reset_complete'),
 
     path('cart/', views.cart_view, name='cart'),
@@ -60,7 +60,7 @@ urlpatterns = [
     path('wishlist/toggle/<int:pk>/', views.toggle_wishlist, name='toggle_wishlist'),
     path('set-language/<str:lang_code>/', views.set_language, name='set_language'),
     path('help/', views.help_support, name='help_support'),
-    path('sell/', views.sell_on_daraz, name='sell_on_daraz'),
+    path('sell/', views.sell_on_bees, name='sell_on_bees'),
     path('about/', views.about_us, name='about_us'),
     path('terms/', views.terms_page, name='terms_page'),
     path('privacy/', views.privacy_page, name='privacy_page'),

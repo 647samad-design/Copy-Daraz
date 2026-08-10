@@ -1,0 +1,96 @@
+{% extends "bees/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .profile-wrap { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 40px; align-items: flex-start; }
+    .profile-card { flex: 1; background: #fff; border: 1px solid #eee; padding: 24px; }
+    .profile-card h2 { font-size: 17px; margin-bottom: 16px; }
+    .profile-card input { width: 100%; padding: 9px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 13px; box-sizing: border-box; }
+    .profile-card button { background: #000000; color: #fff; border: none; padding: 10px 22px; font-size: 13px; cursor: pointer; }
+    .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
+    .stat-box { flex: 1; background: #f5f5f5; border: 1px solid #e5e5e5; padding: 14px; text-align: center; }
+    .stat-box .num { font-size: 22px; font-weight: bold; color: #000000; }
+    .stat-box .label { font-size: 11px; color: #666; margin-top: 2px; }
+    .address-card { border: 1px solid #eee; padding: 12px; margin-bottom: 10px; font-size: 13px; position: relative; }
+    .address-card .label-tag { background: #000000; color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 3px; }
+    .address-card .del-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; color: #999; cursor: pointer; font-size: 12px; }
+    .add-address-form input { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ddd; font-size: 12px; box-sizing: border-box; }
+    .add-address-form button { background: #333; color: #fff; border: none; padding: 8px 16px; font-size: 12px; cursor: pointer; }
+
+    html[data-theme="dark"] .profile-card input, html[data-theme="dark"] .add-address-form input {
+        background: #2a2b33; color: #eee; border-color: #444;
+    }
+    html[data-theme="dark"] .stat-box { background: #17181d; border-color: #333; }
+    html[data-theme="dark"] .stat-box .num { color: #fff; }
+    html[data-theme="dark"] .stat-box .label { color: #aaa; }
+    html[data-theme="dark"] .address-card { border-color: #333; }
+{% endblock %}
+{% block content %}
+<div class="profile-wrap">
+    <div class="profile-card">
+        <h2>My Profile</h2>
+        <div class="stats-row">
+            <div class="stat-box"><div class="num">{{ orders_count }}</div><div class="label">Orders</div></div>
+            <div class="stat-box"><div class="num">{{ addresses.count }}</div><div class="label">Saved addresses</div></div>
+            <div class="stat-box"><div class="num">{{ profile.loyalty_points }}</div><div class="label">Loyalty points</div></div>
+        </div>
+        {% if request.user.email %}
+        {% if profile.email_verified %}
+        <div style="background:#e8f8f0;color:#1e8449;padding:8px 12px;font-size:12px;margin-bottom:14px;">&#10003; Email verified</div>
+        {% else %}
+        <div style="background:#fdeceb;color:#c0392b;padding:8px 12px;font-size:12px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
+            <span>Email not verified</span>
+            <a href="{% url 'resend_verification' %}" style="color:#c0392b;">Resend link</a>
+        </div>
+        {% endif %}
+        {% endif %}
+        <form method="post">
+            {% csrf_token %}
+            <label style="font-size:12px;color:#888;">Username</label>
+            <input type="text" value="{{ request.user.username }}" disabled style="background:#f5f5f5;">
+            <label style="font-size:12px;color:#888;">Name</label>
+            <input type="text" name="first_name" value="{{ request.user.first_name }}" placeholder="Your name">
+            <label style="font-size:12px;color:#888;">Email</label>
+            <input type="email" name="email" value="{{ request.user.email }}" placeholder="Email">
+            <label style="font-size:12px;color:#888;">Phone</label>
+            <input type="text" name="phone" value="{{ profile.phone }}" placeholder="Phone number">
+            <button type="submit">Save changes</button>
+        </form>
+    </div>
+
+    <div class="profile-card">
+        <h2>Saved addresses</h2>
+        {% for addr in addresses %}
+        <div class="address-card">
+            <span class="label-tag">{{ addr.label }}</span>
+            <form method="post" action="{% url 'delete_address' addr.id %}" class="del-btn" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit">Remove</button>
+            </form>
+            <div style="margin-top:6px;">{{ addr.full_name }} &middot; {{ addr.phone }}</div>
+            <div style="color:#666;">{{ addr.address }}, {{ addr.city }}</div>
+        </div>
+        {% empty %}
+        <p style="font-size:12px;color:#888;">No saved addresses yet.</p>
+        {% endfor %}
+
+        <form method="post" action="{% url 'add_address' %}" class="add-address-form" style="margin-top:16px;">
+            {% csrf_token %}
+            <input type="text" name="label" placeholder="Label (Home / Office)" required>
+            <input type="text" name="full_name" placeholder="Full name" required>
+            <input type="text" name="phone" placeholder="Phone" required>
+            <input type="text" name="address" placeholder="Street address" required>
+            <input type="text" name="city" placeholder="City" required>
+            <button type="submit">Add address</button>
+        </form>
+    </div>
+
+    <div class="profile-card" style="flex-basis:100%;">
+        <h2>Invite friends</h2>
+        <p style="font-size:13px;color:#666;margin-bottom:10px;">Share your referral link. When a friend signs up using it, you'll get a notification.</p>
+        <div style="display:flex;gap:8px;">
+            <input type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'signup' %}?ref={{ profile.referral_code }}" style="flex:1;padding:9px;border:1px solid #ddd;font-size:12px;" onclick="this.select()">
+            <button type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.value); this.textContent='Copied!'" style="background:#333;color:#fff;border:none;padding:9px 16px;font-size:12px;cursor:pointer;">Copy link</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "bees/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .orders-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
+    .order-card { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
+    .order-card .top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px; }
+    .order-card .status { color: #000000; font-weight: 500; }
+    .order-items { display: flex; flex-direction: column; gap: 10px; }
+    .order-item-row { display: flex; align-items: center; gap: 12px; }
+    .order-item-row img { width: 50px; height: 50px; object-fit: cover; border: 1px solid #eee; }
+    .order-item-row .name { flex: 1; font-size: 13px; }
+    .order-item-row .qty { font-size: 12px; color: #888; }
+    .order-item-row .sub { font-size: 13px; font-weight: bold; color: #333; }
+    .tracking-info { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: #555; margin: 10px 0; background: #f7f7f7; padding: 8px 12px; border-radius: 4px; }
+    .return-link { font-size: 11px; color: #000000; text-decoration: underline; margin-left: auto; }
+    .return-status { font-size: 11px; padding: 2px 8px; border-radius: 3px; margin-left: auto; }
+    .return-requested { background: #FEF3C7; color: #92400E; }
+    .return-approved { background: #e8f8f0; color: #1e8449; }
+    .return-refunded { background: #e5e5e5; color: #333; }
+
+    html[data-theme="dark"] .tracking-info { background: #17181d; color: #ccc; }
+    html[data-theme="dark"] .return-link { color: #fff; }
+    html[data-theme="dark"] .return-refunded { background: #2a2b33; color: #ddd; }
+
+    html[data-theme="dark"] .order-card { border-color: #333; }
+    html[data-theme="dark"] .order-card .status { color: #fff; }
+    html[data-theme="dark"] .order-item-row img { border-color: #333; }
+    html[data-theme="dark"] .order-item-row .sub { color: #eee; }
+    .order-total-line, .order-invoice-link { color: #000000; }
+    html[data-theme="dark"] .order-total-line, html[data-theme="dark"] .order-invoice-link { color: #fff; }
+{% endblock %}
+{% block content %}
+<div class="orders-wrap">
+    <div style="padding:16px 20px;font-size:18px;font-weight:500;border-bottom:1px solid #eee;">{{ t.my_orders }}</div>
+    {% for order in orders %}
+    <div class="order-card">
+        <div class="top">
+            <span>Order #{{ order.id }} &middot; {{ order.created_at|date:"d M Y" }}</span>
+            <span class="status">
+                {% if order.status == "pending" %}{{ t.pending }}
+                {% elif order.status == "confirmed" %}{{ t.confirmed }}
+                {% elif order.status == "shipped" %}{{ t.shipped }}
+                {% elif order.status == "delivered" %}{{ t.delivered }}
+                {% elif order.status == "cancelled" %}{{ t.cancelled }}
+                {% endif %}
+            </span>
+        </div>
+
+        {% if order.status == "cancelled" %}
+        <div style="color:#c0392b;font-size:12px;margin-bottom:8px;">{{ t.order_cancelled_note }}</div>
+        {% else %}
+        <div class="status-progress">
+            <div class="status-step done"><div class="dot"></div>{{ t.pending }}</div>
+            <div class="status-step {% if order.status == 'confirmed' or order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>{{ t.confirmed }}</div>
+            <div class="status-step {% if order.status == 'shipped' or order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>{{ t.shipped }}</div>
+            <div class="status-step {% if order.status == 'delivered' %}done{% endif %}"><div class="status-line"></div><div class="dot"></div>{{ t.delivered }}</div>
+        </div>
+        {% if order.tracking_number or order.estimated_delivery %}
+        <div class="tracking-info">
+            {% if order.tracking_number %}<span>&#128230; Tracking: <strong>{{ order.tracking_number }}</strong>{% if order.courier_name %} via {{ order.courier_name }}{% endif %}</span>{% endif %}
+            {% if order.estimated_delivery %}<span>&#128197; Estimated delivery: <strong>{{ order.estimated_delivery|date:"d M Y" }}</strong></span>{% endif %}
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <div class="order-items">
+            {% for item in order.items.all %}
+            <div class="order-item-row">
+                {% if item.product %}
+                <img src="{{ item.product.image_url }}" alt="{{ item.product_name }}">
+                {% endif %}
+                <span class="name">{{ item.product_name }}</span>
+                <span class="qty">x{{ item.quantity }}</span>
+                <span class="sub">Rs.{{ item.subtotal }}</span>
+                {% if order.status == "delivered" %}
+                {% with latest_return=item.return_requests.first %}
+                {% if latest_return and latest_return.status != "rejected" %}
+                <span class="return-status return-{{ latest_return.status }}">{{ latest_return.get_status_display }}</span>
+                {% else %}
+                <a href="{% url 'request_return' item.id %}" class="return-link">Return item</a>
+                {% endif %}
+                {% endwith %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        <div class="order-total-line" style="margin-top:10px;font-weight:bold;text-align:right;">{{ t.total }}: Rs.{{ order.total }}</div>
+        {% if order.status == "pending" or order.status == "confirmed" %}
+        <form method="post" action="{% url 'cancel_order' order.id %}" style="text-align:right;">
+            {% csrf_token %}
+            <button type="submit" class="cancel-btn">{{ t.cancel_order }}</button>
+        </form>
+        {% endif %}
+        <a href="{% url 'invoice_pdf' order.id %}" class="order-invoice-link" style="font-size:12px;text-align:right;display:block;margin-top:6px;">Download invoice</a>
+    </div>
+    {% empty %}
+    <div style="padding:30px;text-align:center;color:#888;">{{ t.no_orders }}</div>
+    {% endfor %}
+</div>
+{% endblock %}

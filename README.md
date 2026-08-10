@@ -4,7 +4,7 @@ Ek simple e-commerce website ka starter project — Django (Python) ke sath bana
 
 ## Structure
 - **backend/** – Django project settings, urls, wsgi
-- **daraz/** – Main app (backend view + frontend template)
+- **bees/** – Main app (backend view + frontend template)
 - **db.sqlite3** – Default database (SQLite), migrate hone par create hoti hai
 
 ## Routes
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 cp .env.example .env      # then edit .env and add your GOOGLE_CLIENT_ID
 python manage.py migrate
 python manage.py seed_data
-python manage.py createsuperuser   # or set username/password to daraz/daraz123456
+python manage.py createsuperuser   # or set username/password to admin/yourpassword123
 python manage.py runserver
 ```
 
@@ -62,7 +62,7 @@ each time it changes.
 - Full shopping cart: add, increase/decrease quantity, remove, live totals
 - Checkout with delivery details, creates a real Order in the database
 - "My orders" page to view order history
-- Admin panel at `/admin/` to manage products, reviews and orders (default login: daraz / daraz123456)
+- Admin panel at `/admin/` to manage products, reviews and orders (default login: your chosen username / your chosen password)
 - Signup / Login / Logout with Django's built-in auth system
 - "Continue with Google" — works once `GOOGLE_CLIENT_ID` is set in `.env`. Important: in Google Cloud
   Console (APIs & Services → Credentials → your OAuth Client), add your site's exact URL (e.g. your

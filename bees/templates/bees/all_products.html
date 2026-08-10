@@ -1,0 +1,19 @@
+{% extends "bees/base.html" %}
+{% block title %}All Products - Shop online at 19Bees{% endblock %}
+{% block meta_description %}Browse all products at 19Bees - skincare, electronics, fashion, groceries and more from trusted sellers across Pakistan.{% endblock %}
+{% block content %}
+    <div class="section">
+        <div class="section-header">
+            <h2>{{ t.all_products }}</h2>
+        </div>
+        {% include "bees/partials/sort_bar.html" %}
+        <div class="product-grid">
+            {% for product in products %}
+            {% include "bees/partials/product_card.html" %}
+            {% empty %}
+            <p>{{ t.no_products }}</p>
+            {% endfor %}
+        </div>
+        {% include "bees/partials/pagination.html" %}
+    </div>
+{% endblock %}

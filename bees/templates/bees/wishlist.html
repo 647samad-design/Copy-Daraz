@@ -1,0 +1,18 @@
+{% extends "bees/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block content %}
+    <div class="section">
+        <div class="section-header">
+            <h2>{{ t.my_wishlist }}</h2>
+        </div>
+        <div class="product-grid">
+            {% for item in items %}
+            {% with product=item.product %}
+            {% include "bees/partials/product_card.html" %}
+            {% endwith %}
+            {% empty %}
+            <p>{{ t.empty_wishlist }}</p>
+            {% endfor %}
+        </div>
+    </div>
+{% endblock %}

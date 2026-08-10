@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+{% load bees_extras %}
+{% load static %}
+<html lang="{{ current_lang }}" dir="{% if current_lang == 'ur' %}rtl{% else %}ltr{% endif %}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="{% static 'bees/images/logo_transparent.png' %}">
+    <title>{% block title %}19Bees — Shop skincare, electronics, fashion & more online in Pakistan{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}19Bees is your online marketplace for skincare, electronics, fashion, groceries and more. Shop from trusted individual sellers and businesses with cash on delivery across Pakistan.{% endblock %}">
+    <link rel="canonical" href="{% block canonical_url %}{{ request.scheme }}://{{ request.get_host }}{{ request.path }}{% endblock %}">
+    <meta name="robots" content="{% block robots_meta %}index, follow{% endblock %}">
+
+    <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+    <meta property="og:site_name" content="19Bees">
+    <meta property="og:title" content="{% block og_title %}19Bees — Shop online in Pakistan{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Shop skincare, electronics, fashion, groceries and more from trusted sellers, with cash on delivery across Pakistan.{% endblock %}">
+    <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}">
+    <meta property="og:image" content="{% block og_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'bees/images/logo_transparent.png' %}{% endblock %}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}19Bees — Shop online in Pakistan{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}Shop skincare, electronics, fashion, groceries and more from trusted sellers.{% endblock %}">
+    <meta name="twitter:image" content="{% block twitter_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'bees/images/logo_transparent.png' %}{% endblock %}">
+
+    {% block structured_data %}
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "19Bees",
+        "url": "{{ request.scheme }}://{{ request.get_host }}/",
+        "logo": "{{ request.scheme }}://{{ request.get_host }}{% static 'bees/images/logo_transparent.png' %}"
+    }
+    </script>
+    {% endblock %}
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
+        body { background: #F3F4F6; color: #111827; transition: background 0.2s ease, color 0.2s ease; }
+
+        html[data-theme="dark"] body { background: #14151a; color: #ddd; }
+        html[data-theme="dark"] .section, html[data-theme="dark"] .product-card,
+        html[data-theme="dark"] .category-box,
+        html[data-theme="dark"] .auth-box, html[data-theme="dark"] .cart-wrap,
+        html[data-theme="dark"] .checkout-form, html[data-theme="dark"] .summary,
+        html[data-theme="dark"] .product-page, html[data-theme="dark"] .desc-box,
+        html[data-theme="dark"] .reviews-box, html[data-theme="dark"] .qna-box,
+        html[data-theme="dark"] .static-wrap, html[data-theme="dark"] .profile-card,
+        html[data-theme="dark"] .address-card, html[data-theme="dark"] .orders-wrap,
+        html[data-theme="dark"] .order-card, html[data-theme="dark"] .app-modal,
+        html[data-theme="dark"] .chat-window {
+            background: #1e1f26 !important; color: #ddd !important; border-color: #333 !important;
+        }
+        html[data-theme="dark"] .pname, html[data-theme="dark"] h1, html[data-theme="dark"] h2, html[data-theme="dark"] h3 { color: #eee !important; }
+        html[data-theme="dark"] .section-header .sub { color: #ccc; }
+        html[data-theme="dark"] .pagination a, html[data-theme="dark"] .pagination span { color: #ddd; border-color: #444; }
+        html[data-theme="dark"] .status-step.done { color: #fff; }
+        html[data-theme="dark"] .status-step { color: #999; }
+        html[data-theme="dark"] .chat-body { color: #ccc; }
+        html[data-theme="dark"] .chat-msg { background: #2a2b33; }
+        html[data-theme="dark"] .sidebar { background: #1e1f26 !important; border-color: #333 !important; }
+        html[data-theme="dark"] .sidebar a { color: #aaa; }
+        html[data-theme="dark"] .sidebar a:hover { color: #fff; background: #2a2b33; }
+        html[data-theme="dark"] .search-suggestions { background: #1e1f26; border-color: #333; }
+        html[data-theme="dark"] .search-suggestions a { color: #ddd; }
+        html[data-theme="dark"] .search-suggestions a:hover { background: #2a2b33; color: #fff; }
+        html[data-theme="dark"] .lang-menu { background: #1e1f26; color: #ddd; border-color: #333; }
+        html[data-theme="dark"] .lang-menu a { color: #ddd; }
+        html[data-theme="dark"] .lang-menu a:hover { background: #2a2b33; color: #fff; }
+        html[data-theme="dark"] .category-box { background: #1e1f26 !important; }
+        html[data-theme="dark"] .category-box:hover { color: #fff; }
+        html[data-theme="dark"] .product-card img { opacity: 0.92; }
+        html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea {
+            background: #2a2b33; color: #eee; border-color: #444 !important;
+        }
+        html[data-theme="dark"] input::placeholder, html[data-theme="dark"] textarea::placeholder { color: #999; }
+        .theme-toggle { cursor: pointer; color: #fff; display: flex; align-items: center; }
+        .theme-toggle svg { width: 20px; height: 20px; }
+
+        .search-suggestions { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #eee; z-index: 250; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .search-suggestions.show { display: block; }
+        .search-suggestions a { display: block; padding: 8px 14px; font-size: 13px; color: #333; text-decoration: none; }
+        .search-suggestions a:hover { background: #f5f5f5; color: #000000; }
+        .trending-row { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+        .trending-row a { font-size: 11px; color: #fff; opacity: 0.85; text-decoration: none; }
+        .trending-row a:hover { text-decoration: underline; }
+        a { color: inherit; }
+
+        .site-header { position: sticky; top: 0; z-index: 200; border-top: 3px solid #dc2626; border-bottom: 2px solid #7dd3fc; }
+        .topbar {
+            background: #000000; color: #fff; font-size: 12px; text-transform: uppercase;
+            display: flex; justify-content: flex-end; gap: 24px; padding: 6px 40px;
+            overflow: hidden; transition: max-height 0.25s ease, padding 0.25s ease, opacity 0.2s ease;
+            max-height: 40px;
+        }
+        .site-header.scrolled .topbar { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; }
+        .topbar a { text-decoration: none; letter-spacing: 0.3px; margin-left: 20px; }
+        .topbar a:first-child { margin-left: 0; }
+        .topbar a:hover { text-decoration: underline; }
+        .lang-dropdown { position: relative; cursor: pointer; }
+        .lang-current::after { content: " ▾"; }
+        .lang-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; color: #333; border: 1px solid #eee; box-shadow: 0 2px 6px rgba(0,0,0,0.1); min-width: 130px; z-index: 300; text-transform: none; }
+        .lang-dropdown.open .lang-menu { display: block; }
+        .lang-menu a { display: block; padding: 8px 14px; color: #333; font-size: 13px; }
+        .lang-menu a:hover { background: #f5f5f5; color: #000000; }
+        .navbar .lang-dropdown { color: #fff; font-size: 13px; white-space: nowrap; }
+
+        .navbar {
+            background: #000000; display: flex; align-items: center;
+            gap: 24px; padding: 8px 40px;
+        }
+        .logo { color: #fff; font-size: 26px; font-weight: bold; text-decoration: none; white-space: nowrap; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+        .logo-mark { height: 72px; width: auto; display: block; }
+        .logo { padding: 2px 0; }
+        .navbar { min-height: 88px; }
+        .search-form { flex: 1; display: flex; max-width: 900px; margin: 6px 0; }
+        .search-input { flex: 1; padding: 13px 18px; border: none; border-radius: 3px 0 0 3px; font-size: 15px; outline: none; background: #2a2b33; color: #eee; }
+        .search-input::placeholder { color: #9aa0a6; }
+        .search-btn { background: #e5e5e5; border: none; padding: 0 22px; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 18px; color: #000000; }
+        .cart-link { color: #fff; text-decoration: none; position: relative; display: flex; align-items: center; }
+        .cart-link svg { width: 28px; height: 28px; }
+        .cart-badge { position: absolute; top: -8px; right: -10px; background: #fff; color: #000000; font-size: 11px; font-weight: bold; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; transition: transform 0.2s ease; }
+        .cart-badge.pulse { transform: scale(1.4); }
+
+        .sidebar {
+            position: fixed; left: 0; top: 45%; transform: translateY(-50%);
+            background: #fff; border: 1px solid #eee; border-radius: 0 6px 6px 0;
+            box-shadow: 1px 0 4px rgba(0,0,0,0.08); z-index: 50;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+        }
+        .sidebar.visible { opacity: 1; pointer-events: auto; }
+        .sidebar a {
+            display: flex; align-items: center; justify-content: center;
+            width: 42px; height: 42px; color: #888;
+            border-bottom: 1px solid #f0f0f0; text-decoration: none;
+        }
+        .sidebar a:last-child { border-bottom: none; }
+        .sidebar a:hover { color: #000000; background: #f5f5f5; }
+        .sidebar svg { width: 18px; height: 18px; }
+
+        .app-modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; align-items: center; justify-content: center; }
+        .app-modal-backdrop.open { display: flex; }
+        .app-modal { background: #fff; width: 360px; padding: 26px; text-align: center; position: relative; }
+        .app-modal h3 { font-size: 18px; margin-bottom: 18px; }
+        .app-modal .qr-pattern { width: 180px; height: 180px; margin: 0 auto 18px; background: #fff; border: 1px solid #eee; padding: 10px; }
+        .app-modal .qr-pattern svg { width: 100%; height: 100%; }
+        .app-modal .store-badges { display: flex; gap: 10px; justify-content: center; }
+        .app-modal .store-badge { background: #222; color: #fff; border-radius: 4px; padding: 8px 16px; font-size: 12px; }
+        .app-modal .close-btn { position: absolute; top: 10px; right: 14px; background: none; border: none; font-size: 20px; cursor: pointer; color: #999; }
+
+
+        .section { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .section-header h2 { font-size: 20px; font-weight: 500; color: #333; }
+        .section-header .sub { color: #000000; font-size: 14px; }
+
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+
+        .sort-bar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+        .sort-bar select { padding: 6px 10px; border: 1px solid #ddd; font-size: 13px; }
+        .pagination { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }
+        .pagination a, .pagination span { padding: 6px 12px; border: 1px solid #ddd; font-size: 13px; text-decoration: none; color: #333; }
+        .pagination .current { background: #000000; color: #fff; border-color: #000000; }
+        .stock-badge { font-size: 11px; margin-top: 4px; }
+        .stock-badge.low { color: #e67e22; }
+        .stock-badge.out { color: #c0392b; font-weight: bold; }
+        .wishlist-heart { position: relative; }
+        .wishlist-heart form.wishlist-form { position: absolute; top: 8px; right: 8px; z-index: 5; }
+        .wishlist-heart form.wishlist-form button {
+            background: rgba(255,255,255,0.92); border: 1px solid transparent; border-radius: 50%;
+            width: 28px; height: 28px; cursor: pointer; font-size: 15px; color: #ccc; transition: all 0.15s ease;
+        }
+        .wishlist-heart form.wishlist-form button:hover { border-color: #c9a24b; color: #c9a24b; }
+        .wishlist-heart form.wishlist-form button.active { color: #c9a24b; }
+        .status-progress { display: flex; align-items: center; margin: 14px 0; }
+        .status-step { flex: 1; text-align: center; font-size: 11px; color: #999; position: relative; }
+        .status-step .dot { width: 12px; height: 12px; border-radius: 50%; background: #ddd; margin: 0 auto 4px; }
+        .status-step.done .dot { background: #000000; }
+        .status-step.done { color: #000000; }
+        .status-line { position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: #ddd; z-index: -1; }
+        .status-step.done .status-line { background: #000000; }
+        .cancel-btn { background: #fff; border: 1px solid #c0392b; color: #c0392b; padding: 6px 14px; font-size: 12px; cursor: pointer; margin-top: 8px; }
+        .coupon-box { display: flex; gap: 8px; margin: 14px 0; }
+        .coupon-box input { flex: 1; padding: 9px; border: 1px solid #ddd; font-size: 13px; }
+        .coupon-box button { background: #333; color: #fff; border: none; padding: 0 16px; cursor: pointer; font-size: 13px; }
+        .product-card {
+            border: 1px solid #eee; padding: 12px; text-decoration: none; color: #333; display: block;
+            border-radius: 4px; transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; position: relative;
+        }
+        .product-card:hover { border-color: #c9a24b; box-shadow: 0 8px 20px rgba(0,0,0,0.08); transform: translateY(-3px); }
+        .product-card .img-wrap { overflow: hidden; border-radius: 3px; margin-bottom: 10px; }
+        .product-card img { width: 100%; height: 150px; object-fit: cover; display: block; transition: transform 0.35s ease; }
+        .product-card:hover img { transform: scale(1.06); }
+        .product-card .pname { font-size: 13px; height: 36px; overflow: hidden; margin-bottom: 6px; transition: color 0.15s ease; }
+        .product-card:hover .pname { color: #000000; }
+        .product-card .price { color: #000000; font-size: 17px; font-weight: bold; }
+        .product-card .old-price { color: #999; font-size: 12px; text-decoration: line-through; margin-top: 2px; }
+        .product-card .discount {
+            display: inline-block; background: #0b0b0d; color: #e8cf8a; font-size: 10.5px; font-weight: 700;
+            margin-left: 6px; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.2px; vertical-align: middle;
+        }
+        .product-card .card-rating { color: #f5a623; font-size: 11px; margin-top: 6px; }
+        .product-card .card-rating .rcount { color: #999; margin-left: 4px; }
+        html[data-theme="dark"] .product-card .price { color: #fff; }
+        html[data-theme="dark"] .product-card .card-rating { color: #ffc94a; }
+        html[data-theme="dark"] .product-card .old-price { color: #aaa; }
+
+        .qv-title { color: #000000; }
+        .qv-price { color: #000000; }
+        .qv-oldprice { color: #999; }
+        .qv-discount { color: #000000; }
+        .qv-desc { color: #666; }
+        .qv-detail-link { color: #000000; }
+        html[data-theme="dark"] .qv-title, html[data-theme="dark"] .qv-price, html[data-theme="dark"] .qv-discount {
+            color: #fff;
+        }
+        html[data-theme="dark"] .qv-oldprice { color: #aaa; }
+        html[data-theme="dark"] .qv-desc { color: #bbb; }
+        html[data-theme="dark"] .qv-detail-link { color: #fff; }
+        .compare-link { color: #666; }
+        html[data-theme="dark"] .compare-link { color: #aaa; border-top-color: #333 !important; }
+
+        .category-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0; border-top: 1px solid #eee; border-left: 1px solid #eee; }
+        .category-box { background: #fff; border-right: 1px solid #eee; border-bottom: 1px solid #eee; text-align: center; padding: 20px 10px 16px; text-decoration: none; color: #333; font-size: 13px; }
+        .category-box img { width: 100%; height: 90px; object-fit: contain; display: block; margin-bottom: 10px; }
+        .category-box .cname { line-height: 1.3; }
+        .category-box:hover { color: #000000; }
+        @media (max-width: 900px) { .category-grid { grid-template-columns: repeat(4, 1fr); } }
+
+        /* ============ Footer — always dark, gold-accented, theme-independent ============ */
+        :root { --gold: #c9a24b; --gold-soft: #e8cf8a; }
+        .footer { background: #0b0b0d; color: #ddd; margin-top: 40px; padding: 0 40px 18px; border-top: 1px solid var(--gold); }
+
+        .footer-brand-row { text-align: center; padding: 44px 0 30px; }
+        .footer-logo { height: 56px; width: auto; }
+        .footer-tagline { margin-top: 10px; font-size: 13px; letter-spacing: 0.4px; color: #9a9a9a; font-style: italic; }
+
+        .trust-strip { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-around; padding: 22px 0; border-top: 1px solid #232323; border-bottom: 1px solid #232323; margin-bottom: 30px; }
+        .trust-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 500; color: #d8d8d8; letter-spacing: 0.2px; }
+        .trust-icon {
+            width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--gold); flex-shrink: 0; color: var(--gold-soft);
+        }
+        .trust-icon svg { width: 16px; height: 16px; }
+
+        .footer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 30px; margin-bottom: 34px; }
+        .footer-col h3 {
+            font-size: 12px; font-weight: 600; margin-bottom: 16px; color: var(--gold-soft);
+            text-transform: uppercase; letter-spacing: 1.4px;
+        }
+        .footer-col a { display: block; font-size: 13.5px; color: #b8b8b8; text-decoration: none; margin-bottom: 10px; transition: color 0.15s ease, transform 0.15s ease; width: fit-content; }
+        .footer-col a:hover { color: #fff; transform: translateX(3px); }
+        .footer-col p { font-size: 13px; color: #9a9a9a; line-height: 1.7; }
+
+        .app-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .app-badge { border: 1px solid #333; border-radius: 4px; padding: 6px 12px; font-size: 11.5px; color: #ccc; background: #151515; }
+        .social-row { display: flex; gap: 10px; margin-top: 18px; }
+        .social-icon {
+            width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+            border: 1px solid #333; border-radius: 50%; color: #ccc; transition: all 0.2s ease;
+        }
+        .social-icon svg { width: 15px; height: 15px; }
+        .social-icon:hover { background: var(--gold); color: #0b0b0d; border-color: var(--gold); transform: translateY(-3px); }
+
+        .newsletter-strip {
+            display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+            border: 1px solid var(--gold); border-radius: 6px; padding: 26px 32px; margin-bottom: 30px;
+            background: linear-gradient(135deg, rgba(201,162,75,0.07), transparent);
+        }
+        .newsletter-eyebrow { display: block; font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gold-soft); margin-bottom: 6px; }
+        .newsletter-copy h3 { font-size: 17px; font-weight: 500; color: #fff; }
+        .newsletter-form { display: flex; gap: 0; flex: 0 0 auto; }
+        .newsletter-form input {
+            width: 240px; padding: 12px 16px; border: 1px solid #3a3a3a; border-right: none; background: #141414; color: #eee;
+            font-size: 13px; border-radius: 4px 0 0 4px;
+        }
+        .newsletter-form input::placeholder { color: #777; }
+        .newsletter-form input:focus { outline: none; border-color: var(--gold); }
+        .newsletter-form button {
+            background: var(--gold); color: #0b0b0d; border: none; padding: 0 22px; cursor: pointer;
+            font-size: 12.5px; font-weight: 700; letter-spacing: 0.5px; border-radius: 0 4px 4px 0; transition: background 0.15s ease;
+        }
+        .newsletter-form button:hover { background: var(--gold-soft); }
+
+        .payment-row { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #232323; padding: 20px 0; }
+        .payment-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #333; border-radius: 4px; padding: 5px 10px; font-size: 11px; background: #151515; color: #bbb; }
+        .payment-chip svg { width: 13px; height: 13px; }
+
+        .footer-bottom { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a7a7a; padding: 14px 0 4px; }
+        .back-to-top { background: none; border: 1px solid #333; color: #ccc; font-size: 11px; padding: 6px 14px; border-radius: 20px; cursor: pointer; transition: all 0.15s ease; }
+        .back-to-top:hover { border-color: var(--gold); color: var(--gold-soft); }
+
+        {% block extra_css %}{% endblock %}
+
+        html[dir="rtl"] input, html[dir="rtl"] textarea, html[dir="rtl"] select { text-align: right; }
+        html[dir="rtl"] .topbar { justify-content: flex-start; }
+        html[dir="rtl"] .sidebar { left: auto; right: 0; border-radius: 6px 0 0 6px; }
+        html[dir="rtl"] .cart-badge { right: auto; left: -10px; }
+
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+        .toast { background: #333; color: #fff; padding: 12px 18px; border-radius: 4px; font-size: 13px; box-shadow: 0 3px 10px rgba(0,0,0,0.2); opacity: 0; transform: translateX(20px); transition: all 0.3s ease; max-width: 320px; }
+        .toast.show { opacity: 1; transform: translateX(0); }
+        .toast.success { background: #27ae60; }
+        .toast.error { background: #c0392b; }
+        .toast.warning { background: #e67e22; }
+        .toast.info { background: #333; }
+
+        .chat-bubble { position: fixed; bottom: 24px; right: 24px; width: 54px; height: 54px; border-radius: 50%; background: #000000; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 400; }
+        .chat-window { position: fixed; bottom: 90px; right: 24px; width: 280px; background: #fff; border: 1px solid #eee; box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 400; display: none; }
+        .chat-window.open { display: block; }
+        .chat-header { background: #000000; color: #fff; padding: 12px; font-size: 13px; font-weight: 500; }
+        .chat-body { padding: 12px; font-size: 12px; color: #444; max-height: 200px; overflow-y: auto; }
+        .chat-msg { background: #F3F4F6; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+        .chat-input-row { display: flex; border-top: 1px solid #eee; }
+        .chat-input-row input { flex: 1; border: none; padding: 10px; font-size: 12px; }
+        .chat-input-row button { background: #000000; color: #fff; border: none; padding: 0 14px; cursor: pointer; }
+
+        @media (max-width: 700px) {
+            .topbar { flex-wrap: wrap; gap: 10px; padding: 6px 14px; justify-content: center; }
+            .navbar { flex-wrap: wrap; padding: 12px 14px; gap: 10px; min-height: auto; }
+            .logo { font-size: 22px; }
+            .logo-mark { height: 60px; }
+            .search-form { max-width: 100%; order: 3; flex-basis: 100%; }
+            .section, .hero { margin-left: 12px; margin-right: 12px; }
+            .product-grid { grid-template-columns: repeat(2, 1fr); }
+            .category-grid { grid-template-columns: repeat(3, 1fr); }
+            .sidebar { display: none; }
+            .app-box { display: none; }
+            .footer-cols { grid-template-columns: 1fr 1fr; }
+            .footer { padding-left: 20px; padding-right: 20px; }
+            .newsletter-strip { flex-direction: column; align-items: stretch; text-align: center; padding: 22px 20px; }
+            .newsletter-form { flex-direction: column; }
+            .newsletter-form input { width: 100%; border-right: 1px solid #3a3a3a; border-bottom: none; border-radius: 4px 4px 0 0; }
+            .newsletter-form button { border-radius: 0 0 4px 4px; padding: 12px 0; }
+            .footer-bottom { flex-direction: column; gap: 10px; text-align: center; }
+        }
+    </style>
+</head>
+<body id="top">
+    <script>
+        (function () {
+            const saved = localStorage.getItem('theme');
+            if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
+
+    <div class="site-header" id="site-header">
+        <div class="topbar">
+            <a href="javascript:void(0)" onclick="document.getElementById('app-modal').classList.add('open')">{{ t.save_more }}</a>
+            <a href="{% url 'sell_on_bees' %}">{{ t.sell_on }}</a>
+            <a href="{% url 'help_support' %}">{{ t.help_support }}</a>
+            {% if user.is_authenticated %}
+            <span>Hi, <a href="{% url 'profile' %}" style="text-decoration:underline;">{{ user.username }}</a></span>
+            {% if user.is_staff %}
+            <a href="{% url 'owner_dashboard' %}">Owner Dashboard</a>
+            {% endif %}
+            {% if user.seller_account %}
+            <a href="{% url 'seller_dashboard' %}">Seller Dashboard</a>
+            {% endif %}
+            <a href="{% url 'wishlist' %}">{{ t.my_wishlist }}</a>
+            <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
+            <a href="{% url 'logout' %}">{{ t.logout }}</a>
+            {% else %}
+            <a href="{% url 'login' %}">{{ t.login }}</a>
+            <a href="{% url 'signup' %}">{{ t.signup }}</a>
+            {% endif %}
+        </div>
+
+        <div class="navbar">
+            <a href="{% url 'home' %}" class="logo">
+                <img src="{% static 'bees/images/logo_transparent.png' %}" alt="19Bees" class="logo-mark">
+            </a>
+            <div style="flex:1;position:relative;max-width:900px;">
+                <form class="search-form" action="{% url 'home' %}" method="get" style="max-width:none;margin:6px 0;">
+                    <input class="search-input" type="text" name="q" id="search-input" placeholder="{{ t.search_placeholder }}" autocomplete="off">
+                    <button class="search-btn" type="submit">&#128269;</button>
+                </form>
+                <div id="search-suggestions" class="search-suggestions"></div>
+                {% if trending_searches %}
+                <div class="trending-row">
+                    {% for term in trending_searches %}
+                    <a href="{% url 'search_products' %}?q={{ term.query }}">{{ term.query }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            <div class="lang-dropdown" id="lang-dropdown" onclick="document.getElementById('lang-dropdown').classList.toggle('open')">
+                <span class="lang-current">{{ language_names|get_item:current_lang }}</span>
+                <div class="lang-menu">
+                    <a href="{% url 'set_language' 'en' %}">English</a>
+                    <a href="{% url 'set_language' 'ur' %}">اردو</a>
+                    <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
+                </div>
+            </div>
+            <div class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+            </div>
+            <a href="{% url 'compare_page' %}" class="cart-link" title="Compare products">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3v18M15 3v18M4 8h5M15 8h5M4 16h5M15 16h5"/></svg>
+                {% if compare_count %}<span class="cart-badge">{{ compare_count }}</span>{% endif %}
+            </a>
+            {% if user.is_authenticated %}
+            <a href="{% url 'notifications_list' %}" class="cart-link" title="Notifications">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                {% if unread_notifications_count %}<span class="cart-badge">{{ unread_notifications_count }}</span>{% endif %}
+            </a>
+            {% endif %}
+            <a href="{% url 'cart' %}" class="cart-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
+            </a>
+        </div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <a href="#top" title="Back to top">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </a>
+        <a href="#flash-sale" title="Flash sale">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+        </a>
+        <a href="#categories" title="Categories">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </a>
+        <a href="#just-for-you" title="Just for you">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+        </a>
+    </div>
+
+    <div class="app-modal-backdrop" id="quick-view-modal" onclick="if(event.target===this) this.classList.remove('open')">
+        <div class="app-modal" style="width:600px;text-align:left;">
+            <button class="close-btn" onclick="document.getElementById('quick-view-modal').classList.remove('open')">&times;</button>
+            <div id="quick-view-body" style="min-height:120px;display:flex;align-items:center;justify-content:center;color:#999;font-size:13px;">Loading...</div>
+        </div>
+    </div>
+
+    <div class="app-modal-backdrop" id="app-modal" onclick="if(event.target===this) this.classList.remove('open')">
+        <div class="app-modal">
+            <button class="close-btn" onclick="document.getElementById('app-modal').classList.remove('open')">&times;</button>
+            <h3>{{ t.try_app|default:"Download the App" }}</h3>
+            <div class="qr-pattern">
+                <svg viewBox="0 0 100 100">
+                    <rect width="100" height="100" fill="#fff"/>
+                    <rect x="5" y="5" width="25" height="25" fill="#222"/><rect x="10" y="10" width="15" height="15" fill="#fff"/>
+                    <rect x="70" y="5" width="25" height="25" fill="#222"/><rect x="75" y="10" width="15" height="15" fill="#fff"/>
+                    <rect x="5" y="70" width="25" height="25" fill="#222"/><rect x="10" y="75" width="15" height="15" fill="#fff"/>
+                    <rect x="40" y="5" width="8" height="8" fill="#222"/><rect x="55" y="15" width="8" height="8" fill="#222"/>
+                    <rect x="40" y="40" width="8" height="8" fill="#222"/><rect x="55" y="45" width="8" height="8" fill="#222"/>
+                    <rect x="40" y="60" width="8" height="8" fill="#222"/><rect x="60" y="70" width="8" height="8" fill="#222"/>
+                    <rect x="75" y="60" width="8" height="8" fill="#222"/><rect x="80" y="80" width="15" height="15" fill="#222"/>
+                    <rect x="40" y="80" width="8" height="8" fill="#222"/>
+                </svg>
+            </div>
+            <div class="store-badges">
+                <span class="store-badge">App Store</span>
+                <span class="store-badge">Google Play</span>
+            </div>
+        </div>
+    </div>
+
+    {% block content %}{% endblock %}
+
+    <div class="footer">
+        <div class="footer-brand-row">
+            <img src="{% static 'bees/images/logo_transparent.png' %}" alt="19Bees" class="footer-logo">
+            <p class="footer-tagline">Curated essentials, delivered with care — across Pakistan.</p>
+        </div>
+
+        <div class="trust-strip">
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="6" width="15" height="12" rx="2"/><path d="M16 10h3.5L22 13.5V18h-6"/><circle cx="6" cy="19" r="1.6"/><circle cx="17.5" cy="19" r="1.6"/></svg></span><span>Fast &amp; reliable delivery</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Secure payments</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg></span><span>Easy returns</span></div>
+            <div class="trust-item"><span class="trust-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span><span>24/7 support</span></div>
+        </div>
+        <div class="footer-cols">
+            <div class="footer-col">
+                <h3>{{ t.customer_care }}</h3>
+                <a href="{% url 'help_support' %}">{{ t.help_center }}</a>
+                <a href="{% url 'help_support' %}">{{ t.how_to_buy }}</a>
+                <a href="#">{{ t.bulk_purchases }}</a>
+                <a href="#">{{ t.returns_refund }}</a>
+                <a href="{% url 'help_support' %}">{{ t.contact_us }}</a>
+            </div>
+            <div class="footer-col">
+                <h3>19Bees</h3>
+                <a href="{% url 'about_us' %}">{{ t.about_us }}</a>
+                <a href="{% url 'terms_page' %}">{{ t.terms }}</a>
+                <a href="{% url 'privacy_page' %}">{{ t.privacy }}</a>
+                <a href="{% url 'sell_on_bees' %}">{{ t.sell_on_copy }}</a>
+                <a href="#">{{ t.careers }}</a>
+            </div>
+            <div class="footer-col">
+                <h3>{{ t.top_categories }}</h3>
+                <a href="{% url 'category_products' 'skincare' %}">Skin care</a>
+                <a href="{% url 'category_products' 'electronics' %}">Electronics</a>
+                <a href="{% url 'category_products' 'fashion' %}">Fashion</a>
+                <a href="{% url 'category_products' 'grocery' %}">Grocery</a>
+                <a href="{% url 'category_products' 'education' %}">Education</a>
+            </div>
+            <div class="footer-col footer-app-col">
+                <h3>{{ t.happy_shopping }}</h3>
+                <p>{{ t.download_app_desc }}</p>
+                <div class="app-badges">
+                    <span class="app-badge">App Store</span>
+                    <span class="app-badge">Google Play</span>
+                    <span class="app-badge">AppGallery</span>
+                </div>
+                <div class="social-row">
+                    <a href="#" aria-label="Facebook" class="social-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12Z"/></svg></a>
+                    <a href="#" aria-label="Instagram" class="social-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/></svg></a>
+                    <a href="#" aria-label="X / Twitter" class="social-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 3H21l-6.5 7.4L22 21h-6.2l-4.9-6.4L5.3 21H3.2l6.9-7.9L2.4 3h6.3l4.4 5.9L18.9 3Zm-1.1 16.2h1.2L7.3 4.7H6l11.8 14.5Z"/></svg></a>
+                    <a href="#" aria-label="YouTube" class="social-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12s0-3.2-.4-4.7a2.9 2.9 0 0 0-2-2C17.9 5 12 5 12 5s-5.9 0-7.6.3a2.9 2.9 0 0 0-2 2C2 8.8 2 12 2 12s0 3.2.4 4.7a2.9 2.9 0 0 0 2 2C6.1 19 12 19 12 19s5.9 0 7.6-.3a2.9 2.9 0 0 0 2-2C22 15.2 22 12 22 12ZM10 15.5v-7l6 3.5-6 3.5Z"/></svg></a>
+                </div>
+            </div>
+        </div>
+
+        <div class="newsletter-strip">
+            <div class="newsletter-copy">
+                <span class="newsletter-eyebrow">Members-only</span>
+                <h3>Get early access to drops &amp; discounts</h3>
+            </div>
+            <form method="post" action="{% url 'newsletter_subscribe' %}" class="newsletter-form">
+                {% csrf_token %}
+                <input type="email" name="email" placeholder="Your email address" required>
+                <button type="submit">Subscribe</button>
+            </form>
+        </div>
+
+        <div class="payment-row">
+            <span class="payment-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20"/></svg>{{ t.cash_on_delivery }}</span>
+            <span class="payment-chip">Visa</span>
+            <span class="payment-chip">Mastercard</span>
+            <span class="payment-chip">Easypaisa</span>
+            <span class="payment-chip">{{ t.wallet }}</span>
+            <span class="payment-chip">JazzCash</span>
+            <span class="payment-chip">Bank transfer</span>
+            <span class="payment-chip">Easy installments</span>
+        </div>
+
+        <div class="footer-bottom">
+            <span>&copy; 2026 19Bees. Your online marketplace for everyday essentials.</span>
+            <button class="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to top">&uarr; Top</button>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container">
+        {% for message in messages %}
+        <div class="toast {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+
+    <div class="chat-bubble" onclick="document.getElementById('chat-window').classList.toggle('open')">&#128172;</div>
+    <div class="chat-window" id="chat-window">
+        <div class="chat-header">19Bees Support</div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-msg">Hi! This is a demo chat widget. Ask us anything about your order or products.</div>
+        </div>
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="Type a message...">
+            <button onclick="sendChatMsg()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // Quick View: fetch product details without a full page navigation.
+        function openQuickView(e, id) {
+            if (e.ctrlKey || e.metaKey || e.button === 1) return true;
+            e.preventDefault();
+            const modal = document.getElementById('quick-view-modal');
+            const body = document.getElementById('quick-view-body');
+            body.innerHTML = 'Loading...';
+            modal.classList.add('open');
+            fetch('/product/' + id + '/quick/')
+                .then(r => r.text())
+                .then(html => { body.innerHTML = html; })
+                .catch(() => { body.innerHTML = 'Could not load product. <a href="/product/' + id + '/">Open full page</a>'; });
+            return false;
+        }
+
+        // Add to cart without reloading the whole page.
+        // Any form with class "ajax-add-cart-form" is submitted via fetch;
+        // on success we update the cart badge and show a toast, no full page load.
+        (function () {
+            function showToast(text, type) {
+                const container = document.getElementById('toast-container');
+                if (!container) return;
+                const toast = document.createElement('div');
+                toast.className = 'toast ' + (type || 'success');
+                toast.textContent = text;
+                container.appendChild(toast);
+                requestAnimationFrame(() => toast.classList.add('show'));
+                setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(20px)'; }, 3200);
+                setTimeout(() => toast.remove(), 3600);
+            }
+
+            function updateCartBadge(newCount) {
+                document.querySelectorAll('.cart-link').forEach(function (link) {
+                    let badge = link.querySelector('.cart-badge');
+                    if (newCount > 0) {
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'cart-badge';
+                            link.appendChild(badge);
+                        }
+                        badge.textContent = newCount;
+                        badge.classList.add('pulse');
+                        setTimeout(() => badge.classList.remove('pulse'), 300);
+                    } else if (badge) {
+                        badge.remove();
+                    }
+                });
+            }
+
+            document.addEventListener('submit', function (e) {
+                const form = e.target.closest('.ajax-add-cart-form');
+                if (!form) return;
+                e.preventDefault();
+                const btn = form.querySelector('button[type="submit"]');
+                const originalText = btn ? btn.textContent : '';
+                if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+                fetch(form.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    body: new FormData(form),
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.ok) {
+                            updateCartBadge(data.cart_count);
+                            showToast(data.message || 'Added to cart', 'success');
+                            if (data.warning) showToast(data.warning, 'warning');
+                        } else {
+                            showToast(data.error || 'Could not add to cart', 'error');
+                        }
+                    })
+                    .catch(() => showToast('Network error, please try again.', 'error'))
+                    .finally(() => {
+                        if (btn) { btn.disabled = false; btn.textContent = originalText; }
+                    });
+            });
+        })();
+
+        // Dark mode toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            if (isDark) {
+                html.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'light');
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // Search autocomplete
+        (function () {
+            const input = document.getElementById('search-input');
+            const box = document.getElementById('search-suggestions');
+            if (!input || !box) return;
+            let timer = null;
+            input.addEventListener('input', function () {
+                clearTimeout(timer);
+                const q = input.value.trim();
+                if (q.length < 2) { box.classList.remove('show'); box.innerHTML = ''; return; }
+                timer = setTimeout(() => {
+                    fetch('{% url "search_suggest" %}?q=' + encodeURIComponent(q))
+                        .then(r => r.json())
+                        .then(data => {
+                            if (!data.results || !data.results.length) { box.classList.remove('show'); return; }
+                            box.innerHTML = data.results.map(name =>
+                                `<a href="{% url 'search_products' %}?q=${encodeURIComponent(name)}">${name}</a>`
+                            ).join('');
+                            box.classList.add('show');
+                        });
+                }, 250);
+            });
+            document.addEventListener('click', function (e) {
+                if (!box.contains(e.target) && e.target !== input) box.classList.remove('show');
+            });
+        })();
+
+        // Sticky header: collapse topbar and reveal sidebar shortcuts once the user scrolls.
+        (function () {
+            const header = document.getElementById('site-header');
+            const sidebar = document.getElementById('sidebar');
+            const threshold = 220;
+            function onScroll() {
+                if (window.scrollY > 40) {
+                    header.classList.add('scrolled');
+                } else {
+                    header.classList.remove('scrolled');
+                }
+                if (window.scrollY > threshold) {
+                    sidebar.classList.add('visible');
+                } else {
+                    sidebar.classList.remove('visible');
+                }
+            }
+            window.addEventListener('scroll', onScroll);
+            onScroll();
+
+            document.addEventListener('click', function (e) {
+                const dropdown = document.getElementById('lang-dropdown');
+                if (dropdown && !dropdown.contains(e.target)) {
+                    dropdown.classList.remove('open');
+                }
+            });
+        })();
+
+        // Toast notifications: animate in, auto-dismiss after 3.5s.
+        document.querySelectorAll('.toast').forEach(function (toast, i) {
+            setTimeout(() => toast.classList.add('show'), 100 + i * 100);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(20px)'; }, 3500 + i * 100);
+        });
+
+        // Fake live chat bubble
+        function sendChatMsg() {
+            const input = document.getElementById('chat-input');
+            const body = document.getElementById('chat-body');
+            const text = input.value.trim();
+            if (!text) return;
+            const userMsg = document.createElement('div');
+            userMsg.className = 'chat-msg';
+            userMsg.style.background = '#f5f5f5';
+            userMsg.textContent = text;
+            body.appendChild(userMsg);
+            input.value = '';
+            body.scrollTop = body.scrollHeight;
+            setTimeout(() => {
+                const reply = document.createElement('div');
+                reply.className = 'chat-msg';
+                reply.textContent = "Thanks for your message! Our support team typically replies within a few hours.";
+                body.appendChild(reply);
+                body.scrollTop = body.scrollHeight;
+            }, 700);
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            const chatInput = document.getElementById('chat-input');
+            if (chatInput) {
+                chatInput.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') sendChatMsg();
+                });
+            }
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,20 @@
+{% extends "bees/base.html" %}
+{% block title %}Search results for "{{ query }}" - 19Bees{% endblock %}
+{% block meta_description %}Search results for "{{ query }}" at 19Bees. Shop skincare, electronics, fashion, groceries and more.{% endblock %}
+{% block robots_meta %}noindex, follow{% endblock %}
+{% block content %}
+    <div class="section">
+        <div class="section-header">
+            <h2>{{ t.search_results_for }} "{{ query }}"</h2>
+        </div>
+        {% include "bees/partials/sort_bar.html" %}
+        <div class="product-grid">
+            {% for product in products %}
+            {% include "bees/partials/product_card.html" %}
+            {% empty %}
+            <p>{{ t.no_search_results }}</p>
+            {% endfor %}
+        </div>
+        {% include "bees/partials/pagination.html" %}
+    </div>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "bees/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .checkout-wrap { display: flex; gap: 20px; margin: 20px 40px; align-items: flex-start; }
+    .checkout-form { flex: 1; background: #fff; border: 1px solid #eee; padding: 24px; }
+    .checkout-form h2 { font-size: 18px; font-weight: 500; margin-bottom: 16px; }
+    .checkout-form input, .checkout-form select { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 14px; }
+    .checkout-form button { background: #000000; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; }
+    .summary { width: 320px; background: #fff; border: 1px solid #eee; padding: 20px; }
+    .summary h3 { font-size: 16px; margin-bottom: 12px; }
+    .summary-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f5f5f5; }
+    .summary-total { display: flex; justify-content: space-between; font-size: 17px; font-weight: bold; color: #000000; margin-top: 12px; }
+
+    html[data-theme="dark"] .checkout-form input, html[data-theme="dark"] .checkout-form select {
+        background: #2a2b33; color: #eee; border-color: #444;
+    }
+    html[data-theme="dark"] .summary-row { border-color: #333; }
+    html[data-theme="dark"] .summary-total { color: #fff; }
+{% endblock %}
+{% block content %}
+<div class="checkout-wrap">
+    <div class="checkout-form">
+        <h2>{{ t.delivery_details }}</h2>
+        {% if addresses %}
+        <select id="saved-address-select" onchange="fillAddress(this)" style="margin-bottom:14px;">
+            <option value="">-- Choose a saved address --</option>
+            {% for addr in addresses %}
+            <option value="{{ forloop.counter0 }}" data-name="{{ addr.full_name }}" data-phone="{{ addr.phone }}" data-address="{{ addr.address }}" data-city="{{ addr.city }}">{{ addr.label }}: {{ addr.address }}, {{ addr.city }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="text" id="id_full_name" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username|default:'' }}" required>
+            <input type="text" id="id_address" name="address" placeholder="{{ t.street_address }}" required>
+            <input type="text" id="id_city" name="city" placeholder="{{ t.city }}" required>
+            <input type="text" id="id_phone" name="phone" placeholder="{{ t.phone_number }}" required>
+            <select name="payment_method">
+                <option value="cod">{{ t.cash_on_delivery }}</option>
+                <option value="card">{{ t.card }}</option>
+                <option value="wallet">{{ t.wallet }}</option>
+            </select>
+            <button type="submit">{{ t.place_order }}</button>
+        </form>
+    </div>
+    <div class="summary">
+        <h3>{{ t.order_summary }}</h3>
+        {% for row in items %}
+        <div class="summary-row">
+            <span>{{ row.product.name|truncatechars:28 }} x{{ row.qty }}</span>
+            <span>Rs.{{ row.subtotal }}</span>
+        </div>
+        {% endfor %}
+
+        <form method="post" action="{% url 'apply_coupon' %}" class="coupon-box">
+            {% csrf_token %}
+            <input type="text" name="coupon_code" placeholder="{{ t.coupon_code_placeholder }}" value="{{ coupon.code|default:'' }}">
+            <button type="submit">{{ t.apply }}</button>
+        </form>
+        {% if coupon %}
+        <div class="summary-row" style="color:#27ae60;">
+            <span>{{ t.coupon }} ({{ coupon.code }})</span>
+            <span>-Rs.{{ discount_amount }}</span>
+        </div>
+        {% endif %}
+
+        <div class="summary-total">
+            <span>{{ t.total }}</span>
+            <span>Rs.{{ final_total|default:total }}</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function fillAddress(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt.value && opt.value !== "0") return;
+    document.getElementById('id_full_name').value = opt.dataset.name || '';
+    document.getElementById('id_phone').value = opt.dataset.phone || '';
+    document.getElementById('id_address').value = opt.dataset.address || '';
+    document.getElementById('id_city').value = opt.dataset.city || '';
+}
+</script>
+{% endblock %}

@@ -45,6 +45,30 @@ class Product(models.Model):
     approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="approved")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        old_stock = None
+        if not is_new:
+            old_stock = Product.objects.filter(pk=self.pk).values_list("stock", flat=True).first()
+        super().save(*args, **kwargs)
+        # Notify the seller once when stock crosses into the low-stock zone,
+        # not on every save while it stays low.
+        if not is_new and old_stock is not None and self.seller_account_id:
+            crossed_low = old_stock > 5 and 0 < self.stock <= 5
+            crossed_out = old_stock > 0 and self.stock <= 0
+            if crossed_out:
+                Notification.objects.create(
+                    user=self.seller_account.user,
+                    message=f"'{self.name}' is now out of stock. Restock it to keep selling.",
+                    link="/seller/dashboard/",
+                )
+            elif crossed_low:
+                Notification.objects.create(
+                    user=self.seller_account.user,
+                    message=f"'{self.name}' is running low ({self.stock} left). Consider restocking soon.",
+                    link="/seller/dashboard/",
+                )
+
     def __str__(self):
         return self.name
 
@@ -420,6 +444,12 @@ class SiteSettings(models.Model):
     """A single-row table for site-wide settings, editable from the admin panel."""
     tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     site_name = models.CharField(max_length=100, default="19Bees")
+    banner_text = models.CharField(
+        max_length=200, blank=True,
+        help_text="Shown as a site-wide announcement bar at the top of every page, e.g. 'Eid Sale: 20% off everything!'. Leave blank to hide it.",
+    )
+    banner_active = models.BooleanField(default=False)
+    banner_link = models.CharField(max_length=300, blank=True, help_text="Optional URL the banner links to (e.g. a sale category page).")
 
     class Meta:
         verbose_name = "Site settings"

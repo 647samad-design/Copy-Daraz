@@ -605,6 +605,27 @@ def request_return(request, item_id):
 
 
 @login_required
+def buy_again(request, order_id):
+    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    cart = request.session.get("cart", {})
+    added, skipped = 0, 0
+    for item in order.items.select_related("product"):
+        if not item.product or item.product.stock <= 0:
+            skipped += 1
+            continue
+        key = str(item.product.id)
+        cart[key] = min(cart.get(key, 0) + item.quantity, item.product.stock)
+        added += 1
+    request.session["cart"] = cart
+    request.session.modified = True
+    if added:
+        messages.success(request, f"{added} item(s) added back to your cart.")
+    if skipped:
+        messages.warning(request, f"{skipped} item(s) are no longer available and were skipped.")
+    return redirect("cart")
+
+
+@login_required
 def my_orders(request):
     orders = Order.objects.filter(user=request.user).order_by("-created_at")
     return render(request, "bees/my_orders.html", {"orders": orders})
@@ -940,6 +961,28 @@ def seller_dashboard(request):
     commission_owed = round(total_sales * seller.commission_rate / 100, 2)
     net_earnings = total_sales - commission_owed
 
+    from datetime import timedelta
+    from django.utils import timezone
+    today = timezone.localdate()
+    daily_sales = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_total = sum(
+            it.subtotal for it in order_items.filter(order__created_at__date=day)
+        )
+        daily_sales.append({"label": day.strftime("%a"), "amount": float(day_total)})
+    max_daily = max([d["amount"] for d in daily_sales] or [1]) or 1
+    for d in daily_sales:
+        d["pct"] = round((d["amount"] / max_daily) * 100, 1) if max_daily else 0
+
+    top_products = (
+        products.annotate(units_sold=Sum("orderitem__quantity"))
+        .filter(units_sold__gt=0)
+        .order_by("-units_sold")[:5]
+    )
+    low_stock_products = products.filter(stock__gt=0, stock__lte=5)
+    out_of_stock_products = products.filter(stock__lte=0)
+
     return render(request, "bees/seller_dashboard.html", {
         "seller": seller,
         "products": products,
@@ -948,6 +991,10 @@ def seller_dashboard(request):
         "commission_owed": commission_owed,
         "net_earnings": net_earnings,
         "product_count": products.count(),
+        "daily_sales": daily_sales,
+        "top_products": top_products,
+        "low_stock_products": low_stock_products,
+        "out_of_stock_products": out_of_stock_products,
     })
 
 

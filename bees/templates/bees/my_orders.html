@@ -28,6 +28,11 @@
     html[data-theme="dark"] .order-item-row .sub { color: #eee; }
     .order-total-line, .order-invoice-link { color: #000000; }
     html[data-theme="dark"] .order-total-line, html[data-theme="dark"] .order-invoice-link { color: #fff; }
+    .buy-again-btn {
+        background: #0b0b0d; color: #e8cf8a; border: 1px solid #c9a24b; border-radius: 4px;
+        padding: 7px 16px; font-size: 12px; cursor: pointer; transition: background 0.15s ease;
+    }
+    .buy-again-btn:hover { background: #c9a24b; color: #0b0b0d; }
 
     @media (max-width: 700px) {
         .orders-wrap { margin: 12px; }
@@ -101,6 +106,10 @@
         </form>
         {% endif %}
         <a href="{% url 'invoice_pdf' order.id %}" class="order-invoice-link" style="font-size:12px;text-align:right;display:block;margin-top:6px;">Download invoice</a>
+        <form method="post" action="{% url 'buy_again' order.id %}" style="text-align:right;margin-top:6px;">
+            {% csrf_token %}
+            <button type="submit" class="buy-again-btn">&#8635; Buy again</button>
+        </form>
     </div>
     {% empty %}
     <div style="padding:30px;text-align:center;color:#888;">{{ t.no_orders }}</div>

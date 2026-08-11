@@ -213,6 +213,36 @@ class NewsletterSubscriberAdmin(admin.ModelAdmin):
     list_display = ("email", "created_at")
     search_fields = ("email",)
     date_hierarchy = "created_at"
+    actions = ["send_bulk_email"]
+
+    def send_bulk_email(self, request, queryset):
+        from django.core.mail import send_mail
+        from django.conf import settings as dj_settings
+        from django.template.response import TemplateResponse
+        from django.contrib.admin import helpers
+
+        if "apply" in request.POST:
+            subject = request.POST.get("subject", "").strip()
+            body = request.POST.get("body", "").strip()
+            if not subject or not body:
+                self.message_user(request, "Subject and message are both required.", level="error")
+                return None
+            recipients = list(queryset.values_list("email", flat=True))
+            sent = 0
+            for email in recipients:
+                try:
+                    send_mail(subject, body, dj_settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+                    sent += 1
+                except Exception:
+                    pass
+            self.message_user(request, f"Email sent to {sent} of {len(recipients)} subscriber(s).")
+            return None
+
+        return TemplateResponse(request, "admin/bulk_email_form.html", {
+            "subscribers": queryset,
+            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+        })
+    send_bulk_email.short_description = "Send an email to selected subscribers"
 
 
 @admin.register(Notification)
@@ -389,7 +419,8 @@ class SellerReviewAdmin(admin.ModelAdmin):
 
 @admin.register(SiteSettings)
 class SiteSettingsAdmin(admin.ModelAdmin):
-    list_display = ("site_name", "tax_percent")
+    list_display = ("site_name", "tax_percent", "banner_active", "banner_text")
+    fields = ("site_name", "tax_percent", "banner_active", "banner_text", "banner_link")
 
     def has_add_permission(self, request):
         return not SiteSettings.objects.exists()

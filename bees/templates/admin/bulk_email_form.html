@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>Send email to {{ subscribers.count }} subscriber(s)</h1>
+<form method="post">
+    {% csrf_token %}
+    {% for obj in subscribers %}
+        <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="send_bulk_email">
+    <p>
+        <label for="id_subject"><strong>Subject</strong></label><br>
+        <input type="text" id="id_subject" name="subject" style="width: 480px; padding: 8px;" required>
+    </p>
+    <p>
+        <label for="id_body"><strong>Message</strong></label><br>
+        <textarea id="id_body" name="body" rows="10" style="width: 480px; padding: 8px;" required></textarea>
+    </p>
+    <input type="submit" name="apply" value="Send email" class="default">
+</form>
+{% endblock %}

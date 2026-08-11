@@ -19,6 +19,13 @@
     .sd-product-row a { font-size: 12px; color: #000000; margin-left: 10px; }
     .sd-order-row { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
     .sd-status-form select { font-size: 11px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
+    .sd-alert-box { background: #FEF3C7; color: #92400E; border-radius: 4px; padding: 12px 16px; font-size: 13px; margin-bottom: 16px; }
+    .sd-chart { display: flex; align-items: flex-end; gap: 10px; height: 160px; padding-top: 10px; }
+    .sd-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+    .sd-bar-value { font-size: 10px; color: #666; margin-bottom: 6px; }
+    .sd-bar-track { width: 100%; max-width: 36px; flex: 1; background: #f0f0f0; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .sd-bar-fill { width: 100%; background: #0b0b0d; border-radius: 3px 3px 0 0; min-height: 2px; }
+    .sd-bar-label { font-size: 10px; color: #333; margin-top: 6px; }
 
     html[data-theme="dark"] .sd-stat, html[data-theme="dark"] .sd-section { background: #1e1f26; border-color: #333; }
     html[data-theme="dark"] .sd-stat .num { color: #fff; }
@@ -27,6 +34,10 @@
     html[data-theme="dark"] .sd-product-row img { border-color: #333; }
     html[data-theme="dark"] .sd-product-row a { color: #fff; }
     html[data-theme="dark"] .sd-status-form select { background: #2a2b33; color: #eee; border-color: #444; }
+    html[data-theme="dark"] .sd-alert-box { background: #2a2410; color: #e8cf8a; }
+    html[data-theme="dark"] .sd-bar-track { background: #2a2b33; }
+    html[data-theme="dark"] .sd-bar-fill { background: #e8cf8a; }
+    html[data-theme="dark"] .sd-bar-value, html[data-theme="dark"] .sd-bar-label { color: #ccc; }
 
     @media (max-width: 700px) {
         .sd-wrap { margin: 12px; }
@@ -51,6 +62,39 @@
         <div class="sd-stat"><div class="num">Rs.{{ commission_owed }}</div><div class="label">Platform commission</div></div>
         <div class="sd-stat"><div class="num">Rs.{{ net_earnings }}</div><div class="label">Your net earnings</div></div>
     </div>
+
+    {% if low_stock_products or out_of_stock_products %}
+    <div class="sd-alert-box">
+        {% if out_of_stock_products %}<strong>{{ out_of_stock_products.count }}</strong> product(s) out of stock.{% endif %}
+        {% if low_stock_products %}<strong>{{ low_stock_products.count }}</strong> product(s) running low (5 or fewer left).{% endif %}
+        Restock soon to avoid missing sales.
+    </div>
+    {% endif %}
+
+    <div class="sd-section">
+        <h2>Sales &mdash; last 7 days</h2>
+        <div class="sd-chart">
+            {% for d in daily_sales %}
+            <div class="sd-bar-col">
+                <div class="sd-bar-value">Rs.{{ d.amount|floatformat:0 }}</div>
+                <div class="sd-bar-track"><div class="sd-bar-fill" style="height:{{ d.pct }}%;"></div></div>
+                <div class="sd-bar-label">{{ d.label }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if top_products %}
+    <div class="sd-section">
+        <h2>Your top-selling products</h2>
+        {% for p in top_products %}
+        <div class="sd-order-row">
+            <span>{{ forloop.counter }}. {{ p.name }}</span>
+            <span>{{ p.units_sold }} sold</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     <div class="sd-section">
         <h2>My products {% if seller.status == "approved" %}<a class="add-btn" href="{% url 'seller_add_product' %}">+ Add product</a>{% endif %}</h2>

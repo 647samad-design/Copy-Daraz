@@ -103,6 +103,7 @@ TEMPLATES = [
                 'bees.context_processors.trending_searches',
                 'bees.context_processors.unread_notifications',
                 'bees.context_processors.compare_count',
+                'bees.context_processors.site_banner',
             ],
         },
     },

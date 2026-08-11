@@ -36,3 +36,14 @@ def unread_notifications(request):
 
 def compare_count(request):
     return {"compare_count": len(request.session.get("compare", [])), "compare_ids": request.session.get("compare", [])}
+
+
+def site_banner(request):
+    from .models import SiteSettings
+    try:
+        settings_obj = SiteSettings.load()
+    except Exception:
+        return {"site_banner": None}
+    if settings_obj.banner_active and settings_obj.banner_text:
+        return {"site_banner": settings_obj}
+    return {"site_banner": None}

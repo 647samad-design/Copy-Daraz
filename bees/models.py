@@ -74,10 +74,18 @@ class Product(models.Model):
 
     @property
     def average_rating(self):
+        if hasattr(self, "avg_rating"):
+            return round(self.avg_rating, 1) if self.avg_rating else 0
         reviews = self.reviews.all()
         if not reviews:
             return 0
         return round(sum(r.rating for r in reviews) / len(reviews), 1)
+
+    @property
+    def rating_count(self):
+        if hasattr(self, "review_count"):
+            return self.review_count
+        return self.reviews.count()
 
 
 class Review(models.Model):

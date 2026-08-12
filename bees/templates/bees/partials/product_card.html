@@ -18,7 +18,7 @@
         {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
         <div class="card-rating">
             {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
-            <span class="rcount">({{ product.reviews.count }})</span>
+            <span class="rcount">({{ product.rating_count }})</span>
         </div>
         {% if product.stock <= 0 %}
         <div class="stock-badge out">{{ t.out_of_stock }}</div>

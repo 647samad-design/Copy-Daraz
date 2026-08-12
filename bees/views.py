@@ -7,7 +7,16 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse, HttpResponse
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Avg, Count, F
+
+
+def with_ratings(queryset):
+    """Annotate a Product queryset with avg_rating/review_count in one query,
+    instead of each product template tag hitting the DB separately (N+1)."""
+    return queryset.annotate(
+        avg_rating=Avg("reviews__rating"),
+        review_count=Count("reviews", distinct=True),
+    )
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -47,8 +56,8 @@ def home(request):
     query = request.GET.get("q", "").strip()
     if query:
         return redirect(f"/search/?q={query}")
-    flash_sale_products = Product.objects.filter(is_flash_sale=True, approval_status="approved")[:8]
-    just_for_you_products = Product.objects.filter(approval_status="approved").order_by("-created_at")[:16]
+    flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:8]
+    just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:16]
     categories = [
         {
             "slug": slug,
@@ -91,7 +100,7 @@ def product_detail(request, pk):
         in_wishlist = Wishlist.objects.filter(user=request.user, product=product).exists()
 
     gallery = [product.image_url] + list(product.extra_images.values_list("image_url", flat=True))
-    related_products = Product.objects.filter(category=product.category, approval_status="approved").exclude(pk=product.pk)[:6]
+    related_products = with_ratings(Product.objects.filter(category=product.category, approval_status="approved").exclude(pk=product.pk))[:6]
     questions = product.questions.all()
 
     recent_ids = request.session.get("recently_viewed", [])
@@ -99,7 +108,7 @@ def product_detail(request, pk):
     recent_ids.insert(0, product.id)
     request.session["recently_viewed"] = recent_ids[:10]
     request.session.modified = True
-    recently_viewed = Product.objects.filter(id__in=recent_ids[1:7])
+    recently_viewed = with_ratings(Product.objects.filter(id__in=recent_ids[1:7]))
 
     return render(request, "bees/product_detail.html", {
         "product": product,
@@ -113,7 +122,7 @@ def product_detail(request, pk):
 
 
 def category_products(request, category):
-    products = Product.objects.filter(category=category, approval_status="approved")
+    products = with_ratings(Product.objects.filter(category=category, approval_status="approved"))
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
     paginator = Paginator(products, 12)
@@ -133,7 +142,7 @@ def search_products(request):
     if query:
         log, _ = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
         SearchLog.objects.filter(pk=log.pk).update(count=log.count + 1)
-    results = Product.objects.filter(name__icontains=query, approval_status="approved") if query else Product.objects.none()
+    results = with_ratings(Product.objects.filter(name__icontains=query, approval_status="approved")) if query else Product.objects.none()
     sort = request.GET.get("sort", "")
     results = _apply_sort(results, sort)
     paginator = Paginator(results, 12)
@@ -147,7 +156,7 @@ def search_products(request):
 
 
 def all_products(request):
-    products = Product.objects.filter(approval_status="approved")
+    products = with_ratings(Product.objects.filter(approval_status="approved"))
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
     paginator = Paginator(products, 16)
@@ -627,7 +636,9 @@ def buy_again(request, order_id):
 
 @login_required
 def my_orders(request):
-    orders = Order.objects.filter(user=request.user).order_by("-created_at")
+    orders = Order.objects.filter(user=request.user).prefetch_related(
+        "items", "items__product", "items__return_requests"
+    ).order_by("-created_at")
     return render(request, "bees/my_orders.html", {"orders": orders})
 
 
@@ -784,7 +795,7 @@ def delete_address(request, pk):
 
 
 def store_page(request, seller_name):
-    products = Product.objects.filter(seller_name=seller_name, approval_status="approved")
+    products = with_ratings(Product.objects.filter(seller_name=seller_name, approval_status="approved"))
     return render(request, "bees/store.html", {
         "seller_name": seller_name,
         "products": products,
@@ -896,7 +907,7 @@ def toggle_compare(request, pk):
 
 def compare_page(request):
     compare_ids = request.session.get("compare", [])
-    products = Product.objects.filter(id__in=compare_ids)
+    products = with_ratings(Product.objects.filter(id__in=compare_ids))
     return render(request, "bees/compare.html", {"products": products})
 
 
@@ -956,7 +967,10 @@ def seller_dashboard(request):
     seller = get_object_or_404(SellerAccount, user=request.user)
     products = Product.objects.filter(seller_account=seller)
 
-    order_items = OrderItem.objects.filter(product__seller_account=seller).select_related("order", "product")
+    order_items_qs = OrderItem.objects.filter(product__seller_account=seller).select_related(
+        "order", "product"
+    ).order_by("-order__created_at")
+    order_items = list(order_items_qs)
     total_sales = sum(i.subtotal for i in order_items)
     commission_owed = round(total_sales * seller.commission_rate / 100, 2)
     net_earnings = total_sales - commission_owed
@@ -968,7 +982,7 @@ def seller_dashboard(request):
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
         day_total = sum(
-            it.subtotal for it in order_items.filter(order__created_at__date=day)
+            it.subtotal for it in order_items if it.order.created_at.date() == day
         )
         daily_sales.append({"label": day.strftime("%a"), "amount": float(day_total)})
     max_daily = max([d["amount"] for d in daily_sales] or [1]) or 1
@@ -986,7 +1000,7 @@ def seller_dashboard(request):
     return render(request, "bees/seller_dashboard.html", {
         "seller": seller,
         "products": products,
-        "order_items": order_items.order_by("-order__created_at")[:20],
+        "order_items": order_items[:20],
         "total_sales": total_sales,
         "commission_owed": commission_owed,
         "net_earnings": net_earnings,
@@ -1079,24 +1093,50 @@ def owner_dashboard(request):
     total_organizations = SellerAccount.objects.filter(account_type="organization").count()
     total_products = Product.objects.count()
     total_orders = Order.objects.count()
-    total_revenue = sum(o.total for o in Order.objects.exclude(status="cancelled"))
 
     from datetime import timedelta
     from django.utils import timezone
+    from django.db.models.functions import TruncDate
+
     today = timezone.localdate()
+    start_date = today - timedelta(days=6)
+    non_cancelled = Order.objects.exclude(status="cancelled")
+
+    # Two lightweight aggregate queries (instead of looping every order's
+    # .total property, which used to run a query per order): one sums
+    # item subtotals grouped by day, the other sums discounts grouped by
+    # day. Combined in Python below - avoids double-counting discount_amount
+    # that a single joined query would cause.
+    subtotal_by_day = {
+        row["day"]: row["subtotal"] or 0
+        for row in non_cancelled.filter(created_at__date__gte=start_date)
+        .annotate(day=TruncDate("created_at")).values("day")
+        .annotate(subtotal=Sum(F("items__price") * F("items__quantity")))
+    }
+    discount_by_day = {
+        row["day"]: row["discount"] or 0
+        for row in non_cancelled.filter(created_at__date__gte=start_date)
+        .annotate(day=TruncDate("created_at")).values("day")
+        .annotate(discount=Sum("discount_amount"))
+    }
+    total_agg = non_cancelled.aggregate(
+        subtotal=Sum(F("items__price") * F("items__quantity")),
+    )
+    total_discount = non_cancelled.aggregate(discount=Sum("discount_amount"))["discount"] or 0
+    total_revenue = max((total_agg["subtotal"] or 0) - total_discount, 0)
+
     daily_revenue = []
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
-        day_orders = Order.objects.filter(created_at__date=day).exclude(status="cancelled")
-        day_total = sum(o.total for o in day_orders)
-        daily_revenue.append({"label": day.strftime("%a"), "date": day.strftime("%d %b"), "amount": float(day_total)})
+        day_total = max(float(subtotal_by_day.get(day, 0)) - float(discount_by_day.get(day, 0)), 0)
+        daily_revenue.append({"label": day.strftime("%a"), "date": day.strftime("%d %b"), "amount": day_total})
     max_daily = max([d["amount"] for d in daily_revenue] or [1]) or 1
     for d in daily_revenue:
         d["pct"] = round((d["amount"] / max_daily) * 100, 1) if max_daily else 0
     pending_sellers = SellerAccount.objects.filter(status="pending")
     active_sellers = SellerAccount.objects.filter(status="approved").count()
     inactive_sellers = SellerAccount.objects.filter(status__in=["rejected", "suspended"]).count()
-    recent_orders = Order.objects.order_by("-created_at")[:10]
+    recent_orders = Order.objects.prefetch_related("items").order_by("-created_at")[:10]
     approved_sellers = SellerAccount.objects.filter(status="approved")
     top_sellers = sorted(approved_sellers, key=lambda s: s.lifetime_sales, reverse=True)[:5]
 

@@ -130,6 +130,10 @@ class OrderAdmin(admin.ModelAdmin):
         "coupon_code", "discount_amount",
     )
     date_hierarchy = "created_at"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("items")
+
     inlines = [OrderItemInline]
     actions = ["mark_confirmed", "mark_shipped", "mark_delivered", "mark_cancelled", "export_orders_csv"]
 

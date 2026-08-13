@@ -17,6 +17,20 @@ def with_ratings(queryset):
         avg_rating=Avg("reviews__rating"),
         review_count=Count("reviews", distinct=True),
     )
+
+
+def get_seller_account_for_user(user):
+    """Returns the SellerAccount this user can act on behalf of - either
+    because they own it, or because an organization added them as a team
+    member. Used so seller dashboard/product/order views work the same way
+    for both the account owner and any team member."""
+    account = SellerAccount.objects.filter(user=user).first()
+    if account:
+        return account, "owner"
+    membership = user.organization_memberships.select_related("organization").first()
+    if membership:
+        return membership.organization, membership.role
+    return None, None
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -29,6 +43,7 @@ from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
+    OrganizationMember,
 )
 
 
@@ -796,9 +811,14 @@ def delete_address(request, pk):
 
 def store_page(request, seller_name):
     products = with_ratings(Product.objects.filter(seller_name=seller_name, approval_status="approved"))
+    seller_account = SellerAccount.objects.filter(
+        Q(business_name=seller_name) | Q(organization_name=seller_name),
+        status="approved",
+    ).first()
     return render(request, "bees/store.html", {
         "seller_name": seller_name,
         "products": products,
+        "seller_account": seller_account,
     })
 
 
@@ -953,7 +973,10 @@ def become_seller(request):
 
 @login_required
 def update_fulfillment_status(request, item_id):
-    item = get_object_or_404(OrderItem, pk=item_id, product__seller_account__user=request.user)
+    seller, role = get_seller_account_for_user(request.user)
+    if not seller:
+        return redirect("seller_dashboard")
+    item = get_object_or_404(OrderItem, pk=item_id, product__seller_account=seller)
     new_status = request.POST.get("fulfillment_status")
     if request.method == "POST" and new_status in dict(OrderItem.FULFILLMENT_CHOICES):
         item.fulfillment_status = new_status
@@ -964,7 +987,10 @@ def update_fulfillment_status(request, item_id):
 
 @login_required
 def seller_dashboard(request):
-    seller = get_object_or_404(SellerAccount, user=request.user)
+    seller, role = get_seller_account_for_user(request.user)
+    if not seller:
+        from django.http import Http404
+        raise Http404("No seller account found for this user.")
     products = Product.objects.filter(seller_account=seller)
 
     order_items_qs = OrderItem.objects.filter(product__seller_account=seller).select_related(
@@ -999,6 +1025,7 @@ def seller_dashboard(request):
 
     return render(request, "bees/seller_dashboard.html", {
         "seller": seller,
+        "role": role,
         "products": products,
         "order_items": order_items[:20],
         "total_sales": total_sales,
@@ -1014,7 +1041,10 @@ def seller_dashboard(request):
 
 @login_required
 def seller_add_product(request):
-    seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
+    seller, role = get_seller_account_for_user(request.user)
+    if not seller or seller.status != "approved":
+        from django.http import Http404
+        raise Http404("No approved seller account found for this user.")
     if request.method == "POST":
         image_url = request.POST.get("image_url", "").strip()
         uploaded = request.FILES.get("image_file")
@@ -1044,8 +1074,53 @@ def seller_add_product(request):
 
 
 @login_required
+def add_team_member(request):
+    seller, role = get_seller_account_for_user(request.user)
+    if not seller or role != "owner":
+        messages.error(request, "Only the account owner can manage team members.")
+        return redirect("seller_dashboard")
+    if seller.account_type != "organization":
+        messages.error(request, "Team members are only available for organization accounts.")
+        return redirect("seller_dashboard")
+    if request.method == "POST":
+        identifier = request.POST.get("username_or_email", "").strip()
+        member_role = request.POST.get("role", "staff")
+        user = User.objects.filter(Q(username=identifier) | Q(email=identifier)).first()
+        if not user:
+            messages.error(request, f"No user found with username/email '{identifier}'. They need to sign up on 19Bees first.")
+        elif user == seller.user:
+            messages.error(request, "That's already the account owner.")
+        elif OrganizationMember.objects.filter(organization=seller, user=user).exists():
+            messages.error(request, f"{user.username} is already on the team.")
+        else:
+            OrganizationMember.objects.create(organization=seller, user=user, role=member_role)
+            Notification.objects.create(
+                user=user,
+                message=f"You've been added to {seller.display_name}'s team on 19Bees. You can now help manage their products and orders.",
+                link="/seller/dashboard/",
+            )
+            messages.success(request, f"{user.username} added to the team.")
+    return redirect("seller_dashboard")
+
+
+@login_required
+def remove_team_member(request, member_id):
+    seller, role = get_seller_account_for_user(request.user)
+    if not seller or role != "owner":
+        messages.error(request, "Only the account owner can manage team members.")
+        return redirect("seller_dashboard")
+    member = get_object_or_404(OrganizationMember, pk=member_id, organization=seller)
+    member.delete()
+    messages.success(request, "Team member removed.")
+    return redirect("seller_dashboard")
+
+
+@login_required
 def seller_edit_product(request, pk):
-    seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
+    seller, role = get_seller_account_for_user(request.user)
+    if not seller or seller.status != "approved":
+        from django.http import Http404
+        raise Http404("No approved seller account found for this user.")
     product = get_object_or_404(Product, pk=pk, seller_account=seller)
     if request.method == "POST":
         product.name = request.POST.get("name")

@@ -6,6 +6,7 @@ from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
+    OrganizationMember,
 )
 
 
@@ -261,6 +262,13 @@ class SearchLogAdmin(admin.ModelAdmin):
     list_display = ("query", "count")
     search_fields = ("query",)
     ordering = ("-count",)
+
+
+@admin.register(OrganizationMember)
+class OrganizationMemberAdmin(admin.ModelAdmin):
+    list_display = ("user", "organization", "role", "added_at")
+    list_filter = ("role",)
+    search_fields = ("user__username", "organization__business_name", "organization__organization_name")
 
 
 @admin.register(SellerAccount)

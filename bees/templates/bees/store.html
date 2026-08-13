@@ -3,13 +3,32 @@
 {% block meta_description %}Shop all products from {{ seller_name }} on 19Bees. Trusted seller, cash on delivery available.{% endblock %}
 {% block og_title %}{{ seller_name }} - 19Bees{% endblock %}
 {% block extra_css %}
-    .store-header { margin: 20px 40px; background: linear-gradient(90deg,#000000,#000000); color: #fff; padding: 20px; }
-    .store-header h1 { font-size: 20px; }
+    .store-header { margin: 20px 40px; background: linear-gradient(90deg,#000000,#000000); color: #fff; padding: 20px; position: relative; overflow: hidden; }
+    .store-header.has-banner { padding: 0; }
+    .store-banner-img { width: 100%; height: 180px; object-fit: cover; display: block; opacity: 0.55; }
+    .store-header-content { padding: 20px; {% if seller_account.store_banner %}position: absolute; bottom: 0; left: 0; right: 0;{% endif %} }
+    .store-header h1 { font-size: 20px; display: flex; align-items: center; gap: 12px; }
+    .store-logo-img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #c9a24b; background: #fff; }
+    .store-badge { display: inline-block; background: #c9a24b; color: #0b0b0d; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; margin-left: 8px; letter-spacing: 0.3px; }
+    .store-description { font-size: 13px; margin-top: 8px; color: #ddd; max-width: 640px; }
+    .store-meta { font-size: 12px; margin-top: 6px; color: #aaa; }
 {% endblock %}
 {% block content %}
-    <div class="store-header">
-        <h1>{{ seller_name }}</h1>
-        <p style="font-size:13px;margin-top:6px;">{{ products.count }} products from this seller</p>
+    <div class="store-header {% if seller_account.store_banner %}has-banner{% endif %}">
+        {% if seller_account.store_banner %}
+        <img src="{{ seller_account.store_banner.url }}" alt="" class="store-banner-img">
+        {% endif %}
+        <div class="store-header-content">
+            <h1>
+                {% if seller_account.store_logo %}<img src="{{ seller_account.store_logo.url }}" alt="{{ seller_name }} logo" class="store-logo-img">{% endif %}
+                {{ seller_name }}
+                {% if seller_account.account_type == "organization" %}<span class="store-badge">Verified Organization</span>{% endif %}
+            </h1>
+            {% if seller_account.store_description %}
+            <p class="store-description">{{ seller_account.store_description }}</p>
+            {% endif %}
+            <p class="store-meta">{{ products.count }} products from this seller{% if seller_account.city %} &middot; {{ seller_account.city }}{% endif %}</p>
+        </div>
     </div>
     <div class="section">
         <div class="product-grid">

@@ -352,16 +352,15 @@ class SellerAccount(models.Model):
 
     @property
     def display_name(self):
-        return self.business_name or self.user.username
+        return self.business_name or self.organization_name or self.full_name or self.user.username
 
     @property
     def lifetime_sales(self):
         from django.db.models import Sum, F
-        items = OrderItem.objects.filter(product__seller_account=self)
-        total = 0
-        for i in items:
-            total += i.subtotal
-        return total
+        result = OrderItem.objects.filter(product__seller_account=self).aggregate(
+            total=Sum(F("price") * F("quantity"))
+        )
+        return result["total"] or 0
 
     @property
     def effective_commission_rate(self):
@@ -389,6 +388,26 @@ class SellerAccount(models.Model):
 
     def __str__(self):
         return f"{self.display_name} ({self.get_account_type_display()}, {self.status})"
+
+
+class OrganizationMember(models.Model):
+    """Lets an organization account grant additional team members access to
+    its seller dashboard, product management, and order fulfillment -
+    without sharing the main login."""
+    ROLE_CHOICES = [
+        ("admin", "Admin - full access, can manage team"),
+        ("staff", "Staff - manage products & orders only"),
+    ]
+    organization = models.ForeignKey(SellerAccount, related_name="team_members", on_delete=models.CASCADE)
+    user = models.ForeignKey("auth.User", related_name="organization_memberships", on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="staff")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("organization", "user")
+
+    def __str__(self):
+        return f"{self.user.username} @ {self.organization.display_name} ({self.role})"
 
 
 class SellerReview(models.Model):

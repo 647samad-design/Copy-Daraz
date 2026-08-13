@@ -38,6 +38,16 @@
     html[data-theme="dark"] .sd-bar-track { background: #2a2b33; }
     html[data-theme="dark"] .sd-bar-fill { background: #e8cf8a; }
     html[data-theme="dark"] .sd-bar-value, html[data-theme="dark"] .sd-bar-label { color: #ccc; }
+    .remove-member-btn { background: none; border: 1px solid #c0392b; color: #c0392b; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+    .remove-member-btn:hover { background: #c0392b; color: #fff; }
+    .add-member-form { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    .add-member-form input { flex: 1; min-width: 160px; padding: 8px 10px; border: 1px solid #ddd; font-size: 13px; }
+    .add-member-form select { padding: 8px 10px; border: 1px solid #ddd; font-size: 13px; }
+    .add-member-form button { background: #0b0b0d; color: #e8cf8a; border: 1px solid #c9a24b; padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; }
+    .add-member-form button:hover { background: #c9a24b; color: #0b0b0d; }
+    html[data-theme="dark"] .add-member-form input, html[data-theme="dark"] .add-member-form select { background: #2a2b33; color: #eee; border-color: #444; }
+    .sd-title { font-size: 20px; font-weight: 500; margin-bottom: 12px; }
+    .sd-role-tag { font-size: 12px; color: #888; font-weight: normal; }
 
     @media (max-width: 700px) {
         .sd-wrap { margin: 12px; }
@@ -48,6 +58,7 @@
 {% endblock %}
 {% block content %}
 <div class="sd-wrap">
+    <h1 class="sd-title">{{ seller.display_name }}{% if role == "staff" or role == "admin" %} <span class="sd-role-tag">(you're helping as {{ role }})</span>{% endif %}</h1>
     <div class="sd-status {{ seller.status }}">
         {% if seller.status == "pending" %}Your seller application is pending review. You'll be notified once approved.
         {% elif seller.status == "approved" %}You're an approved {{ seller.get_account_type_display|lower }} &middot; Base commission: {{ seller.commission_rate }}% &middot; Current rate (after volume discount): {{ seller.effective_commission_rate }}%
@@ -130,5 +141,35 @@
         <p style="font-size:13px;color:#888;">No sales yet.</p>
         {% endfor %}
     </div>
+
+    {% if seller.account_type == "organization" and role == "owner" %}
+    <div class="sd-section">
+        <h2>Team members</h2>
+        <p style="font-size:12px;color:#888;margin-bottom:12px;">
+            Add colleagues so they can help manage your products and orders without sharing your login.
+            They need a 19Bees account first &mdash; add them by their username or email.
+        </p>
+        {% for member in seller.team_members.all %}
+        <div class="sd-order-row">
+            <span>{{ member.user.username }} <span style="color:#888;">({{ member.get_role_display }})</span></span>
+            <form method="post" action="{% url 'remove_team_member' member.id %}" style="margin:0;">
+                {% csrf_token %}
+                <button type="submit" class="remove-member-btn" onclick="return confirm('Remove {{ member.user.username }} from the team?');">Remove</button>
+            </form>
+        </div>
+        {% empty %}
+        <p style="font-size:13px;color:#888;">No team members added yet.</p>
+        {% endfor %}
+        <form method="post" action="{% url 'add_team_member' %}" class="add-member-form">
+            {% csrf_token %}
+            <input type="text" name="username_or_email" placeholder="Username or email" required>
+            <select name="role">
+                <option value="staff">Staff (products &amp; orders)</option>
+                <option value="admin">Admin (full access)</option>
+            </select>
+            <button type="submit">Add to team</button>
+        </form>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

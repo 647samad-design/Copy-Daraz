@@ -738,18 +738,6 @@ def privacy_page(request):
 
 
 @login_required
-def cancel_order(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
-    if order.status in ("pending", "confirmed"):
-        order.status = "cancelled"
-        order.save(update_fields=["status"])
-        messages.success(request, f"Order #{order.id} has been cancelled.")
-    else:
-        messages.error(request, "This order can no longer be cancelled.")
-    return redirect("my_orders")
-
-
-@login_required
 def toggle_wishlist(request, pk):
     product = get_object_or_404(Product, pk=pk)
     item, created = Wishlist.objects.get_or_create(user=request.user, product=product)

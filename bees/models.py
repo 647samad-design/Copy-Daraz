@@ -31,19 +31,26 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     old_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     discount_percent = models.PositiveIntegerField(default=0)
-    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default="grocery")
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default="grocery", db_index=True)
     description = models.TextField(blank=True)
-    is_flash_sale = models.BooleanField(default=False)
+    is_flash_sale = models.BooleanField(default=False, db_index=True)
     stock = models.PositiveIntegerField(default=50)
-    seller_name = models.CharField(max_length=100, default="19Bees Mall")
+    seller_name = models.CharField(max_length=100, default="19Bees Mall", db_index=True)
     seller_account = models.ForeignKey("SellerAccount", related_name="products", on_delete=models.SET_NULL, null=True, blank=True)
     APPROVAL_CHOICES = [
         ("approved", "Approved"),
         ("pending", "Pending review"),
         ("rejected", "Rejected"),
     ]
-    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="approved")
-    created_at = models.DateTimeField(auto_now_add=True)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="approved", db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["approval_status", "category"]),
+            models.Index(fields=["approval_status", "is_flash_sale"]),
+            models.Index(fields=["stock"]),
+        ]
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -119,15 +126,21 @@ class Order(models.Model):
     city = models.CharField(max_length=100)
     phone = models.CharField(max_length=30)
     payment_method = models.CharField(max_length=30, default="cod")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
     coupon_code = models.CharField(max_length=30, blank=True)
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     tracking_number = models.CharField(max_length=60, blank=True)
     courier_name = models.CharField(max_length=60, blank=True)
     estimated_delivery = models.DateField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     CANCELLABLE_STATUSES = ("pending", "confirmed")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["user", "-created_at"]),
+        ]
 
     @property
     def is_cancellable(self):
@@ -272,6 +285,7 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "is_read"])]
 
     def __str__(self):
         return self.message
@@ -301,8 +315,8 @@ class SellerAccount(models.Model):
     ]
 
     user = models.OneToOneField("auth.User", related_name="seller_account", on_delete=models.CASCADE)
-    account_type = models.CharField(max_length=20, choices=ACCOUNT_TYPE_CHOICES, default="individual")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    account_type = models.CharField(max_length=20, choices=ACCOUNT_TYPE_CHOICES, default="individual", db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10)
     total_paid_out = models.DecimalField(
         max_digits=12, decimal_places=2, default=0,
@@ -440,7 +454,7 @@ class ReturnRequest(models.Model):
     user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
     reason = models.TextField()
     refund_method = models.CharField(max_length=20, choices=REFUND_METHOD_CHOICES, default="original_payment")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="requested")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="requested", db_index=True)
     admin_note = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -39,6 +39,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 import random
 import string
+from .ratelimit import ratelimit
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
@@ -183,6 +184,8 @@ def all_products(request):
     })
 
 
+@ratelimit("signup", rate_limit=5, window_seconds=300, redirect_to="signup",
+           message="Too many signup attempts from this connection. Please wait a few minutes and try again.")
 def signup_view(request):
     if request.user.is_authenticated:
         return redirect("home")
@@ -311,6 +314,8 @@ def resend_verification(request):
     return redirect("profile")
 
 
+@ratelimit("login", rate_limit=8, window_seconds=300, redirect_to="login",
+           message="Too many login attempts from this connection. Please wait a few minutes and try again.")
 def login_view(request):
     next_url = request.POST.get("next") or request.GET.get("next") or "home"
     if request.user.is_authenticated:
@@ -504,6 +509,8 @@ def cart_view(request):
 
 
 @login_required
+@ratelimit("checkout", rate_limit=10, window_seconds=300, redirect_to="cart",
+           message="Too many checkout attempts. Please wait a few minutes and try again.")
 def checkout_view(request):
     items, total, count = _get_cart_items(request)
     if not items:

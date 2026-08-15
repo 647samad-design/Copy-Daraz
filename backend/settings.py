@@ -179,3 +179,22 @@ if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     DEFAULT_FROM_EMAIL = f'19Bees <{EMAIL_HOST_USER}>'
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Error monitoring (Sentry). Only activates if SENTRY_DSN is set as an
+# environment variable - without it, this is a no-op, so nothing breaks
+# for local development or before you've created a Sentry project.
+# Get a free DSN at https://sentry.io -> Create Project -> Django.
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '')
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration()],
+        # Sends 100% of errors, and samples 10% of requests for performance
+        # tracing (lower this further if the Sentry free-tier quota fills up).
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+        environment=os.environ.get('SENTRY_ENVIRONMENT', 'production' if not DEBUG else 'development'),
+    )

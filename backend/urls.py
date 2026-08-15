@@ -7,6 +7,7 @@ from django.contrib.sitemaps.views import sitemap
 from django.views.generic import TemplateView
 from bees import views
 from bees.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
+from bees.ratelimit import ratelimit
 
 sitemaps = {
     "products": ProductSitemap,
@@ -28,13 +29,14 @@ urlpatterns = [
     path('logout/', views.logout_view, name='logout'),
     path('auth/google/', views.google_auth, name='google_auth'),
 
-    path('password-reset/', auth_views.PasswordResetView.as_view(
+    path('password-reset/', ratelimit("password_reset", rate_limit=5, window_seconds=300,
+        redirect_to="password_reset", message="Too many reset requests. Please wait a few minutes and try again.")(auth_views.PasswordResetView.as_view(
         template_name='bees/auth/password_reset_form.html',
         email_template_name='bees/auth/password_reset_email.html',
         html_email_template_name='bees/emails/password_reset.html',
         subject_template_name='bees/auth/password_reset_subject.txt',
         success_url='/password-reset/done/',
-    ), name='password_reset'),
+    )), name='password_reset'),
     path('password-reset/done/', auth_views.PasswordResetDoneView.as_view(
         template_name='bees/auth/password_reset_done.html',
     ), name='password_reset_done'),

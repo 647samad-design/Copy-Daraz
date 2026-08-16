@@ -74,7 +74,7 @@ urlpatterns = [
     path('newsletter/subscribe/', views.newsletter_subscribe, name='newsletter_subscribe'),
     path('product/<int:pk>/ask/', views.ask_question, name='ask_question'),
 
-    path('verify-email/<uidb64>/<token>/', views.verify_email, name='verify_email'),
+    path('verify-email/', views.verify_email_code, name='verify_email'),
     path('resend-verification/', views.resend_verification, name='resend_verification'),
     path('order/<int:order_id>/invoice/', views.invoice_pdf, name='invoice_pdf'),
     path('notifications/', views.notifications_list, name='notifications_list'),

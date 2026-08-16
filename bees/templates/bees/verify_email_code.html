@@ -1,0 +1,43 @@
+{% extends "bees/base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .auth-wrap { display: flex; justify-content: center; margin: 40px 20px; }
+    .auth-box { width: min(380px, 100%); background: #fff; border: 1px solid #eee; padding: 30px; text-align: center; }
+    .auth-box h1 { font-size: 20px; font-weight: 500; margin-bottom: 10px; }
+    .auth-box p.sub { font-size: 13px; color: #666; margin-bottom: 20px; }
+    .code-input {
+        width: 100%; padding: 14px; margin-bottom: 14px; border: 1px solid #ddd; font-size: 22px;
+        text-align: center; letter-spacing: 8px; font-weight: 600; box-sizing: border-box;
+    }
+    .auth-box button.submit { width: 100%; padding: 11px; background: #000000; color: #fff; border: none; font-size: 15px; cursor: pointer; }
+    .msg-error { background: #fdeceb; color: #c0392b; padding: 8px 10px; font-size: 13px; margin-bottom: 12px; }
+    .msg-success { background: #e8f8f0; color: #1e8449; padding: 8px 10px; font-size: 13px; margin-bottom: 12px; }
+    .msg-info { background: #eef2ff; color: #3730a3; padding: 8px 10px; font-size: 13px; margin-bottom: 12px; }
+    .resend-line { font-size: 12px; margin-top: 16px; color: #666; }
+    .resend-line a { color: #000000; }
+    html[data-theme="dark"] .auth-box { background: #1e1f26; border-color: #333; }
+    html[data-theme="dark"] .code-input { background: #2a2b33; color: #eee; border-color: #444; }
+    html[data-theme="dark"] .auth-box p.sub, html[data-theme="dark"] .resend-line { color: #aaa; }
+    html[data-theme="dark"] .resend-line a { color: #fff; }
+{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+    <div class="auth-box">
+        <h1>Verify your email</h1>
+        <p class="sub">We sent a 6-digit code to {{ request.user.email }}. Enter it below &mdash; it's valid for 15 minutes.</p>
+
+        {% for message in messages %}
+        <div class="msg-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+
+        <form method="post">
+            {% csrf_token %}
+            <input type="text" name="code" class="code-input" placeholder="000000" maxlength="6"
+                   inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" autofocus required>
+            <button type="submit" class="submit">Verify</button>
+        </form>
+
+        <p class="resend-line">Didn't get a code? <a href="{% url 'resend_verification' %}">Send a new one</a></p>
+    </div>
+</div>
+{% endblock %}

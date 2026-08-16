@@ -34,9 +34,6 @@ def get_seller_account_for_user(user):
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.utils.encoding import force_bytes, force_str
 import random
 import string
 from .ratelimit import ratelimit
@@ -272,14 +269,15 @@ def signup_view(request):
 
 
 def _send_verification_email(request, user):
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = default_token_generator.make_token(user)
-    scheme = "https" if request.is_secure() else "http"
-    link = f"{scheme}://{request.get_host()}/verify-email/{uid}/{token}/"
+    import random
+    from django.core.cache import cache
+
+    code = f"{random.randint(0, 999999):06d}"
+    cache.set(f"email_verify_code:{user.id}", code, timeout=900)  # valid for 15 minutes
     try:
-        html_body = render_to_string("bees/emails/verify_email.html", {"user": user, "link": link})
+        html_body = render_to_string("bees/emails/verify_email.html", {"user": user, "code": code})
         email = EmailMultiAlternatives(
-            "Verify your 19Bees email",
+            "Your 19Bees verification code",
             strip_tags(html_body),
             None,
             [user.email],
@@ -290,27 +288,38 @@ def _send_verification_email(request, user):
         pass
 
 
-def verify_email(request, uidb64, token):
-    try:
-        uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid)
-    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-        user = None
+@login_required
+def verify_email_code(request):
+    from django.core.cache import cache
 
-    if user is not None and default_token_generator.check_token(user, token):
-        profile, _ = Profile.objects.get_or_create(user=user)
-        profile.email_verified = True
-        profile.save()
-        messages.success(request, "Your email has been verified.")
-    else:
-        messages.error(request, "This verification link is invalid or has expired.")
-    return redirect("profile" if request.user.is_authenticated else "login")
+    if request.user.profile.email_verified:
+        messages.info(request, "Your email is already verified.")
+        return redirect("profile")
+
+    if request.method == "POST":
+        entered = request.POST.get("code", "").strip()
+        stored = cache.get(f"email_verify_code:{request.user.id}")
+        if not stored:
+            messages.error(request, "That code has expired. Please request a new one.")
+        elif entered == stored:
+            profile, _ = Profile.objects.get_or_create(user=request.user)
+            profile.email_verified = True
+            profile.save(update_fields=["email_verified"])
+            cache.delete(f"email_verify_code:{request.user.id}")
+            messages.success(request, "Your email has been verified.")
+            return redirect("profile")
+        else:
+            messages.error(request, "That code isn't right. Please check your email and try again.")
+
+    return render(request, "bees/verify_email_code.html")
 
 
 @login_required
+@ratelimit("resend_verification", rate_limit=3, window_seconds=300, redirect_to="profile",
+           message="Please wait a few minutes before requesting another code.", methods=("GET", "POST"))
 def resend_verification(request):
     _send_verification_email(request, request.user)
-    messages.success(request, "Verification email sent.")
+    messages.success(request, "A verification code has been sent to your email.")
     return redirect("profile")
 
 

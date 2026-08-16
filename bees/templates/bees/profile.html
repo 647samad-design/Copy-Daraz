@@ -46,7 +46,11 @@
         {% else %}
         <div style="background:#fdeceb;color:#c0392b;padding:8px 12px;font-size:12px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
             <span>Email not verified</span>
-            <a href="{% url 'resend_verification' %}" style="color:#c0392b;">Resend link</a>
+            <span>
+                <a href="{% url 'resend_verification' %}" style="color:#c0392b;">Send code</a>
+                &middot;
+                <a href="{% url 'verify_email' %}" style="color:#c0392b;">Enter code</a>
+            </span>
         </div>
         {% endif %}
         {% endif %}

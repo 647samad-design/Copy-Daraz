@@ -275,3 +275,102 @@ class CartAndCheckoutTests(TestCase):
         self.assertEqual(response.status_code, 404)
         order.refresh_from_db()
         self.assertEqual(order.status, "pending")
+
+
+class CouponValidationTests(TestCase):
+    """Coupons used to have no expiry, no usage limit, no per-user limit,
+    and no minimum order check - any active code worked forever, for
+    anyone, any number of times."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("shopper1", "sh1@example.com", "pass12345")
+        self.other_user = User.objects.create_user("shopper2", "sh2@example.com", "pass12345")
+        self.product = make_product(price=Decimal("500.00"))
+
+    def _make_order(self, user, coupon_code, status="confirmed"):
+        order = Order.objects.create(
+            user=user, full_name="Buyer", address="St", city="Karachi",
+            phone="0300", payment_method="cod", coupon_code=coupon_code, status=status,
+        )
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name,
+                                  price=Decimal("500.00"), quantity=1)
+        return order
+
+    def test_inactive_coupon_is_invalid(self):
+        from .models import Coupon
+        coupon = Coupon.objects.create(code="OFF10", percent_off=10, active=False)
+        is_valid, error = coupon.is_valid_for(self.user, Decimal("1000"))
+        self.assertFalse(is_valid)
+        self.assertIn("no longer active", error)
+
+    def test_expired_coupon_is_invalid(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import Coupon
+        coupon = Coupon.objects.create(
+            code="OLD10", percent_off=10, expiry_date=timezone.localdate() - timedelta(days=1),
+        )
+        is_valid, error = coupon.is_valid_for(self.user, Decimal("1000"))
+        self.assertFalse(is_valid)
+        self.assertIn("expired", error)
+
+    def test_future_expiry_is_still_valid(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import Coupon
+        coupon = Coupon.objects.create(
+            code="NEW10", percent_off=10, expiry_date=timezone.localdate() + timedelta(days=1),
+        )
+        is_valid, error = coupon.is_valid_for(self.user, Decimal("1000"))
+        self.assertTrue(is_valid)
+
+    def test_minimum_order_value_enforced(self):
+        from .models import Coupon
+        coupon = Coupon.objects.create(code="BIG50", percent_off=50, min_order_value=Decimal("2000"))
+        is_valid, error = coupon.is_valid_for(self.user, Decimal("500"))
+        self.assertFalse(is_valid)
+        self.assertIn("minimum order", error)
+        is_valid, error = coupon.is_valid_for(self.user, Decimal("2500"))
+        self.assertTrue(is_valid)
+
+    def test_global_usage_limit_enforced(self):
+        from .models import Coupon
+        coupon = Coupon.objects.create(code="LIMITED", percent_off=10, usage_limit=1)
+        self._make_order(self.user, "LIMITED")
+        # Already used once globally, limit is 1 - a different user should now be blocked too.
+        is_valid, error = coupon.is_valid_for(self.other_user, Decimal("1000"))
+        self.assertFalse(is_valid)
+        self.assertIn("usage limit", error)
+
+    def test_cancelled_orders_dont_count_against_usage_limit(self):
+        from .models import Coupon
+        coupon = Coupon.objects.create(code="LIMITED2", percent_off=10, usage_limit=1)
+        self._make_order(self.user, "LIMITED2", status="cancelled")
+        is_valid, error = coupon.is_valid_for(self.other_user, Decimal("1000"))
+        self.assertTrue(is_valid)
+
+    def test_per_user_limit_enforced(self):
+        from .models import Coupon
+        coupon = Coupon.objects.create(code="ONEUSE", percent_off=10, per_user_limit=1)
+        self._make_order(self.user, "ONEUSE")
+        # This user already used it once - should now be blocked for them...
+        is_valid, error = coupon.is_valid_for(self.user, Decimal("1000"))
+        self.assertFalse(is_valid)
+        self.assertIn("maximum number of times", error)
+        # ...but a different user should still be able to use it.
+        is_valid, error = coupon.is_valid_for(self.other_user, Decimal("1000"))
+        self.assertTrue(is_valid)
+
+    def test_apply_coupon_view_rejects_invalid_code(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
+        response = self.client.post(reverse("apply_coupon"), {"coupon_code": "DOESNOTEXIST"}, follow=True)
+        self.assertContains(response, "Invalid coupon code")
+
+    def test_apply_coupon_view_accepts_valid_code(self):
+        from .models import Coupon
+        Coupon.objects.create(code="WORKS10", percent_off=10)
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
+        response = self.client.post(reverse("apply_coupon"), {"coupon_code": "WORKS10"}, follow=True)
+        self.assertContains(response, "Coupon applied")

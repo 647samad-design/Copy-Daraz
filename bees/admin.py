@@ -190,9 +190,18 @@ class WishlistAdmin(admin.ModelAdmin):
 
 @admin.register(Coupon)
 class CouponAdmin(admin.ModelAdmin):
-    list_display = ("code", "percent_off", "active")
+    list_display = (
+        "code", "percent_off", "active", "expiry_date", "min_order_value",
+        "usage_display", "per_user_limit",
+    )
     list_editable = ("active",)
     search_fields = ("code",)
+    fields = ("code", "percent_off", "active", "expiry_date", "usage_limit", "per_user_limit", "min_order_value")
+
+    def usage_display(self, obj):
+        limit = obj.usage_limit if obj.usage_limit is not None else "\u221e"
+        return f"{obj.times_used()} / {limit}"
+    usage_display.short_description = "Used"
 
 
 @admin.register(Profile)

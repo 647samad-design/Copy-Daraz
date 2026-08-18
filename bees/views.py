@@ -530,9 +530,15 @@ def checkout_view(request):
     discount_amount = 0
     coupon_code = request.session.get("coupon_code", "")
     if coupon_code:
-        coupon = Coupon.objects.filter(code__iexact=coupon_code, active=True).first()
-        if coupon:
-            discount_amount = round(total * coupon.percent_off / 100, 2)
+        candidate = Coupon.objects.filter(code__iexact=coupon_code).first()
+        if candidate:
+            is_valid, error = candidate.is_valid_for(request.user, total)
+            if is_valid:
+                coupon = candidate
+                discount_amount = round(total * coupon.percent_off / 100, 2)
+            elif request.method == "POST":
+                messages.error(request, error)
+                return redirect("cart")
 
     if request.method == "POST":
         for item in items:
@@ -604,10 +610,17 @@ def apply_coupon(request):
     code = request.POST.get("coupon_code", "").strip()
     request.session["coupon_code"] = code
     request.session.modified = True
-    if code and not Coupon.objects.filter(code__iexact=code, active=True).exists():
-        messages.error(request, "Invalid or expired coupon code.")
-    else:
-        messages.success(request, "Coupon applied.")
+    if code:
+        coupon = Coupon.objects.filter(code__iexact=code).first()
+        if not coupon:
+            messages.error(request, "Invalid coupon code.")
+        else:
+            _, total, _ = _get_cart_items(request)
+            is_valid, error = coupon.is_valid_for(request.user, total)
+            if not is_valid:
+                messages.error(request, error)
+            else:
+                messages.success(request, f"Coupon applied: {coupon.percent_off}% off.")
     return redirect("checkout")
 
 

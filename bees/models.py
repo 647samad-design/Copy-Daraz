@@ -217,9 +217,51 @@ class Coupon(models.Model):
     code = models.CharField(max_length=30, unique=True)
     percent_off = models.PositiveIntegerField(default=10)
     active = models.BooleanField(default=True)
+    expiry_date = models.DateField(
+        null=True, blank=True,
+        help_text="Coupon stops working after this date. Leave blank for no expiry.",
+    )
+    usage_limit = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Maximum number of times this code can be used in total, across all customers. Leave blank for unlimited.",
+    )
+    per_user_limit = models.PositiveIntegerField(
+        default=1,
+        help_text="Maximum number of times a single customer can use this code.",
+    )
+    min_order_value = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Cart total must be at least this much for the code to apply. 0 = no minimum.",
+    )
 
     def __str__(self):
         return f"{self.code} (-{self.percent_off}%)"
+
+    def times_used(self):
+        return Order.objects.filter(coupon_code__iexact=self.code).exclude(status="cancelled").count()
+
+    def times_used_by(self, user):
+        if not user or not user.is_authenticated:
+            return 0
+        return Order.objects.filter(
+            user=user, coupon_code__iexact=self.code
+        ).exclude(status="cancelled").count()
+
+    def is_valid_for(self, user, order_total):
+        """Returns (is_valid, error_message). error_message is None if valid."""
+        from django.utils import timezone
+
+        if not self.active:
+            return False, "This coupon is no longer active."
+        if self.expiry_date and timezone.localdate() > self.expiry_date:
+            return False, "This coupon has expired."
+        if order_total < self.min_order_value:
+            return False, f"This coupon needs a minimum order of Rs.{self.min_order_value}."
+        if self.usage_limit is not None and self.times_used() >= self.usage_limit:
+            return False, "This coupon has reached its usage limit."
+        if self.times_used_by(user) >= self.per_user_limit:
+            return False, "You've already used this coupon the maximum number of times."
+        return True, None
 
 
 class ProductImage(models.Model):

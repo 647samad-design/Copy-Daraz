@@ -34,8 +34,12 @@
     }
     </script>
     {% endblock %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', Arial, Helvetica, sans-serif; }
+        h1, h2, h3, .logo, .section-header h2 { font-family: 'Poppins', 'Inter', Arial, sans-serif; }
         body { background: #F3F4F6; color: #111827; transition: background 0.2s ease, color 0.2s ease; }
 
         html[data-theme="dark"] body { background: #14151a; color: #ddd; }
@@ -353,6 +357,47 @@
             .trust-strip { gap: 12px; }
             .trust-item { font-size: 11px; }
         }
+
+        /* ============ Polish layer: refined spacing, corners & depth (non-destructive overrides) ============ */
+        body { letter-spacing: 0.1px; line-height: 1.5; }
+
+        .section {
+            border-radius: 10px; border-color: #ececec;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            padding: 22px 24px;
+        }
+        html[data-theme="dark"] .section { box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+
+        .section-header h2 { font-weight: 600; letter-spacing: 0.2px; }
+
+        .product-card { border-radius: 10px; padding: 14px; }
+        .product-card .img-wrap { border-radius: 8px; }
+        .product-card:hover { box-shadow: 0 10px 24px rgba(0,0,0,0.09); }
+        .product-card .price { letter-spacing: 0.2px; }
+        .product-card .discount { border-radius: 5px; }
+
+        .category-box { border-radius: 10px; border: 1px solid #eee; margin: 4px; transition: box-shadow 0.2s ease, transform 0.2s ease; }
+        .category-box:hover { box-shadow: 0 8px 18px rgba(0,0,0,0.08); transform: translateY(-2px); }
+        .category-grid { border: none; gap: 10px; }
+        html[data-theme="dark"] .category-box { border-color: #2c2d34; }
+
+        .search-input { border-radius: 6px 0 0 6px; }
+        .search-btn { border-radius: 0 6px 6px 0; transition: background 0.15s ease; }
+        .search-btn:hover { background: var(--gold-soft, #e8cf8a); }
+
+        .cart-badge { box-shadow: 0 0 0 2px #000; }
+        .app-modal, .chat-window { border-radius: 12px; overflow: hidden; }
+        .lang-menu, .search-suggestions { border-radius: 8px; overflow: hidden; }
+
+        .pagination a, .pagination span { border-radius: 6px; transition: all 0.15s ease; }
+        .pagination a:hover { border-color: var(--gold, #c9a24b); color: var(--gold, #c9a24b); }
+        .pagination .current { border-radius: 6px; }
+
+        .coupon-box button, .cancel-btn, .chat-input-row button { border-radius: 6px; }
+        .coupon-box input { border-radius: 6px 0 0 6px; }
+        .coupon-box button { border-radius: 0 6px 6px 0; }
+
+        .site-banner { letter-spacing: 0.3px; }
     </style>
 </head>
 <body id="top">

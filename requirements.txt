@@ -1,4 +1,5 @@
 django>=6.0
+whitenoise
 google-auth
 python-dotenv
 reportlab

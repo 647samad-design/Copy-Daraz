@@ -69,3 +69,12 @@ each time it changes.
   Codespaces preview URL) under **both** "Authorized JavaScript origins" and "Authorized redirect URIs",
   otherwise Google will block the sign-in with an origin mismatch error. The `.env` file is not committed
   to the repo (it's in `.gitignore`) — never commit real credentials.
+- Product filters — price range, minimum rating, seller, and in-stock, available on all-products,
+  category, and search pages. All filters combine with sort and stay applied across pagination.
+- Live chat support widget — real conversations, not a demo. Backed by `ChatThread`/`ChatMessage`
+  models; each logged-in user (or guest session) gets a persistent thread. Staff can view and reply
+  from `/admin/` under "Chat threads". Includes basic keyword auto-replies for common queries
+  (order tracking, returns) while a human hasn't responded yet.
+- Production security hardening auto-enables once you set `DEBUG=False` on your host: forces HTTPS,
+  secure cookies, HSTS, and clickjacking protection — no extra config needed beyond `DEBUG=False`.
+- Custom branded 404 and 500 error pages instead of Django's default error screens.

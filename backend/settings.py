@@ -44,6 +44,22 @@ DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 # on your production host to lock this down.
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
+# Production hardening - automatically kicks in once you set DEBUG=False on
+# your host. Locally (DEBUG=True) these stay off so http://localhost keeps
+# working without SSL. See Django's deployment checklist for details:
+# https://docs.djangoproject.com/en/stable/howto/deployment/checklist/
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SESSION_COOKIE_HTTPONLY = True
+    X_FRAME_OPTIONS = 'DENY'
+
+
 # Codespaces (and similar cloud dev environments) serve the site over HTTPS through
 # a proxy, so Django needs to trust that forwarded scheme and the dynamic preview
 # domain, otherwise CSRF checks fail with "Origin checking failed".

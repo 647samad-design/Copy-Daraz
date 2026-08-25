@@ -374,3 +374,67 @@ class CouponValidationTests(TestCase):
         self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
         response = self.client.post(reverse("apply_coupon"), {"coupon_code": "WORKS10"}, follow=True)
         self.assertContains(response, "Coupon applied")
+
+
+class ProductFilterTests(TestCase):
+    def setUp(self):
+        make_product(name="Cheap Item", price=Decimal("100.00"), stock=5, seller_name="SellerA")
+        make_product(name="Mid Item", price=Decimal("500.00"), stock=0, seller_name="SellerB")
+        make_product(name="Expensive Item", price=Decimal("2000.00"), stock=10, seller_name="SellerA")
+
+    def test_price_range_filter(self):
+        response = self.client.get(reverse("all_products"), {"min_price": "200", "max_price": "1000"})
+        self.assertContains(response, "Mid Item")
+        self.assertNotContains(response, "Cheap Item")
+        self.assertNotContains(response, "Expensive Item")
+
+    def test_in_stock_filter_excludes_zero_stock(self):
+        response = self.client.get(reverse("all_products"), {"in_stock": "1"})
+        self.assertNotContains(response, "Mid Item")
+        self.assertContains(response, "Cheap Item")
+
+    def test_seller_filter(self):
+        response = self.client.get(reverse("all_products"), {"seller": "SellerB"})
+        self.assertContains(response, "Mid Item")
+        self.assertNotContains(response, "Cheap Item")
+
+    def test_filters_combine_with_category_page(self):
+        response = self.client.get(reverse("category_products", args=["skincare"]), {"min_price": "1000"})
+        self.assertContains(response, "Expensive Item")
+        self.assertNotContains(response, "Cheap Item")
+
+
+class ChatTests(TestCase):
+    def test_guest_can_send_and_read_chat_messages(self):
+        response = self.client.post(reverse("chat_send"), {"message": "Hello, is anyone there?"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("reply", data)
+        self.assertTrue(data["reply"]["message"])
+
+        history = self.client.get(reverse("chat_messages"))
+        messages = history.json()["messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["sender"], "user")
+        self.assertEqual(messages[0]["message"], "Hello, is anyone there?")
+        self.assertEqual(messages[1]["sender"], "support")
+
+    def test_empty_chat_message_rejected(self):
+        response = self.client.post(reverse("chat_send"), {"message": "   "})
+        self.assertEqual(response.status_code, 400)
+
+    def test_order_keyword_triggers_relevant_auto_reply(self):
+        response = self.client.post(reverse("chat_send"), {"message": "where is my order tracking"})
+        self.assertIn("My Orders", response.json()["reply"]["message"])
+
+    def test_logged_in_user_thread_persists_across_requests(self):
+        user = User.objects.create_user(username="chatuser", password="pass12345")
+        self.client.force_login(user)
+        self.client.post(reverse("chat_send"), {"message": "First message"})
+        self.client.post(reverse("chat_send"), {"message": "Second message"})
+
+        from .models import ChatThread
+        self.assertEqual(ChatThread.objects.filter(user=user).count(), 1)
+        history = self.client.get(reverse("chat_messages")).json()["messages"]
+        user_messages = [m for m in history if m["sender"] == "user"]
+        self.assertEqual(len(user_messages), 2)

@@ -6,7 +6,7 @@ from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
-    OrganizationMember,
+    OrganizationMember, ChatThread, ChatMessage,
 )
 
 
@@ -453,6 +453,20 @@ class AuditLogAdmin(admin.ModelAdmin):
     list_filter = ("created_at",)
     search_fields = ("action", "user__username")
     date_hierarchy = "created_at"
+
+
+class ChatMessageInline(admin.TabularInline):
+    model = ChatMessage
+    extra = 1
+    fields = ("sender", "message", "created_at", "is_read")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(ChatThread)
+class ChatThreadAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "session_key", "is_resolved", "created_at")
+    list_filter = ("is_resolved",)
+    inlines = [ChatMessageInline]
 
 
 # ---- Custom admin dashboard: live summary cards on the /admin/ home page ----

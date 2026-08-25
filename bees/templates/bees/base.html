@@ -398,6 +398,26 @@
         .coupon-box button { border-radius: 0 6px 6px 0; }
 
         .site-banner { letter-spacing: 0.3px; }
+
+        /* ============ Filters sidebar ============ */
+        .shop-layout { display: flex; gap: 20px; align-items: flex-start; }
+        .filters-sidebar { width: 220px; flex-shrink: 0; background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 16px; position: sticky; top: 100px; }
+        html[data-theme="dark"] .filters-sidebar { background: #17181d; border-color: #2c2d34; }
+        .shop-main { flex: 1; min-width: 0; }
+        .filter-group { margin-bottom: 16px; }
+        .filter-group h4 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .filter-group select, .filter-group input[type="number"] { width: 100%; padding: 7px 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; background: #fff; }
+        html[data-theme="dark"] .filter-group select, html[data-theme="dark"] .filter-group input[type="number"] { background: #0f1013; border-color: #2c2d34; color: #eee; }
+        .filter-price-row { display: flex; align-items: center; gap: 6px; }
+        .filter-price-row input { width: 0; flex: 1; }
+        .filter-checkbox label { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+        .filter-apply-btn { width: 100%; padding: 9px; background: #000; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500; }
+        .filter-apply-btn:hover { background: var(--gold, #c9a24b); }
+        .filter-clear-link { display: block; text-align: center; margin-top: 10px; font-size: 12px; color: #777; text-decoration: underline; }
+        @media (max-width: 900px) {
+            .shop-layout { flex-direction: column; }
+            .filters-sidebar { width: 100%; position: static; }
+        }
     </style>
 </head>
 <body id="top">
@@ -790,6 +810,29 @@
         });
 
         // Fake live chat bubble
+        let chatLoaded = false;
+        function loadChatHistory() {
+            if (chatLoaded) return;
+            fetch('/api/chat/messages/')
+                .then(r => r.json())
+                .then(data => {
+                    const body = document.getElementById('chat-body');
+                    (data.messages || []).forEach(m => {
+                        const el = document.createElement('div');
+                        el.className = 'chat-msg';
+                        if (m.sender === 'user') el.style.background = '#f5f5f5';
+                        el.textContent = m.message;
+                        body.appendChild(el);
+                    });
+                    body.scrollTop = body.scrollHeight;
+                    chatLoaded = true;
+                })
+                .catch(() => {});
+        }
+        function getCsrfToken() {
+            const match = document.cookie.match(/csrftoken=([^;]+)/);
+            return match ? match[1] : '';
+        }
         function sendChatMsg() {
             const input = document.getElementById('chat-input');
             const body = document.getElementById('chat-body');
@@ -802,13 +845,26 @@
             body.appendChild(userMsg);
             input.value = '';
             body.scrollTop = body.scrollHeight;
-            setTimeout(() => {
-                const reply = document.createElement('div');
-                reply.className = 'chat-msg';
-                reply.textContent = "Thanks for your message! Our support team typically replies within a few hours.";
-                body.appendChild(reply);
-                body.scrollTop = body.scrollHeight;
-            }, 700);
+
+            fetch('/api/chat/send/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCsrfToken(),
+                },
+                body: 'message=' + encodeURIComponent(text),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.reply) {
+                        const reply = document.createElement('div');
+                        reply.className = 'chat-msg';
+                        reply.textContent = data.reply.message;
+                        body.appendChild(reply);
+                        body.scrollTop = body.scrollHeight;
+                    }
+                })
+                .catch(() => {});
         }
         document.addEventListener('DOMContentLoaded', function () {
             const chatInput = document.getElementById('chat-input');
@@ -816,6 +872,10 @@
                 chatInput.addEventListener('keydown', function (e) {
                     if (e.key === 'Enter') sendChatMsg();
                 });
+            }
+            const chatBubble = document.querySelector('.chat-bubble');
+            if (chatBubble) {
+                chatBubble.addEventListener('click', loadChatHistory);
             }
         });
     </script>

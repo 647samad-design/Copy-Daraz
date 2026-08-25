@@ -41,7 +41,7 @@ from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
-    OrganizationMember,
+    OrganizationMember, ChatThread, ChatMessage,
 )
 
 
@@ -55,6 +55,50 @@ def _apply_sort(qs, sort):
     if sort == "rating":
         return sorted(qs, key=lambda p: p.average_rating, reverse=True)
     return qs.order_by("-id")
+
+
+def _apply_filters(qs, request):
+    """Applies price range, minimum rating, seller and in-stock filters
+    from GET params, shared across all_products/category_products/search."""
+    min_price = request.GET.get("min_price")
+    max_price = request.GET.get("max_price")
+    min_rating = request.GET.get("min_rating")
+    seller = request.GET.get("seller")
+    in_stock = request.GET.get("in_stock")
+
+    if min_price:
+        try:
+            qs = qs.filter(price__gte=float(min_price))
+        except ValueError:
+            pass
+    if max_price:
+        try:
+            qs = qs.filter(price__lte=float(max_price))
+        except ValueError:
+            pass
+    if seller:
+        qs = qs.filter(seller_name=seller)
+    if in_stock:
+        qs = qs.filter(stock__gt=0)
+    if min_rating:
+        try:
+            qs = qs.filter(avg_rating__gte=float(min_rating))
+        except ValueError:
+            pass
+    return qs
+
+
+def _filter_context(request, base_qs):
+    """Sellers list for the filter sidebar, and the current filter values
+    so the form and pagination links can stay populated across requests."""
+    return {
+        "sellers": base_qs.order_by("seller_name").values_list("seller_name", flat=True).distinct(),
+        "f_min_price": request.GET.get("min_price", ""),
+        "f_max_price": request.GET.get("max_price", ""),
+        "f_min_rating": request.GET.get("min_rating", ""),
+        "f_seller": request.GET.get("seller", ""),
+        "f_in_stock": request.GET.get("in_stock", ""),
+    }
 
 CATEGORY_IMAGE_IDS = {
     "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
@@ -135,19 +179,23 @@ def product_detail(request, pk):
 
 
 def category_products(request, category):
-    products = with_ratings(Product.objects.filter(category=category, approval_status="approved"))
+    base_qs = Product.objects.filter(category=category, approval_status="approved")
+    products = with_ratings(base_qs)
+    products = _apply_filters(products, request)
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
     paginator = Paginator(products, 12)
     page_obj = paginator.get_page(request.GET.get("page"))
     label = dict(Product.CATEGORY_CHOICES).get(category, category)
-    return render(request, "bees/category.html", {
+    context = {
         "products": page_obj,
         "page_obj": page_obj,
         "category": category,
         "category_label": label,
         "current_sort": sort,
-    })
+    }
+    context.update(_filter_context(request, base_qs))
+    return render(request, "bees/category.html", context)
 
 
 def search_products(request):
@@ -155,30 +203,38 @@ def search_products(request):
     if query:
         log, _ = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
         SearchLog.objects.filter(pk=log.pk).update(count=log.count + 1)
-    results = with_ratings(Product.objects.filter(name__icontains=query, approval_status="approved")) if query else Product.objects.none()
+    base_qs = Product.objects.filter(name__icontains=query, approval_status="approved") if query else Product.objects.none()
+    results = with_ratings(base_qs)
+    results = _apply_filters(results, request)
     sort = request.GET.get("sort", "")
     results = _apply_sort(results, sort)
     paginator = Paginator(results, 12)
     page_obj = paginator.get_page(request.GET.get("page"))
-    return render(request, "bees/search.html", {
+    context = {
         "products": page_obj,
         "page_obj": page_obj,
         "query": query,
         "current_sort": sort,
-    })
+    }
+    context.update(_filter_context(request, base_qs))
+    return render(request, "bees/search.html", context)
 
 
 def all_products(request):
-    products = with_ratings(Product.objects.filter(approval_status="approved"))
+    base_qs = Product.objects.filter(approval_status="approved")
+    products = with_ratings(base_qs)
+    products = _apply_filters(products, request)
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
     paginator = Paginator(products, 16)
     page_obj = paginator.get_page(request.GET.get("page"))
-    return render(request, "bees/all_products.html", {
+    context = {
         "products": page_obj,
         "page_obj": page_obj,
         "current_sort": sort,
-    })
+    }
+    context.update(_filter_context(request, base_qs))
+    return render(request, "bees/all_products.html", context)
 
 
 @ratelimit("signup", rate_limit=5, window_seconds=300, redirect_to="signup",
@@ -1279,4 +1335,52 @@ def owner_dashboard(request):
         "low_stock_count": low_stock_count,
         "out_of_stock_count": out_of_stock_count,
         "daily_revenue": daily_revenue,
+    })
+
+
+def _get_or_create_chat_thread(request):
+    if request.user.is_authenticated:
+        thread, _ = ChatThread.objects.get_or_create(user=request.user)
+        return thread
+    if not request.session.session_key:
+        request.session.create()
+    thread, _ = ChatThread.objects.get_or_create(
+        user=None, session_key=request.session.session_key,
+    )
+    return thread
+
+
+def chat_messages(request):
+    """Returns this visitor's chat history as JSON, polled by the widget."""
+    thread = _get_or_create_chat_thread(request)
+    messages_qs = thread.messages.order_by("created_at")
+    data = [
+        {"sender": m.sender, "message": m.message, "created_at": m.created_at.strftime("%H:%M")}
+        for m in messages_qs
+    ]
+    return JsonResponse({"messages": data})
+
+
+def chat_send(request):
+    """Saves a real message from the visitor and stores a simple support
+    auto-reply, so the thread is a genuine record staff can review/reply
+    to from the admin panel (bees > chat messages)."""
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+    text = request.POST.get("message", "").strip()
+    if not text:
+        return JsonResponse({"error": "Empty message"}, status=400)
+
+    thread = _get_or_create_chat_thread(request)
+    ChatMessage.objects.create(thread=thread, sender="user", message=text)
+
+    auto_reply = "Thanks for your message! Our support team typically replies within a few hours."
+    if any(w in text.lower() for w in ["order", "track", "delivery", "shipped"]):
+        auto_reply = "For order status, check My Orders in your account, or share your order number here and our team will follow up."
+    elif any(w in text.lower() for w in ["refund", "return"]):
+        auto_reply = "You can request a return from My Orders. Our team reviews return requests within 24-48 hours."
+
+    reply = ChatMessage.objects.create(thread=thread, sender="support", message=auto_reply)
+    return JsonResponse({
+        "reply": {"sender": reply.sender, "message": reply.message, "created_at": reply.created_at.strftime("%H:%M")},
     })

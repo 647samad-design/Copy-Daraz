@@ -93,6 +93,8 @@ urlpatterns = [
     path('seller/product/<int:pk>/delete/', views.seller_delete_product, name='seller_delete_product'),
     path('product/<int:pk>/quick/', views.product_quick_view, name='product_quick_view'),
     path('owner/dashboard/', views.owner_dashboard, name='owner_dashboard'),
+    path('api/chat/messages/', views.chat_messages, name='chat_messages'),
+    path('api/chat/send/', views.chat_send, name='chat_send'),
 ]
 
 if settings.DEBUG:

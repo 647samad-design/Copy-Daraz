@@ -1,0 +1,60 @@
+<aside class="filters-sidebar">
+    <form method="get" class="filters-form">
+        {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+
+        <div class="filter-group">
+            <h4>{{ t.sort_default|default:"Sort" }}</h4>
+            <select name="sort">
+                <option value="" {% if not current_sort %}selected{% endif %}>{{ t.sort_default }}</option>
+                <option value="price_asc" {% if current_sort == "price_asc" %}selected{% endif %}>{{ t.price_low_high }}</option>
+                <option value="price_desc" {% if current_sort == "price_desc" %}selected{% endif %}>{{ t.price_high_low }}</option>
+                <option value="newest" {% if current_sort == "newest" %}selected{% endif %}>{{ t.newest_first }}</option>
+                <option value="rating" {% if current_sort == "rating" %}selected{% endif %}>{{ t.top_rated }}</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <h4>Price range</h4>
+            <div class="filter-price-row">
+                <input type="number" name="min_price" placeholder="Min" min="0" value="{{ f_min_price }}">
+                <span>-</span>
+                <input type="number" name="max_price" placeholder="Max" min="0" value="{{ f_max_price }}">
+            </div>
+        </div>
+
+        <div class="filter-group">
+            <h4>Minimum rating</h4>
+            <select name="min_rating">
+                <option value="" {% if not f_min_rating %}selected{% endif %}>Any rating</option>
+                <option value="4" {% if f_min_rating == "4" %}selected{% endif %}>4★ &amp; up</option>
+                <option value="3" {% if f_min_rating == "3" %}selected{% endif %}>3★ &amp; up</option>
+                <option value="2" {% if f_min_rating == "2" %}selected{% endif %}>2★ &amp; up</option>
+                <option value="1" {% if f_min_rating == "1" %}selected{% endif %}>1★ &amp; up</option>
+            </select>
+        </div>
+
+        {% if sellers %}
+        <div class="filter-group">
+            <h4>Seller</h4>
+            <select name="seller">
+                <option value="" {% if not f_seller %}selected{% endif %}>All sellers</option>
+                {% for s in sellers %}
+                <option value="{{ s }}" {% if f_seller == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        <div class="filter-group filter-checkbox">
+            <label>
+                <input type="checkbox" name="in_stock" value="1" {% if f_in_stock %}checked{% endif %}>
+                In stock only
+            </label>
+        </div>
+
+        <button type="submit" class="filter-apply-btn">Apply filters</button>
+        {% if f_min_price or f_max_price or f_min_rating or f_seller or f_in_stock or current_sort %}
+        <a href="?{% if query %}q={{ query }}{% endif %}" class="filter-clear-link">Clear all</a>
+        {% endif %}
+    </form>
+</aside>

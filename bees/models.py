@@ -557,3 +557,31 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.action} ({self.user})"
+
+
+class ChatThread(models.Model):
+    """One support-chat thread per logged-in user (guests get a
+    session-based thread key). Staff reply to these from /admin/."""
+    user = models.OneToOneField("auth.User", null=True, blank=True, on_delete=models.CASCADE, related_name="chat_thread")
+    session_key = models.CharField(max_length=40, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_resolved = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Chat with {self.user or self.session_key}"
+
+
+class ChatMessage(models.Model):
+    SENDER_CHOICES = [("user", "User"), ("support", "Support")]
+
+    thread = models.ForeignKey(ChatThread, related_name="messages", on_delete=models.CASCADE)
+    sender = models.CharField(max_length=10, choices=SENDER_CHOICES, default="user")
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.sender}: {self.message[:40]}"

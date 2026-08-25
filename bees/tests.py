@@ -438,3 +438,136 @@ class ChatTests(TestCase):
         history = self.client.get(reverse("chat_messages")).json()["messages"]
         user_messages = [m for m in history if m["sender"] == "user"]
         self.assertEqual(len(user_messages), 2)
+
+
+class JazzCashTests(TestCase):
+    def setUp(self):
+        from django.test import override_settings
+        self._override = override_settings(
+            JAZZCASH_MERCHANT_ID="TESTMERCH",
+            JAZZCASH_PASSWORD="testpass",
+            JAZZCASH_INTEGRITY_SALT="testsalt123",
+        )
+        self._override.enable()
+        self.addCleanup(self._override.disable)
+
+        self.user = User.objects.create_user(username="buyer", password="pass12345")
+        self.product = make_product(price=Decimal("1000.00"), stock=5)
+
+    def test_is_configured_true_when_all_three_values_set(self):
+        from . import jazzcash
+        self.assertTrue(jazzcash.is_configured())
+
+    def test_is_configured_false_when_missing(self):
+        from django.test import override_settings
+        from . import jazzcash
+        with override_settings(JAZZCASH_INTEGRITY_SALT=""):
+            self.assertFalse(jazzcash.is_configured())
+
+    def test_build_payment_request_produces_valid_verifiable_hash(self):
+        from . import jazzcash
+        order = Order.objects.create(user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi", phone="03001234567")
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
+
+        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
+        self.assertEqual(params["pp_TxnRefNo"], txn_ref)
+        self.assertEqual(params["pp_Amount"], "100000")  # Rs.1000 -> 100000 paisa
+        self.assertTrue(jazzcash.verify_response(params))
+
+    def test_verify_response_rejects_tampered_data(self):
+        from . import jazzcash
+        order = Order.objects.create(user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi", phone="03001234567")
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
+        params, _ = jazzcash.build_payment_request(order, "https://example.com/return/")
+
+        tampered = dict(params)
+        tampered["pp_Amount"] = "1"  # attacker tries to pay Rs.0.01 instead
+        self.assertFalse(jazzcash.verify_response(tampered))
+
+    def test_checkout_rejects_jazzcash_when_not_configured(self):
+        from django.test import override_settings
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
+        with override_settings(JAZZCASH_MERCHANT_ID=""):
+            response = self.client.post(reverse("checkout"), {
+                "full_name": "Test Buyer", "address": "1 Test St", "city": "Karachi",
+                "phone": "03001234567", "payment_method": "jazzcash",
+            }, follow=True)
+        self.assertContains(response, "Online payment isn")
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_checkout_with_jazzcash_redirects_to_payment_page(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
+        response = self.client.post(reverse("checkout"), {
+            "full_name": "Test Buyer", "address": "1 Test St", "city": "Karachi",
+            "phone": "03001234567", "payment_method": "jazzcash",
+        }, follow=True)
+        order = Order.objects.first()
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "pending")
+        self.assertTrue(order.jazzcash_txn_ref)
+        self.assertContains(response, "Redirecting you to JazzCash")
+
+    def test_jazzcash_return_marks_order_paid_on_success(self):
+        from . import jazzcash
+        self.client.force_login(self.user)
+        order = Order.objects.create(
+            user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi",
+            phone="03001234567", payment_method="jazzcash", payment_status="pending",
+        )
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
+        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
+        order.jazzcash_txn_ref = txn_ref
+        order.save(update_fields=["jazzcash_txn_ref"])
+
+        callback_data = dict(params)
+        callback_data["pp_ResponseCode"] = "000"
+        callback_data["pp_SecureHash"] = jazzcash._secure_hash(
+            {k: v for k, v in callback_data.items() if k != "pp_SecureHash"}
+        )
+
+        response = self.client.post(reverse("jazzcash_return"), callback_data)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+        self.assertRedirects(response, reverse("order_success", args=[order.id]))
+
+    def test_jazzcash_return_marks_order_failed_on_decline(self):
+        from . import jazzcash
+        order = Order.objects.create(
+            user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi",
+            phone="03001234567", payment_method="jazzcash", payment_status="pending",
+        )
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
+        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
+        order.jazzcash_txn_ref = txn_ref
+        order.save(update_fields=["jazzcash_txn_ref"])
+
+        callback_data = dict(params)
+        callback_data["pp_ResponseCode"] = "134"  # declined
+        callback_data["pp_SecureHash"] = jazzcash._secure_hash(
+            {k: v for k, v in callback_data.items() if k != "pp_SecureHash"}
+        )
+
+        self.client.post(reverse("jazzcash_return"), callback_data)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "failed")
+
+    def test_jazzcash_return_rejects_tampered_callback(self):
+        from . import jazzcash
+        order = Order.objects.create(
+            user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi",
+            phone="03001234567", payment_method="jazzcash", payment_status="pending",
+        )
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
+        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
+        order.jazzcash_txn_ref = txn_ref
+        order.save(update_fields=["jazzcash_txn_ref"])
+
+        callback_data = dict(params)
+        callback_data["pp_ResponseCode"] = "000"
+        callback_data["pp_SecureHash"] = "totally-fake-hash-an-attacker-made-up"
+
+        self.client.post(reverse("jazzcash_return"), callback_data)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "pending")  # unchanged - forged callback ignored

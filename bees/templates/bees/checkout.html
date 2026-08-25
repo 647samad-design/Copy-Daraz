@@ -42,8 +42,9 @@
             <input type="text" id="id_phone" name="phone" placeholder="{{ t.phone_number }}" required>
             <select name="payment_method">
                 <option value="cod">{{ t.cash_on_delivery }}</option>
-                <option value="card">{{ t.card }}</option>
-                <option value="wallet">{{ t.wallet }}</option>
+                {% if jazzcash_enabled %}
+                <option value="jazzcash">{{ t.jazzcash|default:"Pay with JazzCash" }}</option>
+                {% endif %}
             </select>
             <button type="submit">{{ t.place_order }}</button>
         </form>

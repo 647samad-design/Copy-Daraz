@@ -190,6 +190,14 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+
+# JazzCash payment gateway - all optional. Leave unset and the "Pay with
+# JazzCash" option simply won't appear at checkout (COD keeps working as
+# before). Get these three values from your JazzCash merchant dashboard.
+JAZZCASH_MERCHANT_ID = os.environ.get('JAZZCASH_MERCHANT_ID', '')
+JAZZCASH_PASSWORD = os.environ.get('JAZZCASH_PASSWORD', '')
+JAZZCASH_INTEGRITY_SALT = os.environ.get('JAZZCASH_INTEGRITY_SALT', '')
+JAZZCASH_SANDBOX = os.environ.get('JAZZCASH_SANDBOX', 'True') == 'True'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
 LOGOUT_REDIRECT_URL = 'home'

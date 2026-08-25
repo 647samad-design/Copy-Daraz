@@ -95,6 +95,8 @@ urlpatterns = [
     path('owner/dashboard/', views.owner_dashboard, name='owner_dashboard'),
     path('api/chat/messages/', views.chat_messages, name='chat_messages'),
     path('api/chat/send/', views.chat_send, name='chat_send'),
+    path('payment/jazzcash/<int:order_id>/', views.initiate_jazzcash_payment, name='initiate_jazzcash_payment'),
+    path('payment/jazzcash/return/', views.jazzcash_return, name='jazzcash_return'),
 ]
 
 if settings.DEBUG:

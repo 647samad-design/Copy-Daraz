@@ -121,13 +121,13 @@ class OrderItemInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "full_name", "city", "phone", "payment_method", "status", "tracking_number", "total", "created_at")
-    list_filter = ("status", "payment_method", "created_at")
-    search_fields = ("id", "full_name", "user__username", "phone", "city", "tracking_number")
+    list_display = ("id", "user", "full_name", "city", "phone", "payment_method", "payment_status", "status", "tracking_number", "total", "created_at")
+    list_filter = ("status", "payment_method", "payment_status", "created_at")
+    search_fields = ("id", "full_name", "user__username", "phone", "city", "tracking_number", "jazzcash_txn_ref")
     list_editable = ("status",)
     fields = (
         "user", "guest_email", "full_name", "address", "city", "phone",
-        "payment_method", "status", "tracking_number", "courier_name", "estimated_delivery",
+        "payment_method", "payment_status", "jazzcash_txn_ref", "status", "tracking_number", "courier_name", "estimated_delivery",
         "coupon_code", "discount_amount",
     )
     date_hierarchy = "created_at"

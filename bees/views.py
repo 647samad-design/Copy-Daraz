@@ -37,6 +37,7 @@ from django.utils.html import strip_tags
 import random
 import string
 from .ratelimit import ratelimit
+from . import jazzcash
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
@@ -597,11 +598,16 @@ def checkout_view(request):
                 return redirect("cart")
 
     if request.method == "POST":
+        if request.POST.get("payment_method") == "jazzcash" and not jazzcash.is_configured():
+            messages.error(request, "Online payment isn't set up yet - please choose Cash on Delivery.")
+            return redirect("checkout")
+
         for item in items:
             if item["qty"] > item["product"].stock:
                 messages.error(request, f"Not enough stock for {item['product'].name}.")
                 return redirect("cart")
 
+        payment_method = request.POST.get("payment_method", "cod")
         order = Order.objects.create(
             user=request.user,
             guest_email="",
@@ -609,7 +615,8 @@ def checkout_view(request):
             address=request.POST.get("address", ""),
             city=request.POST.get("city", ""),
             phone=request.POST.get("phone", ""),
-            payment_method=request.POST.get("payment_method", "cod"),
+            payment_method=payment_method,
+            payment_status="pending" if payment_method == "jazzcash" else "not_applicable",
             coupon_code=coupon.code if coupon else "",
             discount_amount=discount_amount,
         )
@@ -628,7 +635,7 @@ def checkout_view(request):
         request.session.modified = True
 
         recipient = order.user.email if order.user and order.user.email else order.guest_email
-        if recipient:
+        if recipient and order.payment_status != "pending":
             try:
                 scheme = "https" if request.is_secure() else "http"
                 invoice_url = f"{scheme}://{request.get_host()}/order/{order.id}/invoice/"
@@ -650,6 +657,8 @@ def checkout_view(request):
         if order.user:
             Notification.objects.create(user=order.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
 
+        if payment_method == "jazzcash":
+            return redirect("initiate_jazzcash_payment", order_id=order.id)
         return redirect("order_success", order_id=order.id)
 
     return render(request, "bees/checkout.html", {
@@ -659,6 +668,7 @@ def checkout_view(request):
         "final_total": max(total - discount_amount, 0),
         "coupon": coupon,
         "addresses": Address.objects.filter(user=request.user) if request.user.is_authenticated else [],
+        "jazzcash_enabled": jazzcash.is_configured(),
     })
 
 
@@ -1384,3 +1394,68 @@ def chat_send(request):
     return JsonResponse({
         "reply": {"sender": reply.sender, "message": reply.message, "created_at": reply.created_at.strftime("%H:%M")},
     })
+
+
+@login_required
+def initiate_jazzcash_payment(request, order_id):
+    """Shows an auto-submitting form that POSTs the signed payment request
+    to JazzCash's hosted checkout page, where the customer enters their
+    mobile account details. JazzCash then redirects back to
+    jazzcash_return below with the result."""
+    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    if not jazzcash.is_configured():
+        messages.error(request, "Online payment isn't available right now.")
+        return redirect("my_orders")
+    if order.payment_status == "paid":
+        return redirect("order_success", order_id=order.id)
+
+    scheme = "https" if request.is_secure() else "http"
+    return_url = f"{scheme}://{request.get_host()}/payment/jazzcash/return/"
+    params, txn_ref = jazzcash.build_payment_request(order, return_url)
+    order.jazzcash_txn_ref = txn_ref
+    order.save(update_fields=["jazzcash_txn_ref"])
+
+    return render(request, "bees/jazzcash_redirect.html", {
+        "checkout_url": jazzcash.checkout_url(),
+        "params": params,
+    })
+
+
+@csrf_exempt
+def jazzcash_return(request):
+    """JazzCash POSTs the transaction result here after the customer pays
+    (or cancels) on their hosted page. We verify the signature, match the
+    txn ref back to our order, and update payment_status accordingly."""
+    data = request.POST.dict()
+    txn_ref = data.get("pp_TxnRefNo", "")
+    order = Order.objects.filter(jazzcash_txn_ref=txn_ref).first()
+
+    if not order or not jazzcash.verify_response(data):
+        messages.error(request, "We couldn't verify that payment. Please contact support if you were charged.")
+        return redirect("my_orders")
+
+    if jazzcash.is_success_response(data):
+        order.payment_status = "paid"
+        order.save(update_fields=["payment_status"])
+        recipient = order.user.email if order.user and order.user.email else order.guest_email
+        if recipient:
+            try:
+                scheme = "https" if request.is_secure() else "http"
+                invoice_url = f"{scheme}://{request.get_host()}/order/{order.id}/invoice/"
+                html_body = render_to_string("bees/emails/order_confirmation.html", {
+                    "order": order, "invoice_url": invoice_url,
+                })
+                email = EmailMultiAlternatives(
+                    f"Your 19Bees order #{order.id} is confirmed", strip_tags(html_body), None, [recipient],
+                )
+                email.attach_alternative(html_body, "text/html")
+                email.send(fail_silently=True)
+            except Exception:
+                pass
+        messages.success(request, "Payment received - thank you!")
+        return redirect("order_success", order_id=order.id)
+
+    order.payment_status = "failed"
+    order.save(update_fields=["payment_status"])
+    messages.error(request, "Payment failed or was cancelled. You can try again from My Orders.")
+    return redirect("my_orders")

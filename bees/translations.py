@@ -76,6 +76,7 @@ TRANSLATIONS = {
         "cash_on_delivery": "Cash on delivery",
         "card": "Credit / Debit card",
         "wallet": "19Bees wallet",
+        "jazzcash": "Pay with JazzCash",
         # Order success / my orders
         "order_placed": "Order placed successfully!",
         "status": "Status",
@@ -185,6 +186,7 @@ TRANSLATIONS = {
         "cash_on_delivery": "کیش آن ڈیلیوری",
         "card": "کریڈٹ / ڈیبٹ کارڈ",
         "wallet": "19Bees والیٹ",
+        "jazzcash": "جاز کیش سے ادائیگی کریں",
         "order_placed": "آرڈر کامیابی سے دیا گیا!",
         "status": "حیثیت",
         "delivering_to": "ترسیل کا پتہ",
@@ -290,6 +292,7 @@ TRANSLATIONS = {
         "cash_on_delivery": "Cash on delivery",
         "card": "Credit / Debit card",
         "wallet": "19Bees wallet",
+        "jazzcash": "JazzCash se payment karein",
         "order_placed": "Order kamyabi se place ho gaya!",
         "status": "Status",
         "delivering_to": "Delivery ka pata",

@@ -126,6 +126,14 @@ class Order(models.Model):
     city = models.CharField(max_length=100)
     phone = models.CharField(max_length=30)
     payment_method = models.CharField(max_length=30, default="cod")
+    PAYMENT_STATUS_CHOICES = [
+        ("not_applicable", "Not applicable (COD)"),
+        ("pending", "Awaiting payment"),
+        ("paid", "Paid"),
+        ("failed", "Failed"),
+    ]
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default="not_applicable", db_index=True)
+    jazzcash_txn_ref = models.CharField(max_length=40, blank=True, db_index=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
     coupon_code = models.CharField(max_length=30, blank=True)
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)

@@ -78,3 +78,9 @@ each time it changes.
 - Production security hardening auto-enables once you set `DEBUG=False` on your host: forces HTTPS,
   secure cookies, HSTS, and clickjacking protection — no extra config needed beyond `DEBUG=False`.
 - Custom branded 404 and 500 error pages instead of Django's default error screens.
+- JazzCash payment gateway (Page Redirection / hosted checkout) — optional, off by default. Once you set
+  `JAZZCASH_MERCHANT_ID`, `JAZZCASH_PASSWORD`, and `JAZZCASH_INTEGRITY_SALT` in `.env` (get these from your
+  JazzCash merchant dashboard - apply at https://www.jazzcash.com.pk/business), "Pay with JazzCash" appears
+  at checkout automatically. `JAZZCASH_SANDBOX=True` (the default) uses JazzCash's sandbox for testing; set
+  it to `False` once you have live credentials. Signed with HMAC-SHA256 per JazzCash's spec; the return
+  callback verifies the signature before marking an order paid, so a forged callback can't fake a payment.

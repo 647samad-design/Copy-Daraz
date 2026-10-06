@@ -12,6 +12,9 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
+
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 import dj_database_url
 
@@ -24,38 +27,47 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
+def env_bool(name, default=False):
+    return os.environ.get(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def env_list(name, default=""):
+    return [v.strip() for v in os.environ.get(name, default).split(",") if v.strip()]
+
+
+# DEBUG is OFF unless explicitly turned on. Put DEBUG=True in your local
+# .env file for development - production then stays safe even if you forget
+# to configure it.
+DEBUG = env_bool('DEBUG', False)
+
 # SECURITY WARNING: keep the secret key used in production secret!
-# Reads SECRET_KEY from the environment (.env locally, your host's env vars in
-# production). Falls back to a generated dev-only key so nothing breaks if it's
-# not set yet - but you should set a real SECRET_KEY before going live.
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    'django-insecure-fallback-only-set-a-real-SECRET_KEY-env-var-before-deploying',
-)
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG or 'test' in sys.argv:
+        SECRET_KEY = 'django-insecure-local-development-only-key-do-not-use-in-production'
+    else:
+        raise ImproperlyConfigured(
+            "SECRET_KEY environment variable is required when DEBUG is off. Generate one with: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(50))\""
+        )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-# Defaults to True so local/Codespaces testing keeps working as-is.
-# Set DEBUG=False as an environment variable on your production host.
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+# In development any host is fine (Codespaces gives random hostnames). In
+# production set ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', '*' if DEBUG else 'localhost,127.0.0.1')
 
-# Defaults to allow-all so Codespaces/dev previews (which get a new random
-# hostname each time) keep working. Once you have a real domain, set
-# ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com as an environment variable
-# on your production host to lock this down.
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+# Number of reverse proxies in front of Django (Render/Railway/Heroku/Fly = 1).
+# Used to read the real client IP for rate limiting. Leave 0 if unsure.
+NUM_PROXIES = int(os.environ.get('NUM_PROXIES', '0'))
 
-# Production hardening - automatically kicks in once you set DEBUG=False on
-# your host. Locally (DEBUG=True) these stay off so http://localhost keeps
-# working without SSL. See Django's deployment checklist for details:
-# https://docs.djangoproject.com/en/stable/howto/deployment/checklist/
 if not DEBUG:
-    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', True)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '31536000'))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
     SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
     SESSION_COOKIE_HTTPONLY = True
     X_FRAME_OPTIONS = 'DENY'
 
@@ -63,7 +75,7 @@ if not DEBUG:
 # Codespaces (and similar cloud dev environments) serve the site over HTTPS through
 # a proxy, so Django needs to trust that forwarded scheme and the dynamic preview
 # domain, otherwise CSRF checks fail with "Origin checking failed".
-CSRF_TRUSTED_ORIGINS = [
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS') + ([
     'https://*.app.github.dev',
     'https://*.githubpreview.dev',
     'https://*.gitpod.io',
@@ -71,9 +83,9 @@ CSRF_TRUSTED_ORIGINS = [
     'https://localhost:8000',
     'http://127.0.0.1:8000',
     'https://127.0.0.1:8000',
-]
+] if DEBUG else [])
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_HOST = env_bool('USE_X_FORWARDED_HOST', DEBUG)
 
 
 # Application definition
@@ -121,6 +133,7 @@ TEMPLATES = [
                 'bees.context_processors.unread_notifications',
                 'bees.context_processors.compare_count',
                 'bees.context_processors.site_banner',
+                'bees.context_processors.brand',
             ],
         },
     },
@@ -132,13 +145,24 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# Supabase (or any Postgres): set DATABASE_URL to the connection string from
+# Supabase > Project Settings > Database > Connection string.
+#   - Session pooler / direct (port 5432): persistent connections are fine.
+#   - Transaction pooler (port 6543, best for serverless): connections must
+#     not be reused and server-side cursors must be off - handled below.
+# Without DATABASE_URL the project falls back to a local SQLite file.
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+_uses_transaction_pooler = ':6543' in DATABASE_URL
 DATABASES = {
     'default': dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
-        conn_health_checks=True,
+        conn_max_age=0 if _uses_transaction_pooler else 600,
+        conn_health_checks=not _uses_transaction_pooler,
+        ssl_require=DATABASE_URL.startswith('postgres') and 'localhost' not in DATABASE_URL,
     )
 }
+if _uses_transaction_pooler:
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 
 
 # Password validation
@@ -177,27 +201,84 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+PRIVATE_MEDIA_ROOT = BASE_DIR / 'private_media'
+
 STORAGES = {
+    # Public files: product images, store logos/banners, brand logo.
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    # Private files: seller ID documents and business certificates. Never
+    # served at a public URL - staff open them through /staff/seller-document/.
+    'private': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {'location': PRIVATE_MEDIA_ROOT, 'base_url': '/staff/private-media/'},
     },
     'staticfiles': {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Tests run without `collectstatic`, so they use plain static storage.
+if 'test' in sys.argv:
+    STORAGES['staticfiles'] = {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'}
 
-GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+# Supabase Storage (S3-compatible). Create two buckets in Supabase > Storage:
+#   - a PUBLIC bucket for product images (SUPABASE_STORAGE_BUCKET)
+#   - a PRIVATE bucket for seller documents (SUPABASE_PRIVATE_BUCKET)
+# and S3 access keys under Storage > Settings > S3 Connection.
+SUPABASE_PROJECT_REF = os.environ.get('SUPABASE_PROJECT_REF', '')
+SUPABASE_S3_ACCESS_KEY_ID = os.environ.get('SUPABASE_S3_ACCESS_KEY_ID', '')
+SUPABASE_S3_SECRET_ACCESS_KEY = os.environ.get('SUPABASE_S3_SECRET_ACCESS_KEY', '')
+SUPABASE_S3_REGION = os.environ.get('SUPABASE_S3_REGION', 'us-east-1')
+SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'media')
+SUPABASE_PRIVATE_BUCKET = os.environ.get('SUPABASE_PRIVATE_BUCKET', 'private')
+USE_SUPABASE_STORAGE = bool(SUPABASE_PROJECT_REF and SUPABASE_S3_ACCESS_KEY_ID and SUPABASE_S3_SECRET_ACCESS_KEY)
 
-# JazzCash payment gateway - all optional. Leave unset and the "Pay with
-# JazzCash" option simply won't appear at checkout (COD keeps working as
-# before). Get these three values from your JazzCash merchant dashboard.
-JAZZCASH_MERCHANT_ID = os.environ.get('JAZZCASH_MERCHANT_ID', '')
-JAZZCASH_PASSWORD = os.environ.get('JAZZCASH_PASSWORD', '')
-JAZZCASH_INTEGRITY_SALT = os.environ.get('JAZZCASH_INTEGRITY_SALT', '')
-JAZZCASH_SANDBOX = os.environ.get('JAZZCASH_SANDBOX', 'True') == 'True'
+if USE_SUPABASE_STORAGE:
+    _s3_common = {
+        'endpoint_url': f'https://{SUPABASE_PROJECT_REF}.storage.supabase.co/storage/v1/s3',
+        'region_name': SUPABASE_S3_REGION,
+        'access_key': SUPABASE_S3_ACCESS_KEY_ID,
+        'secret_key': SUPABASE_S3_SECRET_ACCESS_KEY,
+        'addressing_style': 'path',
+        'signature_version': 's3v4',
+        'file_overwrite': False,
+    }
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            **_s3_common,
+            'bucket_name': SUPABASE_STORAGE_BUCKET,
+            'querystring_auth': False,
+            # Public object URLs: https://<ref>.supabase.co/storage/v1/object/public/<bucket>/<path>
+            'custom_domain': f'{SUPABASE_PROJECT_REF}.supabase.co/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}',
+        },
+    }
+    STORAGES['private'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            **_s3_common,
+            'bucket_name': SUPABASE_PRIVATE_BUCKET,
+            'querystring_auth': True,
+            'querystring_expire': 300,
+        },
+    }
+
+# Stripe (card payments). See bees/payments.py.
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
+STORE_CURRENCY = os.environ.get('STORE_CURRENCY', 'usd').lower()
+
+# Seller commission tiers: (lifetime sales at or above, % points off the
+# base commission rate). Checked top to bottom.
+COMMISSION_TIERS = [(25000, 5), (5000, 2)]
+
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
 LOGOUT_REDIRECT_URL = 'home'
@@ -210,9 +291,24 @@ if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     EMAIL_PORT = 587
     EMAIL_TIMEOUT = 10
     EMAIL_USE_TLS = True
-    DEFAULT_FROM_EMAIL = f'19Bees <{EMAIL_HOST_USER}>'
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Any SMTP provider (SendGrid, Mailgun, Postmark, Amazon SES, Resend...)
+# can be used instead of Gmail by setting EMAIL_HOST/EMAIL_PORT too.
+if os.environ.get('EMAIL_HOST'):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ['EMAIL_HOST']
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+    EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+    EMAIL_TIMEOUT = 10
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+
+# Shared cache for rate limiting / verification codes. Set REDIS_URL when
+# running more than one app process (e.g. several gunicorn workers).
+if os.environ.get('REDIS_URL'):
+    CACHES = {'default': {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': os.environ['REDIS_URL']}}
 
 # Error monitoring (Sentry). Only activates if SENTRY_DSN is set as an
 # environment variable - without it, this is a no-op, so nothing breaks

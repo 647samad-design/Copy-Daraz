@@ -2,7 +2,7 @@
 Lightweight rate limiting for sensitive endpoints (login, signup, checkout,
 password reset) - no extra dependency, just Django's cache framework.
 
-Note: this uses Django's default LocMemCache, which is per-process memory.
+Note: by default this uses Django's LocMemCache, which is per-process memory.
 That's fine for a single-server deployment (the common case for a project
 this size), but if 19Bees is ever deployed behind multiple app server
 processes/machines without a shared cache (e.g. Redis), each process would
@@ -18,11 +18,7 @@ from django.contrib import messages
 from django.shortcuts import redirect
 
 
-def _client_ip(request):
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "unknown")
+from .security import client_ip as _client_ip
 
 
 def ratelimit(key_prefix, rate_limit=5, window_seconds=60, redirect_to=None, message=None, methods=("POST",)):
@@ -44,8 +40,16 @@ def ratelimit(key_prefix, rate_limit=5, window_seconds=60, redirect_to=None, mes
                 return view_func(request, *args, **kwargs)
             ip = _client_ip(request)
             cache_key = f"ratelimit:{key_prefix}:{ip}"
-            count = cache.get(cache_key, 0)
-            if count >= rate_limit:
+            # add() is atomic: it only sets the key if it doesn't exist yet,
+            # so the window starts at the first request and isn't extended
+            # by later ones.
+            cache.add(cache_key, 0, timeout=window_seconds)
+            try:
+                count = cache.incr(cache_key)
+            except ValueError:
+                cache.set(cache_key, 1, timeout=window_seconds)
+                count = 1
+            if count > rate_limit:
                 if redirect_to:
                     messages.error(
                         request,
@@ -53,7 +57,6 @@ def ratelimit(key_prefix, rate_limit=5, window_seconds=60, redirect_to=None, mes
                     )
                     return redirect(redirect_to)
                 return HttpResponse("Too many requests. Please slow down and try again shortly.", status=429)
-            cache.set(cache_key, count + 1, timeout=window_seconds)
             return view_func(request, *args, **kwargs)
         return wrapped
     return decorator

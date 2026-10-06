@@ -6,7 +6,7 @@ CATEGORY_PRODUCTS = {
     "skincare": ["Oil-Free Moisturizer 100ml", "Vitamin C Serum 30ml", "Sunblock SPF 50", "Aloe Vera Gel 200ml", "Charcoal Face Wash"],
     "haircare": ["Anti-Dandruff Shampoo", "Argan Oil Hair Serum", "Keratin Conditioner", "Hair Growth Oil", "Curl Defining Cream"],
     "grocery": ["Sunflower Cooking Oil 1L", "Basmati Rice 5kg", "Brown Lentils 1kg", "Green Tea 100 Bags", "Honey 500g"],
-    "fashion": ["Men's Casual T-Shirt", "Women's Kurta", "Denim Jacket", "Formal Trouser", "Printed Scarf"],
+    "fashion": ["Men's Casual T-Shirt", "Women's Linen Tunic", "Denim Jacket", "Formal Trouser", "Printed Scarf"],
     "electronics": ["Wireless Earbuds", "Smart Fitness Watch", "Bluetooth Speaker", "Power Bank 20000mAh", "LED Desk Lamp"],
     "3d-printers": ["Mini 3D Printer", "PLA Filament 1kg", "3D Printer Nozzle Set", "Resin 3D Printer", "3D Printer Bed Sheet"],
     "pasta-tools": ["Pasta Roller Machine", "Pizza Cutter Wheel", "Noodle Maker", "Dough Scraper Set", "Pizza Stone"],
@@ -34,13 +34,13 @@ class Command(BaseCommand):
         img_id = 20
         created_count = 0
 
-        SELLERS = ["19Bees Mall", "UrbanStyle Store", "TechHub Official", "HomeEssentials Shop", "GreenGrocer PK"]
+        SELLERS = ["Official Store", "UrbanStyle Co.", "TechHub Official", "Home Essentials", "Green Pantry"]
 
         for category, names in CATEGORY_PRODUCTS.items():
             for i, name in enumerate(names):
-                price = random.choice([299, 499, 699, 819, 940, 1250, 1699, 2199, 2999, 3499])
+                price = random.choice([9.99, 14.99, 19.99, 24.99, 29.99, 39.99, 49.99, 69.99, 89.99, 129.00])
                 has_discount = random.choice([True, True, False])
-                old_price = round(price * random.uniform(1.1, 1.6)) if has_discount else None
+                old_price = round(price * random.uniform(1.15, 1.6), 2) if has_discount else None
                 discount = round((1 - price / old_price) * 100) if old_price else 0
                 img_id += 1
 

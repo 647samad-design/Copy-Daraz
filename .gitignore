@@ -7,3 +7,5 @@ venv/
 .env
 media/
 staticfiles/
+private_media/
+.DS_Store

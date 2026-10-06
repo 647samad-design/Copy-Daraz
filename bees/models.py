@@ -1,4 +1,39 @@
+import uuid
+
+from django.conf import settings
 from django.db import models
+
+
+def _private_storage():
+    """Storage for sensitive seller documents (ID scans, business
+    certificates). Points at the private Supabase bucket in production,
+    and at a non-public folder locally - never at the public media URL."""
+    from django.core.files.storage import storages
+    return storages["private"]
+
+
+def _public_upload_path(folder):
+    def _path(instance, filename):
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+        return f"{folder}/{uuid.uuid4().hex}.{ext}"
+    _path.__name__ = f"upload_to_{folder.replace('/', '_')}"
+    return _path
+
+
+def seller_cert_path(instance, filename):
+    return _public_upload_path("seller_docs/certificates")(instance, filename)
+
+
+def seller_id_path(instance, filename):
+    return _public_upload_path("seller_docs/ids")(instance, filename)
+
+
+def seller_logo_path(instance, filename):
+    return _public_upload_path("seller_docs/logos")(instance, filename)
+
+
+def seller_banner_path(instance, filename):
+    return _public_upload_path("seller_docs/banners")(instance, filename)
 
 
 class Product(models.Model):
@@ -35,7 +70,7 @@ class Product(models.Model):
     description = models.TextField(blank=True)
     is_flash_sale = models.BooleanField(default=False, db_index=True)
     stock = models.PositiveIntegerField(default=50)
-    seller_name = models.CharField(max_length=100, default="19Bees Mall", db_index=True)
+    seller_name = models.CharField(max_length=100, default="Official Store", db_index=True)
     seller_account = models.ForeignKey("SellerAccount", related_name="products", on_delete=models.SET_NULL, null=True, blank=True)
     APPROVAL_CHOICES = [
         ("approved", "Approved"),
@@ -97,6 +132,7 @@ class Product(models.Model):
 
 class Review(models.Model):
     product = models.ForeignKey(Product, related_name="reviews", on_delete=models.CASCADE)
+    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="reviews")
     username = models.CharField(max_length=100)
     rating = models.PositiveSmallIntegerField(default=5)
     comment = models.TextField()
@@ -121,19 +157,32 @@ class Order(models.Model):
 
     user = models.ForeignKey("auth.User", related_name="orders", on_delete=models.CASCADE, null=True, blank=True)
     guest_email = models.EmailField(blank=True)
+    email = models.EmailField(blank=True)
     full_name = models.CharField(max_length=150)
     address = models.CharField(max_length=255)
     city = models.CharField(max_length=100)
+    state = models.CharField("State / Province / Region", max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+    country = models.CharField(max_length=2, blank=True, help_text="ISO 3166-1 alpha-2 country code, e.g. US")
     phone = models.CharField(max_length=30)
-    payment_method = models.CharField(max_length=30, default="cod")
+    PAYMENT_METHOD_CHOICES = [
+        ("card", "Card (Stripe)"),
+        ("cod", "Cash on delivery"),
+    ]
+    payment_method = models.CharField(max_length=30, choices=PAYMENT_METHOD_CHOICES, default="card")
     PAYMENT_STATUS_CHOICES = [
         ("not_applicable", "Not applicable (COD)"),
         ("pending", "Awaiting payment"),
         ("paid", "Paid"),
         ("failed", "Failed"),
+        ("refunded", "Refunded"),
     ]
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default="not_applicable", db_index=True)
-    jazzcash_txn_ref = models.CharField(max_length=40, blank=True, db_index=True)
+    stripe_session_id = models.CharField(max_length=255, blank=True, db_index=True)
+    stripe_payment_intent = models.CharField(max_length=255, blank=True)
+    currency = models.CharField(max_length=3, default="usd")
+    shipping_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True)
     coupon_code = models.CharField(max_length=30, blank=True)
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -155,9 +204,26 @@ class Order(models.Model):
         return self.status in self.CANCELLABLE_STATUSES
 
     @property
+    def subtotal(self):
+        return sum((item.subtotal for item in self.items.all()), 0)
+
+    @property
     def total(self):
-        subtotal = sum(item.subtotal for item in self.items.all())
-        return max(subtotal - self.discount_amount, 0)
+        """What the customer pays: items - discount + shipping + tax."""
+        return max(self.subtotal - self.discount_amount, 0) + self.shipping_amount + self.tax_amount
+
+    @property
+    def total_cents(self):
+        from decimal import Decimal, ROUND_HALF_UP
+        return int((Decimal(self.total) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+    @property
+    def contact_email(self):
+        if self.email:
+            return self.email
+        if self.user and self.user.email:
+            return self.user.email
+        return self.guest_email
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -172,7 +238,8 @@ class Order(models.Model):
                 link=f"/my-orders/",
             )
             if self.status == "delivered" and old_status != "delivered":
-                points_earned = int(self.total // 100)
+                # 1 loyalty point per whole unit of currency spent.
+                points_earned = int(self.total)
                 if points_earned > 0:
                     profile, _ = Profile.objects.get_or_create(user=self.user)
                     profile.loyalty_points += points_earned
@@ -184,7 +251,7 @@ class Order(models.Model):
                     )
 
     def __str__(self):
-        return f"Order #{self.id} - {self.user.username}"
+        return f"Order #{self.id} - {self.user.username if self.user else self.contact_email}"
 
 
 class OrderItem(models.Model):
@@ -264,7 +331,8 @@ class Coupon(models.Model):
         if self.expiry_date and timezone.localdate() > self.expiry_date:
             return False, "This coupon has expired."
         if order_total < self.min_order_value:
-            return False, f"This coupon needs a minimum order of Rs.{self.min_order_value}."
+            from .templatetags.bees_extras import money
+            return False, f"This coupon needs a minimum order of {money(self.min_order_value)}."
         if self.usage_limit is not None and self.times_used() >= self.usage_limit:
             return False, "This coupon has reached its usage limit."
         if self.times_used_by(user) >= self.per_user_limit:
@@ -299,6 +367,9 @@ class Address(models.Model):
     phone = models.CharField(max_length=30)
     address = models.CharField(max_length=255)
     city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+    country = models.CharField(max_length=2, blank=True)
 
     def __str__(self):
         return f"{self.label} - {self.user.username}"
@@ -379,20 +450,20 @@ class SellerAccount(models.Model):
     business_name = models.CharField(max_length=150, blank=True)
     organization_name = models.CharField(max_length=150, blank=True)
     phone = models.CharField(max_length=30, blank=True)
-    cnic = models.CharField("CNIC / National ID", max_length=30, blank=True)
+    cnic = models.CharField("National ID / Passport number", max_length=30, blank=True)
     business_address = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True)
-    country = models.CharField(max_length=100, blank=True, default="Pakistan")
+    country = models.CharField(max_length=100, blank=True)
     store_description = models.TextField(blank=True)
     product_categories = models.CharField(max_length=255, blank=True, help_text="Comma-separated categories the store will sell")
     brand_info = models.TextField(blank=True)
     tax_info = models.CharField(max_length=100, blank=True)
     bank_details = models.CharField(max_length=255, blank=True)
 
-    business_certificate = models.FileField(upload_to="seller_docs/certificates/", blank=True, null=True)
-    id_document = models.FileField(upload_to="seller_docs/ids/", blank=True, null=True)
-    store_logo = models.ImageField(upload_to="seller_docs/logos/", blank=True, null=True)
-    store_banner = models.ImageField(upload_to="seller_docs/banners/", blank=True, null=True)
+    business_certificate = models.FileField(upload_to=seller_cert_path, storage=_private_storage, blank=True, null=True)
+    id_document = models.FileField(upload_to=seller_id_path, storage=_private_storage, blank=True, null=True)
+    store_logo = models.ImageField(upload_to=seller_logo_path, blank=True, null=True)
+    store_banner = models.ImageField(upload_to=seller_banner_path, blank=True, null=True)
 
     admin_note = models.CharField(max_length=255, blank=True, help_text="Internal note, e.g. reason for rejection or requested info")
 
@@ -435,12 +506,11 @@ class SellerAccount(models.Model):
         """
         base = float(self.commission_rate)
         sales = float(self.lifetime_sales)
-        if sales >= 200000:
-            discount = 5
-        elif sales >= 50000:
-            discount = 2
-        else:
-            discount = 0
+        discount = 0
+        for threshold, reduction in getattr(settings, "COMMISSION_TIERS", []):
+            if sales >= threshold:
+                discount = reduction
+                break
         return max(base - discount, 3)
 
     @property
@@ -489,6 +559,11 @@ class SellerReview(models.Model):
         return f"{self.user.username} rated {self.seller.display_name} {self.rating}/5"
 
 
+def _money(value):
+    from .templatetags.bees_extras import money
+    return money(value)
+
+
 class ReturnRequest(models.Model):
     STATUS_CHOICES = [
         ("requested", "Requested"),
@@ -498,7 +573,7 @@ class ReturnRequest(models.Model):
     ]
     REFUND_METHOD_CHOICES = [
         ("original_payment", "Original payment method"),
-        ("wallet_credit", "19Bees wallet credit"),
+        ("store_credit", "Store credit"),
     ]
     order_item = models.ForeignKey("OrderItem", related_name="return_requests", on_delete=models.CASCADE)
     user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
@@ -521,7 +596,7 @@ class ReturnRequest(models.Model):
             messages_by_status = {
                 "approved": f"Your return for '{self.order_item.product_name}' was approved. Refund is being processed via {self.get_refund_method_display()}.",
                 "rejected": f"Your return request for '{self.order_item.product_name}' was rejected." + (f" Note: {self.admin_note}" if self.admin_note else ""),
-                "refunded": f"Refund of Rs.{self.order_item.subtotal} for '{self.order_item.product_name}' has been issued via {self.get_refund_method_display()}.",
+                "refunded": f"Refund of {_money(self.order_item.subtotal)} for '{self.order_item.product_name}' has been issued via {self.get_refund_method_display()}.",
             }
             msg = messages_by_status.get(self.status)
             if msg:
@@ -532,9 +607,37 @@ class ReturnRequest(models.Model):
 
 
 class SiteSettings(models.Model):
-    """A single-row table for site-wide settings, editable from the admin panel."""
-    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    site_name = models.CharField(max_length=100, default="19Bees")
+    """A single-row table for site-wide settings, editable from the admin
+    panel. Everything brand-related lives here so the store can be
+    re-branded (white-labelled) without touching code."""
+    # --- Brand ---
+    site_name = models.CharField("Store name", max_length=100, default="Lumen Market")
+    tagline = models.CharField(max_length=160, default="Thoughtfully chosen products, delivered worldwide.")
+    logo_url = models.CharField(
+        max_length=500, blank=True,
+        help_text="Full URL of your logo (upload it to Supabase Storage or any image host). Leave blank to show the store name as text.",
+    )
+    logo_file = models.ImageField(upload_to="branding/", blank=True, null=True, help_text="Or upload a logo here (PNG/SVG/JPG).")
+    favicon_url = models.CharField(max_length=500, blank=True)
+    primary_color = models.CharField(max_length=7, default="#111827", help_text="Main brand color (buttons, header). Hex, e.g. #111827")
+    accent_color = models.CharField(max_length=7, default="#2563EB", help_text="Accent color (links, highlights). Hex, e.g. #2563EB")
+    hero_title = models.CharField(max_length=120, default="Everyday essentials, beautifully curated")
+    hero_subtitle = models.CharField(max_length=240, default="Shop trusted brands and independent sellers. Secure checkout, fast shipping and easy returns.")
+    hero_image_url = models.CharField(max_length=500, blank=True)
+    # --- Contact & social ---
+    support_email = models.EmailField(blank=True)
+    support_phone = models.CharField(max_length=40, blank=True)
+    company_address = models.CharField(max_length=255, blank=True)
+    facebook_url = models.URLField(blank=True)
+    instagram_url = models.URLField(blank=True)
+    twitter_url = models.URLField("X / Twitter URL", blank=True)
+    youtube_url = models.URLField(blank=True)
+    # --- Commerce ---
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Applied to the discounted subtotal at checkout. 0 = no tax line.")
+    shipping_flat_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Flat shipping fee per order. 0 = free shipping.")
+    free_shipping_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Orders at or above this subtotal ship free. 0 = disabled.")
+    allow_cash_on_delivery = models.BooleanField(default=True, help_text="Show 'Cash on delivery' at checkout. Card payments appear automatically once Stripe keys are set.")
+    show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")
     banner_text = models.CharField(
         max_length=200, blank=True,
         help_text="Shown as a site-wide announcement bar at the top of every page, e.g. 'Eid Sale: 20% off everything!'. Leave blank to hide it.",
@@ -553,6 +656,21 @@ class SiteSettings(models.Model):
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+    @property
+    def logo(self):
+        if self.logo_file:
+            try:
+                return self.logo_file.url
+            except Exception:
+                return ""
+        return self.logo_url
+
+    def shipping_for(self, subtotal):
+        from decimal import Decimal
+        if self.free_shipping_threshold and subtotal >= self.free_shipping_threshold:
+            return Decimal("0")
+        return Decimal(self.shipping_flat_fee or 0)
 
 
 class AuditLog(models.Model):

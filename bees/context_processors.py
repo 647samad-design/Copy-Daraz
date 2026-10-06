@@ -69,9 +69,11 @@ def brand(request):
     contact details) to every template as {{ brand.* }}."""
     from django.conf import settings as dj_settings
     from . import payments
+    from .models import Product
     brand_obj = _site_settings(request)
     return {
         "brand": brand_obj,
         "stripe_enabled": payments.is_configured(),
         "store_currency": dj_settings.STORE_CURRENCY.upper(),
+        "nav_categories": Product.CATEGORY_CHOICES,
     }

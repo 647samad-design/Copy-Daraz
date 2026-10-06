@@ -1,154 +1,117 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
 {% block extra_css %}
-    .hero { margin: 0 0 0 0; display: flex; gap: 0; }
-    .slider { position: relative; flex: 1; height: 430px; overflow: hidden; background: #0b0b0d; }
-    .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.7s ease-in-out; filter: brightness(0.62); }
-    .slide.active { opacity: 1; }
-    .slider::after {
-        content: ""; position: absolute; inset: 0; pointer-events: none;
-        background: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 45%, transparent 70%);
+    .hero { background: var(--brand); color: var(--on-brand); }
+    .hero-inner { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding: 64px 0; }
+    .hero h1 {
+        color: var(--on-brand); font-size: clamp(2.5rem, 5.4vw, 4.4rem); line-height: 1.02;
+        letter-spacing: -0.035em; font-weight: 800; max-width: 13ch;
     }
-    .slide-caption { position: absolute; left: 48px; top: 50%; transform: translateY(-50%); color: #fff; z-index: 2; }
-    .slide-caption .eyebrow { display: block; font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: #e8cf8a; margin-bottom: 12px; font-weight: 600; }
-    .slide-caption h1 { font-size: 42px; font-weight: 700; letter-spacing: -0.5px; max-width: 460px; line-height: 1.15; }
-    .slide-caption p { font-size: 15px; margin-top: 12px; color: #d8d8d8; max-width: 380px; }
-    .hero-cta {
-        display: inline-block; margin-top: 22px; background: #c9a24b; color: #0b0b0d; text-decoration: none;
-        padding: 12px 28px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; border-radius: 3px; transition: background 0.15s ease;
-    }
-    .hero-cta:hover { background: #e8cf8a; }
-    .dots { position: absolute; bottom: 18px; width: 100%; display: flex; justify-content: center; gap: 8px; z-index: 2; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.4); transition: background 0.2s ease; }
-    .dot.active { background: #c9a24b; }
+    .hero p { margin-top: 20px; font-size: 1.15rem; max-width: 46ch; color: color-mix(in srgb, var(--on-brand) 85%, transparent); }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .hero .btn-secondary { background: transparent; color: var(--on-brand); border-color: color-mix(in srgb, var(--on-brand) 45%, transparent); }
+    .hero .btn-secondary:hover { border-color: var(--on-brand); }
+    .hero-shelf { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .hero-shelf a { position: relative; display: block; border-radius: var(--radius-lg); overflow: hidden; aspect-ratio: 4 / 3; background: color-mix(in srgb, var(--on-brand) 10%, transparent); text-decoration: none; }
+    .hero-shelf a:first-child { grid-row: span 2; aspect-ratio: auto; }
+    .hero-shelf img { width: 100%; height: 100%; object-fit: cover; }
+    .hero-shelf span { position: absolute; left: 12px; bottom: 12px; background: var(--surface); color: var(--ink); padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 0.95rem; }
+    .hero-image { width: 100%; aspect-ratio: 5 / 4; object-fit: cover; border-radius: var(--radius-lg); }
 
-    .app-box {
-        width: 260px; background: #0b0b0d; border-left: 1px solid #c9a24b; padding: 26px 20px;
-        text-align: center; display: flex; flex-direction: column; justify-content: center;
+    .promise { background: var(--surface); border-bottom: 1px solid var(--line); }
+    .promise ul { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 22px 0; }
+    .promise li { display: flex; gap: 14px; align-items: flex-start; }
+    .promise svg { width: 28px; height: 28px; color: var(--brand); flex-shrink: 0; margin-top: 2px; }
+    html[data-theme="dark"] .promise svg { color: var(--accent); }
+    .promise strong { display: block; }
+    .promise span { color: var(--muted); font-size: 0.95rem; }
+
+    .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+    .cat { display: flex; flex-direction: column; gap: 10px; text-decoration: none; }
+    .cat img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius); background: var(--surface-2); }
+    .cat span { font-weight: 700; }
+    .cat:hover span { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+        .hero-inner { grid-template-columns: 1fr; padding: 44px 0; gap: 32px; }
+        .promise ul { grid-template-columns: 1fr; gap: 14px; }
     }
-    .app-box .app-title { color: #fff; font-weight: 600; font-size: 14px; margin-bottom: 16px; letter-spacing: 0.3px; }
-    .qr-pattern { width: 130px; height: 130px; margin: 0 auto 16px; background: #fff; padding: 8px; border-radius: 4px; }
-    .qr-pattern svg { width: 100%; height: 100%; }
-    .app-box .badges { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-    .app-box .badge { background: transparent; color: #ccc; border: 1px solid #333; border-radius: 4px; padding: 8px; font-size: 12px; transition: border-color 0.15s ease, color 0.15s ease; }
-    .app-box .badge:hover { border-color: #c9a24b; color: #e8cf8a; }
 {% endblock %}
+
 {% block content %}
-
-    <div class="hero">
-        <div class="slider" id="slider">
-            <img class="slide active" src="https://picsum.photos/id/1015/1400/430" alt="slide1">
-            <img class="slide" src="https://picsum.photos/id/1025/1400/430" alt="slide2">
-            <img class="slide" src="https://picsum.photos/id/1035/1400/430" alt="slide3">
-            <div class="slide-caption">
-                <span class="eyebrow">19Bees Marketplace</span>
-                <h1>{{ t.welcome }}</h1>
-                <p>{{ t.welcome_sub }}</p>
-                <a href="{% url 'all_products' %}" class="hero-cta">Shop the collection</a>
-            </div>
-            <div class="dots">
-                <span class="dot active"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
+<section class="hero">
+    <div class="wrap hero-inner">
+        <div>
+            <h1>{{ brand.hero_title }}</h1>
+            <p>{{ brand.hero_subtitle }}</p>
+            <div class="hero-cta">
+                <a href="{% url 'all_products' %}" class="btn btn-accent">Shop all products</a>
+                {% if flash_sale_products %}<a href="#deals" class="btn btn-secondary">See today's deals</a>{% endif %}
             </div>
         </div>
-        <div class="app-box">
-            <div class="app-title">{{ t.try_app }}</div>
-            <div class="qr-pattern">
-                <svg viewBox="0 0 100 100">
-                    <rect width="100" height="100" fill="#fff"/>
-                    <rect x="5" y="5" width="25" height="25" fill="#222"/>
-                    <rect x="10" y="10" width="15" height="15" fill="#fff"/>
-                    <rect x="70" y="5" width="25" height="25" fill="#222"/>
-                    <rect x="75" y="10" width="15" height="15" fill="#fff"/>
-                    <rect x="5" y="70" width="25" height="25" fill="#222"/>
-                    <rect x="10" y="75" width="15" height="15" fill="#fff"/>
-                    <rect x="40" y="5" width="8" height="8" fill="#222"/>
-                    <rect x="55" y="15" width="8" height="8" fill="#222"/>
-                    <rect x="40" y="40" width="8" height="8" fill="#222"/>
-                    <rect x="55" y="45" width="8" height="8" fill="#222"/>
-                    <rect x="40" y="60" width="8" height="8" fill="#222"/>
-                    <rect x="60" y="70" width="8" height="8" fill="#222"/>
-                    <rect x="75" y="60" width="8" height="8" fill="#222"/>
-                    <rect x="80" y="80" width="15" height="15" fill="#222"/>
-                    <rect x="40" y="80" width="8" height="8" fill="#222"/>
-                </svg>
-            </div>
-            <div class="badges">
-                <span class="badge">{{ t.free_shipping }}</span>
-                <span class="badge">{{ t.exclusive_vouchers }}</span>
-            </div>
-        </div>
-    </div>
-
-    <div class="section" id="flash-sale">
-        <div class="section-header">
-            <h2>{{ t.flash_sale }}</h2>
-            <span class="sub">{{ t.now_on_sale }}</span>
-        </div>
-        <div class="product-grid">
-            {% for product in flash_sale_products %}
-            {% include "bees/partials/product_card.html" %}
-            {% empty %}
-            <p>{{ t.no_flash_sale }}</p>
+        {% if brand.hero_image_url %}
+        <img class="hero-image" src="{{ brand.hero_image_url }}" alt="">
+        {% else %}
+        <div class="hero-shelf">
+            {% for cat in categories|slice:":3" %}
+            <a href="{% url 'category_products' cat.slug %}"><img src="{{ cat.image }}" alt=""><span>{{ cat.label }}</span></a>
             {% endfor %}
         </div>
+        {% endif %}
     </div>
+</section>
 
-    <div class="section" id="categories">
-        <div class="section-header">
-            <h2>{{ t.categories }}</h2>
+<section class="promise" aria-label="Why shop with us">
+    <ul class="wrap">
+        <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 7h11v9H2zM13 10h4l3 3v3h-7"/><circle cx="6" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>
+            <div><strong>{% if brand.free_shipping_threshold %}Free shipping over {{ brand.free_shipping_threshold|money }}{% elif not brand.shipping_flat_fee %}Free shipping{% else %}Fast, tracked shipping{% endif %}</strong><span>Tracking details on every order</span></div>
+        </li>
+        <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <div><strong>Secure checkout</strong><span>{% if stripe_enabled %}Payments processed by Stripe{% else %}Your details stay private{% endif %}</span></div>
+        </li>
+        <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+            <div><strong>14-day returns</strong><span>Request a return from your orders page</span></div>
+        </li>
+    </ul>
+</section>
+
+<div class="wrap">
+    {% if flash_sale_products %}
+    <section class="section" id="deals">
+        <div class="section-head">
+            <h2>Today's deals</h2>
+            <a href="{% url 'all_products' %}?sort=price_asc">{{ t.view_all }}</a>
         </div>
-        <div class="category-grid">
+        <div class="grid-products">
+            {% for product in flash_sale_products %}{% include "bees/partials/product_card.html" %}{% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="section" id="categories">
+        <div class="section-head"><h2>Shop by category</h2></div>
+        <div class="cat-grid">
             {% for cat in categories %}
-            <a class="category-box" href="{% url 'category_products' cat.slug %}">
-                <img src="{{ cat.image }}" alt="{{ cat.label }}">
-                <div class="cname">{{ cat.label }}</div>
-            </a>
+            <a class="cat" href="{% url 'category_products' cat.slug %}"><img src="{{ cat.image }}" alt="" loading="lazy"><span>{{ cat.label }}</span></a>
             {% endfor %}
         </div>
-    </div>
+    </section>
 
-    <div class="section" id="just-for-you">
-        <div class="section-header">
-            <h2>{{ t.just_for_you }}</h2>
-            <a href="{% url 'all_products' %}" class="sub">{{ t.view_all }} &rarr;</a>
+    <section class="section" id="new">
+        <div class="section-head">
+            <h2>New arrivals</h2>
+            <a href="{% url 'all_products' %}?sort=newest">{{ t.view_all }}</a>
         </div>
-        <div class="product-grid">
-            {% for product in just_for_you_products %}
-            {% include "bees/partials/product_card.html" %}
-            {% empty %}
-            <p>{{ t.no_products }}</p>
-            {% endfor %}
+        {% if just_for_you_products %}
+        <div class="grid-products">
+            {% for product in just_for_you_products %}{% include "bees/partials/product_card.html" %}{% endfor %}
         </div>
-    </div>
-
-{% endblock %}
-{% block extra_js %}
-<script>
-    const slides = document.querySelectorAll('.slide');
-    const dots = document.querySelectorAll('.dot');
-    let current = 0;
-
-    function showSlide(index) {
-        slides.forEach(s => s.classList.remove('active'));
-        dots.forEach(d => d.classList.remove('active'));
-        slides[index].classList.add('active');
-        dots[index].classList.add('active');
-    }
-
-    function nextSlide() {
-        current = (current + 1) % slides.length;
-        showSlide(current);
-    }
-
-    function scheduleNext() {
-        const delay = Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
-        setTimeout(() => {
-            nextSlide();
-            scheduleNext();
-        }, delay);
-    }
-
-    scheduleNext();
-</script>
+        {% else %}
+        <div class="panel empty"><h2>No products yet</h2><p>{{ t.no_products }}</p></div>
+        {% endif %}
+    </section>
+</div>
 {% endblock %}

@@ -47,3 +47,25 @@ def stars(value):
         full = 0
     full = max(0, min(5, full))
     return "★" * full + "☆" * (5 - full)
+
+
+@register.filter
+def country_name(code):
+    from ..countries import COUNTRY_NAMES
+    return COUNTRY_NAMES.get((code or "").upper(), code)
+
+
+@register.inclusion_tag("bees/partials/country_select.html")
+def country_select(name="country", selected="", field_id="id_country", required=True):
+    from ..countries import COUNTRIES
+    return {"countries": COUNTRIES, "name": name, "selected": (selected or "").upper(), "field_id": field_id, "required": required}
+
+
+@register.simple_tag
+def site_brand():
+    """SiteSettings for templates rendered without a request (emails)."""
+    from ..models import SiteSettings
+    try:
+        return SiteSettings.load()
+    except Exception:
+        return SiteSettings()

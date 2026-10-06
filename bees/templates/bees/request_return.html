@@ -1,56 +1,26 @@
 {% extends "bees/base.html" %}
-{% block extra_css %}
-    .return-wrap { display: flex; justify-content: center; margin: 40px 20px; }
-    .return-box { width: min(460px, 100%); background: #fff; border: 1px solid #eee; padding: 30px; }
-    .return-box h1 { font-size: 19px; font-weight: 500; margin-bottom: 6px; }
-    .return-item { display: flex; gap: 12px; align-items: center; background: #f7f7f7; padding: 10px; margin: 16px 0; border-radius: 4px; }
-    .return-item img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; }
-    .return-item .name { font-size: 13px; font-weight: 500; }
-    .return-item .sub { font-size: 12px; color: #888; }
-    .return-box label { display: block; font-size: 12px; color: #555; margin-bottom: 6px; margin-top: 14px; }
-    .return-box textarea, .return-box select { width: 100%; padding: 10px; border: 1px solid #ddd; font-size: 13px; box-sizing: border-box; font-family: inherit; }
-    .return-box textarea { min-height: 90px; resize: vertical; }
-    .return-box button { width: 100%; margin-top: 20px; padding: 11px; background: #000000; color: #fff; border: none; font-size: 14px; cursor: pointer; }
-    .msg-error { background: #fdeceb; color: #c0392b; padding: 8px 10px; font-size: 13px; margin-bottom: 12px; }
-
-    html[data-theme="dark"] .return-box { background: #1e1f26; border-color: #333; }
-    html[data-theme="dark"] .return-item { background: #17181d; }
-    html[data-theme="dark"] .return-item .sub { color: #999; }
-    html[data-theme="dark"] .return-box label { color: #aaa; }
-    html[data-theme="dark"] .return-box textarea, html[data-theme="dark"] .return-box select {
-        background: #2a2b33; color: #eee; border-color: #444;
-    }
-{% endblock %}
+{% load bees_extras %}
+{% block title %}Request a return — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
 {% block content %}
-<div class="return-wrap">
-    <div class="return-box">
-        <h1>Request a return</h1>
-
-        {% for message in messages %}
-        <div class="msg-{{ message.tags }}">{{ message }}</div>
-        {% endfor %}
-
-        <div class="return-item">
-            {% if item.product %}<img src="{{ item.product.image_url }}" alt="{{ item.product_name }}">{% endif %}
-            <div>
-                <div class="name">{{ item.product_name }}</div>
-                <div class="sub">Qty {{ item.quantity }} &middot; Order #{{ item.order.id }} &middot; Rs.{{ item.subtotal }}</div>
-            </div>
-        </div>
-
-        <form method="post">
-            {% csrf_token %}
-            <label>Why are you returning this item?</label>
-            <textarea name="reason" placeholder="e.g. Item arrived damaged, wrong size, not as described..." required></textarea>
-
-            <label>How would you like your refund?</label>
-            <select name="refund_method">
-                <option value="original_payment">Refund to original payment method</option>
-                <option value="wallet_credit">19Bees wallet credit</option>
-            </select>
-
-            <button type="submit">Submit return request</button>
-        </form>
+<div class="wrap"><div class="auth-shell wide"><div class="panel">
+    <h1>Request a return</h1>
+    <p class="lede">Tell us what went wrong. We review requests within 1–2 business days.</p>
+    <div style="display:flex;gap:14px;align-items:center;padding:14px;border-radius:var(--radius);background:var(--surface-2);margin-bottom:22px;">
+        {% if item.product %}<img src="{{ item.product.image_url }}" alt="" style="width:64px;height:64px;border-radius:var(--radius-sm);object-fit:cover;">{% endif %}
+        <div><strong>{{ item.product_name }}</strong><div class="muted small">Order #{{ item.order.id }} · Qty {{ item.quantity }} · {{ item.subtotal|money }}</div></div>
     </div>
-</div>
+    <form method="post">
+        {% csrf_token %}
+        <div class="field"><label for="reason">Reason for return</label><textarea id="reason" name="reason" placeholder="For example: arrived damaged, wrong size, not as described" required maxlength="2000"></textarea></div>
+        <fieldset class="field" style="border:0;margin-top:18px;">
+            <legend class="label" style="margin-bottom:8px;">Refund to</legend>
+            <div class="choices">
+                <label class="choice"><input type="radio" name="refund_method" value="original_payment" checked><strong>Original payment method</strong><span>Back to your card, usually 5–10 days</span></label>
+                <label class="choice"><input type="radio" name="refund_method" value="store_credit"><strong>Store credit</strong><span>Available as soon as approved</span></label>
+            </div>
+        </fieldset>
+        <div class="field" style="margin-top:22px;"><button type="submit" class="btn btn-primary btn-block">Submit return request</button></div>
+    </form>
+</div><p class="auth-foot"><a class="link" href="{% url 'my_orders' %}">Back to my orders</a></p></div></div>
 {% endblock %}

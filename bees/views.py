@@ -209,8 +209,8 @@ def home(request):
     query = request.GET.get("q", "").strip()
     if query:
         return redirect(f"{reverse('search_products')}?{urlencode({'q': query})}")
-    flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:8]
-    just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:16]
+    flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:10]
+    just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:15]
     categories = [
         {
             "slug": slug,

@@ -1,175 +1,128 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}Seller dashboard — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
-    .sd-wrap { margin: 20px 40px; }
-    .sd-status { padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
-    .sd-status.pending { background: #fff8e1; color: #b8860b; border: 1px solid #ffe082; }
-    .sd-status.approved { background: #e8f8f0; color: #1e8449; border: 1px solid #a3e4c1; }
-    .sd-status.rejected { background: #fdeceb; color: #c0392b; border: 1px solid #f5b7b1; }
-    .sd-status.suspended { background: #fdeceb; color: #7f1d1d; border: 1px solid #f5b7b1; }
-    .sd-stats { display: flex; gap: 14px; margin-bottom: 20px; }
-    .sd-stat { flex: 1; background: #fff; border: 1px solid #eee; padding: 16px; text-align: center; }
-    .sd-stat .num { font-size: 22px; font-weight: bold; color: #000000; }
-    .sd-stat .label { font-size: 11px; color: #888; margin-top: 4px; }
-    .sd-section { background: #fff; border: 1px solid #eee; padding: 20px; margin-bottom: 20px; }
-    .sd-section h2 { font-size: 16px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
-    .add-btn { background: #000000; color: #ffffff; padding: 8px 16px; text-decoration: none; font-size: 12px; font-weight: bold; border-radius: 4px; }
-    .sd-product-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-    .sd-product-row img { width: 46px; height: 46px; object-fit: cover; border: 1px solid #eee; }
-    .sd-product-row .name { flex: 1; }
-    .sd-product-row a { font-size: 12px; color: #000000; margin-left: 10px; }
-    .sd-order-row { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-    .sd-status-form select { font-size: 11px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
-    .sd-alert-box { background: #FEF3C7; color: #92400E; border-radius: 4px; padding: 12px 16px; font-size: 13px; margin-bottom: 16px; }
-    .sd-chart { display: flex; align-items: flex-end; gap: 10px; height: 160px; padding-top: 10px; }
-    .sd-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
-    .sd-bar-value { font-size: 10px; color: #666; margin-bottom: 6px; }
-    .sd-bar-track { width: 100%; max-width: 36px; flex: 1; background: #f0f0f0; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
-    .sd-bar-fill { width: 100%; background: #0b0b0d; border-radius: 3px 3px 0 0; min-height: 2px; }
-    .sd-bar-label { font-size: 10px; color: #333; margin-top: 6px; }
-
-    html[data-theme="dark"] .sd-stat, html[data-theme="dark"] .sd-section { background: #1e1f26; border-color: #333; }
-    html[data-theme="dark"] .sd-stat .num { color: #fff; }
-    html[data-theme="dark"] .sd-stat .label { color: #999; }
-    html[data-theme="dark"] .sd-product-row, html[data-theme="dark"] .sd-order-row { border-color: #333; }
-    html[data-theme="dark"] .sd-product-row img { border-color: #333; }
-    html[data-theme="dark"] .sd-product-row a { color: #fff; }
-    html[data-theme="dark"] .sd-status-form select { background: #2a2b33; color: #eee; border-color: #444; }
-    html[data-theme="dark"] .sd-alert-box { background: #2a2410; color: #e8cf8a; }
-    html[data-theme="dark"] .sd-bar-track { background: #2a2b33; }
-    html[data-theme="dark"] .sd-bar-fill { background: #e8cf8a; }
-    html[data-theme="dark"] .sd-bar-value, html[data-theme="dark"] .sd-bar-label { color: #ccc; }
-    .remove-member-btn { background: none; border: 1px solid #c0392b; color: #c0392b; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
-    .remove-member-btn:hover { background: #c0392b; color: #fff; }
-    .add-member-form { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-    .add-member-form input { flex: 1; min-width: 160px; padding: 8px 10px; border: 1px solid #ddd; font-size: 13px; }
-    .add-member-form select { padding: 8px 10px; border: 1px solid #ddd; font-size: 13px; }
-    .add-member-form button { background: #0b0b0d; color: #e8cf8a; border: 1px solid #c9a24b; padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; }
-    .add-member-form button:hover { background: #c9a24b; color: #0b0b0d; }
-    html[data-theme="dark"] .add-member-form input, html[data-theme="dark"] .add-member-form select { background: #2a2b33; color: #eee; border-color: #444; }
-    .sd-title { font-size: 20px; font-weight: 500; margin-bottom: 12px; }
-    .sd-role-tag { font-size: 12px; color: #888; font-weight: normal; }
-
-    @media (max-width: 700px) {
-        .sd-wrap { margin: 12px; }
-        .sd-stats { flex-wrap: wrap; }
-        .sd-stat { flex: 1 1 45%; }
-        .sd-order-row { flex-wrap: wrap; }
-    }
+    .dash { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+    .dash .panel h2 { font-size: 1.2rem; margin-bottom: 14px; }
+    .ph { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .ph h2 { margin: 0 !important; }
+    .prow { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+    .prow img { width: 52px; height: 52px; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-2); }
+    .prow .acts { display: flex; gap: 6px; }
+    .srow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .srow select { min-height: 38px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+    @media (max-width: 960px) { .dash { grid-template-columns: 1fr; } }
 {% endblock %}
 {% block content %}
-<div class="sd-wrap">
-    <h1 class="sd-title">{{ seller.display_name }}{% if role == "staff" or role == "admin" %} <span class="sd-role-tag">(you're helping as {{ role }})</span>{% endif %}</h1>
-    <div class="sd-status {{ seller.status }}">
-        {% if seller.status == "pending" %}Your seller application is pending review. You'll be notified once approved.
-        {% elif seller.status == "approved" %}You're an approved {{ seller.get_account_type_display|lower }} &middot; Base commission: {{ seller.commission_rate }}% &middot; Current rate (after volume discount): {{ seller.effective_commission_rate }}%
-        {% elif seller.status == "suspended" %}Your seller account has been suspended. Contact support for details.
-        {% else %}Your application was not approved.{% if seller.admin_note %} Reason: {{ seller.admin_note }}{% endif %}
-        {% endif %}
+<div class="wrap page">
+    <div class="page-head">
+        <div>
+            <h1>{{ seller.display_name }}</h1>
+            <p>{% if role == "owner" %}Seller dashboard{% else %}You're helping as {{ role }}{% endif %}{% if seller.status == "approved" %} · Commission {{ seller.effective_commission_rate|floatformat:"-1" }}%{% endif %}</p>
+        </div>
+        {% if seller.status == "approved" %}<div style="display:flex;gap:8px;"><a class="btn btn-secondary" href="{% url 'store_page' seller.display_name %}">View store</a><a class="btn btn-primary" href="{% url 'seller_add_product' %}">Add product</a></div>{% endif %}
     </div>
 
-    <div class="sd-stats">
-        <div class="sd-stat"><div class="num">{{ product_count }}</div><div class="label">Products listed</div></div>
-        <div class="sd-stat"><div class="num">Rs.{{ total_sales }}</div><div class="label">Total sales</div></div>
-        <div class="sd-stat"><div class="num">Rs.{{ commission_owed }}</div><div class="label">Platform commission</div></div>
-        <div class="sd-stat"><div class="num">Rs.{{ net_earnings }}</div><div class="label">Your net earnings</div></div>
-    </div>
+    {% if seller.status == "pending" %}<div class="callout warn"><strong>Application under review.</strong> We'll notify you as soon as it's approved, usually within two business days.</div>
+    {% elif seller.status == "suspended" %}<div class="callout bad"><strong>Account suspended.</strong> Please contact support for details.</div>
+    {% elif seller.status == "rejected" %}<div class="callout bad"><strong>Application not approved.</strong>{% if seller.admin_note %} {{ seller.admin_note }}{% endif %}</div>{% endif %}
 
-    {% if low_stock_products or out_of_stock_products %}
-    <div class="sd-alert-box">
-        {% if out_of_stock_products %}<strong>{{ out_of_stock_products.count }}</strong> product(s) out of stock.{% endif %}
-        {% if low_stock_products %}<strong>{{ low_stock_products.count }}</strong> product(s) running low (5 or fewer left).{% endif %}
-        Restock soon to avoid missing sales.
+    {% if out_of_stock_products or low_stock_products %}
+    <div class="callout warn">
+        {% if out_of_stock_products %}<strong>{{ out_of_stock_products.count }} out of stock.</strong> {% endif %}{% if low_stock_products %}<strong>{{ low_stock_products.count }} running low</strong> (5 or fewer). {% endif %}Restock to keep selling.
     </div>
     {% endif %}
 
-    <div class="sd-section">
-        <h2>Sales &mdash; last 7 days</h2>
-        <div class="sd-chart">
-            {% for d in daily_sales %}
-            <div class="sd-bar-col">
-                <div class="sd-bar-value">Rs.{{ d.amount|floatformat:0 }}</div>
-                <div class="sd-bar-track"><div class="sd-bar-fill" style="height:{{ d.pct }}%;"></div></div>
-                <div class="sd-bar-label">{{ d.label }}</div>
-            </div>
-            {% endfor %}
-        </div>
+    <div class="kpis">
+        <div class="kpi"><strong>{{ product_count }}</strong><span>Products listed</span></div>
+        <div class="kpi"><strong>{{ total_sales|money }}</strong><span>Total sales</span></div>
+        <div class="kpi"><strong>{{ commission_owed|money }}</strong><span>Platform commission</span></div>
+        <div class="kpi"><strong>{{ net_earnings|money }}</strong><span>Your earnings</span></div>
     </div>
 
-    {% if top_products %}
-    <div class="sd-section">
-        <h2>Your top-selling products</h2>
-        {% for p in top_products %}
-        <div class="sd-order-row">
-            <span>{{ forloop.counter }}. {{ p.name }}</span>
-            <span>{{ p.units_sold }} sold</span>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <div class="sd-section">
-        <h2>My products {% if seller.status == "approved" %}<a class="add-btn" href="{% url 'seller_add_product' %}">+ Add product</a>{% endif %}</h2>
-        {% for p in products %}
-        <div class="sd-product-row">
-            <img src="{{ p.image_url }}" alt="{{ p.name }}">
-            <span class="name">{{ p.name }}</span>
-            <span>Rs.{{ p.price }} &middot; Stock: {{ p.stock }}</span>
-            <a href="{% url 'seller_edit_product' p.id %}">Edit</a>
-            <a href="{% url 'seller_delete_product' p.id %}" onclick="return confirm('Remove this product?')" style="color:#c0392b;">Delete</a>
-        </div>
-        {% empty %}
-        <p style="font-size:13px;color:#888;">No products listed yet.</p>
-        {% endfor %}
-    </div>
-
-    <div class="sd-section">
-        <h2>Recent sales</h2>
-        {% for item in order_items %}
-        <div class="sd-order-row">
-            <span>{{ item.product_name }} x{{ item.quantity }} &middot; Order #{{ item.order.id }}</span>
-            <span>Rs.{{ item.subtotal }}</span>
-            <form method="post" action="{% url 'update_fulfillment_status' item.id %}" class="sd-status-form">
-                {% csrf_token %}
-                <select name="fulfillment_status" onchange="this.form.submit()">
-                    {% for value, label in item.FULFILLMENT_CHOICES %}
-                    <option value="{{ value }}" {% if item.fulfillment_status == value %}selected{% endif %}>{{ label }}</option>
+    <div class="dash">
+        <div style="display:grid;gap:20px;">
+            <section class="panel">
+                <h2>Sales in the last 7 days</h2>
+                <div class="bars" role="img" aria-label="Daily sales for the last 7 days">
+                    {% for d in daily_sales %}
+                    <div class="bar" title="{{ d.label }}: {{ d.amount|money }}"><span>{{ d.amount|floatformat:0 }}</span><div class="bar-track"><div class="bar-fill" style="height:{{ d.pct }}%;"></div></div><span>{{ d.label }}</span></div>
                     {% endfor %}
-                </select>
-            </form>
-        </div>
-        {% empty %}
-        <p style="font-size:13px;color:#888;">No sales yet.</p>
-        {% endfor %}
-    </div>
+                </div>
+            </section>
 
-    {% if seller.account_type == "organization" and role == "owner" %}
-    <div class="sd-section">
-        <h2>Team members</h2>
-        <p style="font-size:12px;color:#888;margin-bottom:12px;">
-            Add colleagues so they can help manage your products and orders without sharing your login.
-            They need a 19Bees account first &mdash; add them by their username or email.
-        </p>
-        {% for member in seller.team_members.all %}
-        <div class="sd-order-row">
-            <span>{{ member.user.username }} <span style="color:#888;">({{ member.get_role_display }})</span></span>
-            <form method="post" action="{% url 'remove_team_member' member.id %}" style="margin:0;">
-                {% csrf_token %}
-                <button type="submit" class="remove-member-btn" onclick="return confirm('Remove {{ member.user.username }} from the team?');">Remove</button>
-            </form>
+            <section class="panel">
+                <div class="ph"><h2>Your products</h2><span class="muted small">{{ product_count }} total</span></div>
+                {% for p in products %}
+                <div class="prow">
+                    <img src="{{ p.image_url }}" alt="">
+                    <div>
+                        <a class="link" href="{% url 'product_detail' p.id %}" style="text-decoration:none;color:var(--ink);">{{ p.name }}</a>
+                        <div class="muted small">{{ p.price|money }} · {% if p.stock <= 0 %}<span style="color:var(--sale);font-weight:700;">Out of stock</span>{% else %}{{ p.stock }} in stock{% endif %}{% if p.approval_status != "approved" %} · <span class="badge {% if p.approval_status == 'rejected' %}badge-sale{% else %}badge-warn{% endif %}">{{ p.get_approval_status_display }}</span>{% endif %}</div>
+                    </div>
+                    <div class="acts">
+                        {% if seller.status == "approved" %}
+                        <a class="btn btn-secondary btn-sm" href="{% url 'seller_edit_product' p.id %}">Edit</a>
+                        <form method="post" action="{% url 'seller_delete_product' p.id %}" onsubmit="return confirm('Remove “{{ p.name|escapejs }}” from your store?')">{% csrf_token %}<button class="btn btn-ghost btn-sm" type="submit" aria-label="Delete {{ p.name }}">Delete</button></form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% empty %}
+                <p class="muted">No products yet.{% if seller.status == "approved" %} <a class="link" href="{% url 'seller_add_product' %}">Add your first product</a>.{% endif %}</p>
+                {% endfor %}
+            </section>
         </div>
-        {% empty %}
-        <p style="font-size:13px;color:#888;">No team members added yet.</p>
-        {% endfor %}
-        <form method="post" action="{% url 'add_team_member' %}" class="add-member-form">
-            {% csrf_token %}
-            <input type="text" name="username_or_email" placeholder="Username or email" required>
-            <select name="role">
-                <option value="staff">Staff (products &amp; orders)</option>
-                <option value="admin">Admin (full access)</option>
-            </select>
-            <button type="submit">Add to team</button>
-        </form>
+
+        <div style="display:grid;gap:20px;">
+            <section class="panel">
+                <h2>Orders to fulfil</h2>
+                {% for item in order_items %}
+                <div class="srow">
+                    <div><strong>{{ item.product_name }}</strong> × {{ item.quantity }}<div class="muted small">Order #{{ item.order.id }} · {{ item.order.created_at|date:"M j" }} · {{ item.subtotal|money }}</div></div>
+                    <form method="post" action="{% url 'update_fulfillment_status' item.id %}">
+                        {% csrf_token %}
+                        <label class="sr-only" for="fs{{ item.id }}">Fulfilment status</label>
+                        <select id="fs{{ item.id }}" name="fulfillment_status" onchange="this.form.submit()">
+                            {% for value, label in item.FULFILLMENT_CHOICES %}<option value="{{ value }}" {% if item.fulfillment_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                        </select>
+                    </form>
+                </div>
+                {% empty %}
+                <p class="muted">No orders yet. They'll appear here as soon as someone buys.</p>
+                {% endfor %}
+            </section>
+
+            {% if top_products %}
+            <section class="panel">
+                <h2>Best sellers</h2>
+                {% for p in top_products %}<div class="srow"><span>{{ p.name }}</span><strong>{{ p.units_sold }} sold</strong></div>{% endfor %}
+            </section>
+            {% endif %}
+
+            {% if seller.account_type == "organization" and role == "owner" %}
+            <section class="panel">
+                <h2>Team</h2>
+                <p class="muted small" style="margin-bottom:10px;">Give colleagues access to products and orders without sharing your password. They need an account first.</p>
+                {% for member in seller.team_members.all %}
+                <div class="srow">
+                    <span><strong>{{ member.user.username }}</strong> <span class="muted small">{{ member.get_role_display }}</span></span>
+                    <form method="post" action="{% url 'remove_team_member' member.id %}" onsubmit="return confirm('Remove {{ member.user.username|escapejs }} from the team?')">{% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm">Remove</button></form>
+                </div>
+                {% empty %}
+                <p class="muted">No team members yet.</p>
+                {% endfor %}
+                <form method="post" action="{% url 'add_team_member' %}" style="display:grid;gap:10px;margin-top:14px;">
+                    {% csrf_token %}
+                    <label class="sr-only" for="tm_user">Username or email</label>
+                    <input class="input" id="tm_user" type="text" name="username_or_email" placeholder="Username or email" required>
+                    <label class="sr-only" for="tm_role">Role</label>
+                    <select class="input" id="tm_role" name="role"><option value="staff">Staff: products and orders</option><option value="admin">Admin: full access</option></select>
+                    <button type="submit" class="btn btn-secondary">Add to team</button>
+                </form>
+            </section>
+            {% endif %}
+        </div>
     </div>
-    {% endif %}
 </div>
 {% endblock %}

@@ -1,27 +1,24 @@
 {% extends "bees/base.html" %}
+{% block title %}Notifications — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
-    .notif-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
-    .notif-item { padding: 14px 20px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-    .notif-item a { color: #333; text-decoration: none; }
-    .notif-item .time { color: #999; font-size: 11px; margin-top: 4px; }
-    .notif-item.unread { background: #f5f5f5; }
-
-    html[data-theme="dark"] .notif-wrap { background: #1e1f26; border-color: #333; }
-    html[data-theme="dark"] .notif-item { border-color: #333; }
-    html[data-theme="dark"] .notif-item a { color: #eee; }
-    html[data-theme="dark"] .notif-item.unread { background: #2a2b33; }
+    .note { display: flex; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+    .note:last-child { border-bottom: 0; }
+    .note.unread strong::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 999px; background: var(--accent); margin-right: 10px; vertical-align: middle; }
+    a.note:hover strong { text-decoration: underline; }
 {% endblock %}
 {% block content %}
-<div class="notif-wrap">
-    <div style="padding:16px 20px;font-size:18px;font-weight:500;border-bottom:1px solid #eee;">Notifications</div>
-    {% for n in notifications %}
-    <div class="notif-item {% if not n.is_read %}unread{% endif %}">
-        <a href="{{ n.link|default:'#' }}">{{ n.message }}</a>
-        <div class="time">{{ n.created_at|date:"d M Y, h:i A" }}</div>
+<div class="wrap page" style="max-width:820px;">
+    <div class="page-head"><div><h1>Notifications</h1><p>Order updates, offers and messages from sellers.</p></div></div>
+    <div class="panel">
+        {% for n in notifications %}
+        <{% if n.link %}a href="{{ n.link }}"{% else %}div{% endif %} class="note {% if not n.is_read %}unread{% endif %}">
+            <strong style="font-weight:{% if n.is_read %}400{% else %}700{% endif %};">{{ n.message }}</strong>
+            <span class="muted small" style="white-space:nowrap;">{{ n.created_at|timesince }} ago</span>
+        </{% if n.link %}a{% else %}div{% endif %}>
+        {% empty %}
+        <div class="empty" style="padding:24px;"><h2>You're all caught up</h2><p>We'll let you know when something changes with your orders.</p></div>
+        {% endfor %}
     </div>
-    {% empty %}
-    <div style="padding:30px;text-align:center;color:#888;">No notifications yet.</div>
-    {% endfor %}
 </div>
 {% endblock %}

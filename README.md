@@ -1,86 +1,144 @@
-# 19Bees
+# White-label multi-vendor marketplace (Django)
 
-Ek simple e-commerce website ka starter project — Django (Python) ke sath banaya gaya hai.
+A complete, production-ready marketplace you can rebrand in minutes: customers shop and pay by card,
+independent sellers and businesses run their own stores, and the owner earns commission on every sale.
 
-## Structure
-- **backend/** – Django project settings, urls, wsgi
-- **bees/** – Main app (backend view + frontend template)
-- **db.sqlite3** – Default database (SQLite), migrate hone par create hoti hai
+Out of the box it ships as **"Lumen Market"**. Change the name, logo, colours, homepage copy, shipping,
+tax and contact details from **Admin → Site settings** — no code changes.
 
-## Routes
-- `/` – Frontend home page (Hello World HTML template)
-- `/api/hello/` – Backend API endpoint (Hello World text response)
-- `/admin/` – Django admin panel
+## Highlights
 
-## Run locally
+**For customers**
+- Fast, accessible storefront (WCAG-minded contrast, 16px+ text, keyboard focus, dark mode, mobile-first)
+- Search with live suggestions, category navigation, filters (price, rating, seller, stock) and sorting
+- Product pages with gallery, verified-purchase reviews, questions for the seller, related products
+- Cart with live updates, saved addresses, coupons, shipping and tax calculation
+- **Stripe Checkout** — cards, Apple Pay, Google Pay, Link (whatever you enable in Stripe)
+- Order tracking, PDF invoices, one-click cancel with **automatic refund**, return requests, buy again
+- Wishlist, product comparison, notifications, referral rewards, support chat
+
+**For sellers**
+- Individual and business accounts, with team members for businesses
+- Dashboard: sales chart, earnings after commission, low-stock alerts, order fulfilment
+- Product listing with image upload; edits to listing details go back to moderation automatically
+
+**For the store owner**
+- Store dashboard: revenue, commission, money owed to sellers, approvals and stock alerts
+- Admin for products, orders, sellers, coupons, returns, chat, newsletter (with bulk email) and audit log
+- Tiered commission, payout tracking, CSV exports
+- White-label branding, announcement bar, cash-on-delivery toggle
+
+**Engineering**
+- Django 6, Postgres (**Supabase**) or SQLite, S3-compatible file storage (**Supabase Storage**)
+- Atomic checkout with row locking (no overselling), idempotent signed Stripe webhooks with amount checks
+- Rate limiting, upload validation, private storage for seller ID documents, safe production defaults
+- 85+ automated tests: `python manage.py test bees`
+
+## Quick start (local)
+
 ```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # then edit .env and add your GOOGLE_CLIENT_ID
+cp .env.example .env            # DEBUG=True is already set for local use
 python manage.py migrate
-python manage.py seed_data
-python manage.py createsuperuser   # or set username/password to admin/yourpassword123
+python manage.py seed_data      # demo products and coupons (optional)
+python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Then open http://127.0.0.1:8000/
+Open http://127.0.0.1:8000 — the admin is at `/admin/`, the store dashboard at `/owner/dashboard/`.
 
-## Updating your Codespace after I push changes
-Every time I push new code, run this **one command** in your Codespaces terminal instead of doing
-`git pull`, `migrate`, `runserver` separately:
-```bash
-bash update.sh
+## Rebrand the store
+
+Admin → **Site settings**:
+
+| Section | What you set |
+|---|---|
+| Brand | Store name, tagline, logo (URL or upload), favicon, primary + accent colour |
+| Homepage hero | Headline, subheading, optional hero image |
+| Contact & social | Support email/phone, company address, social links |
+| Checkout | Tax %, flat shipping fee, free-shipping threshold, cash on delivery on/off |
+| Announcement bar | Site-wide message and link |
+
+Use a **dark** primary colour (white text sits on it) and a **bright** accent colour (dark text sits on it).
+Prices use the `STORE_CURRENCY` environment variable (USD by default).
+
+## Connect Supabase
+
+1. Create a project at https://supabase.com.
+2. **Database**: Project Settings → Database → *Connection string* → URI. Put it in `DATABASE_URL`.
+   Use the session pooler (port 5432) on a normal server, or the transaction pooler (port 6543) on
+   serverless hosts — the settings adapt automatically.
+3. **Storage**: Storage → New bucket:
+   - `media` — **public** (product images, logos, store banners)
+   - `private` — **private** (seller ID documents and certificates)
+4. Storage → Settings → **S3 Connection**: enable it, create an access key, and fill in
+   `SUPABASE_PROJECT_REF`, `SUPABASE_S3_REGION`, `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY`.
+5. Run `python manage.py migrate` against the new database and create a superuser.
+
+## Connect Stripe
+
+1. Get API keys at https://dashboard.stripe.com/test/apikeys and set `STRIPE_SECRET_KEY` /
+   `STRIPE_PUBLISHABLE_KEY`. "Card, Apple Pay or Google Pay" appears at checkout automatically.
+2. Developers → Webhooks → **Add endpoint** `https://YOUR-DOMAIN/payment/stripe/webhook/` with events
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `checkout.session.async_payment_failed`, `checkout.session.expired`. Copy the signing secret into
+   `STRIPE_WEBHOOK_SECRET`.
+3. Local testing with the Stripe CLI:
+   ```bash
+   stripe listen --forward-to localhost:8000/payment/stripe/webhook/
+   ```
+   Pay with the test card `4242 4242 4242 4242`, any future date, any CVC.
+4. Switch to live keys when you're ready to take real payments.
+
+How payments work: placing a card order reserves stock and opens Stripe's hosted page. The webhook
+confirms the exact amount and marks the order paid. Abandoned payments expire after 30 minutes and the
+stock is returned. As a safety net, schedule `python manage.py release_unpaid_orders` every 15–30 minutes.
+
+## Deploy
+
+Any host that runs Python works (Render, Railway, Fly.io, Heroku, a VPS). Minimum production settings:
+
 ```
-Note: there's no way to make code changes appear in your browser instantly without pulling — I can
-only edit files in my own sandbox and push to GitHub. Codespaces is a separate machine, so it always
-needs to fetch the new commits. `update.sh` just makes that a single step instead of four.
+DEBUG=False
+SECRET_KEY=<long random string>
+ALLOWED_HOSTS=shop.example.com
+CSRF_TRUSTED_ORIGINS=https://shop.example.com
+NUM_PROXIES=1
+DATABASE_URL=...            # Supabase
+SUPABASE_...                # storage keys
+STRIPE_...                  # payment keys
+EMAIL_HOST=...              # transactional email
+```
 
-## Troubleshooting
+Build / start commands:
 
-**"CSRF verification failed... Origin checking failed"**
-This happened because Codespaces serves your site over HTTPS through a dynamic proxy domain, and
-Django didn't trust it yet. This is now fixed in `backend/settings.py` (`CSRF_TRUSTED_ORIGINS` and
-`SECURE_PROXY_SSL_HEADER`) — just pull the latest code and it will be gone.
+```bash
+pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+gunicorn backend.wsgi --workers 3
+```
 
-**Google Sign-In: "Access blocked: Authorisation error" / "no registered origin" / "invalid_client"**
-This is not a code problem — it means your Codespaces URL hasn't been registered with your Google
-OAuth Client yet. Fix it in Google Cloud Console:
-1. Go to https://console.cloud.google.com/apis/credentials
-2. Open your OAuth 2.0 Client (the one whose Client ID is in your `.env`)
-3. Under **Authorized JavaScript origins**, add your exact Codespaces URL, e.g.
-   `https://humble-happiness-qv99wgprg4g9h9x9v-8000.app.github.dev` (no trailing slash)
-4. Under **Authorized redirect URIs**, add the same URL + `/auth/google/`, e.g.
-   `https://humble-happiness-qv99wgprg4g9h9x9v-8000.app.github.dev/auth/google/`
-5. Save. Changes can take a minute or two to apply.
+With more than one worker, also set `REDIS_URL` so rate limits are shared. `python manage.py check --deploy`
+should report no issues.
 
-Since Codespaces URLs can change if you rebuild the container, you'll need to re-add the new URL
-each time it changes.
-## Features
-- 19Bees-style navbar with search bar, cart icon with live item count
-- Big auto-changing image slider + "Try the app" QR box — shown only on the home page
-- Flash sale, Categories (21 categories, 5+ products each), and Just for you sections
-- Product detail page with working Buy Now / Add to cart and a review form
-- Full shopping cart: add, increase/decrease quantity, remove, live totals
-- Checkout with delivery details, creates a real Order in the database
-- "My orders" page to view order history
-- Admin panel at `/admin/` to manage products, reviews and orders (default login: your chosen username / your chosen password)
-- Signup / Login / Logout with Django's built-in auth system
-- "Continue with Google" — works once `GOOGLE_CLIENT_ID` is set in `.env`. Important: in Google Cloud
-  Console (APIs & Services → Credentials → your OAuth Client), add your site's exact URL (e.g. your
-  Codespaces preview URL) under **both** "Authorized JavaScript origins" and "Authorized redirect URIs",
-  otherwise Google will block the sign-in with an origin mismatch error. The `.env` file is not committed
-  to the repo (it's in `.gitignore`) — never commit real credentials.
-- Product filters — price range, minimum rating, seller, and in-stock, available on all-products,
-  category, and search pages. All filters combine with sort and stay applied across pagination.
-- Live chat support widget — real conversations, not a demo. Backed by `ChatThread`/`ChatMessage`
-  models; each logged-in user (or guest session) gets a persistent thread. Staff can view and reply
-  from `/admin/` under "Chat threads". Includes basic keyword auto-replies for common queries
-  (order tracking, returns) while a human hasn't responded yet.
-- Production security hardening auto-enables once you set `DEBUG=False` on your host: forces HTTPS,
-  secure cookies, HSTS, and clickjacking protection — no extra config needed beyond `DEBUG=False`.
-- Custom branded 404 and 500 error pages instead of Django's default error screens.
-- JazzCash payment gateway (Page Redirection / hosted checkout) — optional, off by default. Once you set
-  `JAZZCASH_MERCHANT_ID`, `JAZZCASH_PASSWORD`, and `JAZZCASH_INTEGRITY_SALT` in `.env` (get these from your
-  JazzCash merchant dashboard - apply at https://www.jazzcash.com.pk/business), "Pay with JazzCash" appears
-  at checkout automatically. `JAZZCASH_SANDBOX=True` (the default) uses JazzCash's sandbox for testing; set
-  it to `False` once you have live credentials. Signed with HMAC-SHA256 per JazzCash's spec; the return
-  callback verifies the signature before marking an order paid, so a forged callback can't fake a payment.
+## Project layout
+
+```
+backend/            settings, URLs, WSGI
+bees/               the marketplace app
+  views.py          storefront, checkout, seller and staff views
+  payments.py       Stripe Checkout + webhook handling
+  security.py       redirect safety, client IP, upload validation
+  models.py         products, orders, sellers, site settings ...
+  templates/bees/   storefront templates (design tokens live in base.html)
+  management/       seed_data, release_unpaid_orders
+```
+
+## Tests
+
+```bash
+python manage.py test bees
+```
+
+Covers order totals, shipping/tax, coupons, stock locking, Stripe flows (mocked), refunds,
+permissions, rate limiting, open-redirect protection, upload validation and white-label rendering.

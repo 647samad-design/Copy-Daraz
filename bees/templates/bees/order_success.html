@@ -1,39 +1,47 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}Order #{{ order.id }} — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
-    .success-wrap { display: flex; justify-content: center; margin: 50px 20px; }
-    .success-box { width: min(480px, 100%); background: #fff; border: 1px solid #eee; padding: 30px; text-align: center; }
-    .success-box .check { font-size: 50px; color: #27ae60; margin-bottom: 10px; }
-    .order-table { width: 100%; margin-top: 20px; text-align: left; font-size: 13px; }
-    .order-table th, .order-table td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
-    .btn-home { display: inline-block; margin-top: 20px; background: #000000; color: #fff; padding: 10px 24px; text-decoration: none; }
-    .delivering-to { color: #666; }
-    .invoice-link { color: #000000; }
-
-    html[data-theme="dark"] .success-box { background: #1e1f26; border-color: #333; }
-    html[data-theme="dark"] .order-table th, html[data-theme="dark"] .order-table td { border-color: #333; }
-    html[data-theme="dark"] .delivering-to { color: #aaa; }
-    html[data-theme="dark"] .invoice-link { color: #fff; }
+    .done-wrap { max-width: 720px; margin: 0 auto; }
+    .done-mark { width: 64px; height: 64px; border-radius: 999px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; margin-bottom: 18px; }
+    .done-mark svg { width: 32px; height: 32px; }
+    .row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .row.total { border-bottom: 0; font-weight: 700; font-size: 1.15rem; }
 {% endblock %}
 {% block content %}
-<div class="success-wrap">
-    <div class="success-box">
-        <div class="check">&#10003;</div>
-        <h2>{{ t.order_placed }}</h2>
-        <p>Order #{{ order.id }} &middot; {{ t.status }}: {{ order.get_status_display }}</p>
-        <table class="order-table">
+<div class="wrap page">
+    <div class="done-wrap">
+        <div class="panel">
+            {% if order.payment_status == "pending" %}
+            <h1>Payment processing</h1>
+            <p class="muted" style="margin-top:8px;">Order #{{ order.id }} is reserved. We'll email {{ order.contact_email }} as soon as your payment is confirmed.</p>
+            {% else %}
+            <div class="done-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></div>
+            <h1>Thank you, your order is confirmed</h1>
+            <p class="muted" style="margin-top:8px;">Order #{{ order.id }}{% if order.contact_email %} · A receipt is on its way to {{ order.contact_email }}{% endif %}</p>
+            {% endif %}
+
+            <hr class="divider">
             {% for item in order.items.all %}
-            <tr>
-                <td>{{ item.product_name }} x{{ item.quantity }}</td>
-                <td>Rs.{{ item.subtotal }}</td>
-            </tr>
+            <div class="row"><span>{{ item.product_name }} × {{ item.quantity }}</span><span>{{ item.subtotal|money }}</span></div>
             {% endfor %}
-            <tr><th>{{ t.total }}</th><th>Rs.{{ order.total }}</th></tr>
-        </table>
-        <p style="margin-top:14px;font-size:13px;" class="delivering-to">{{ t.delivering_to }} {{ order.address }}, {{ order.city }}</p>
-        <a href="{% url 'invoice_pdf' order.id %}" class="invoice-link" style="display:inline-block;margin-top:14px;font-size:13px;">&#128196; Download invoice (PDF)</a>
-        <br>
-        <a class="btn-home" href="{% url 'home' %}">{{ t.continue_shopping }}</a>
+            {% if order.discount_amount %}<div class="row" style="color:var(--ok);"><span>Discount{% if order.coupon_code %} ({{ order.coupon_code }}){% endif %}</span><span>−{{ order.discount_amount|money }}</span></div>{% endif %}
+            <div class="row"><span>Shipping</span><span>{% if order.shipping_amount %}{{ order.shipping_amount|money }}{% else %}Free{% endif %}</span></div>
+            {% if order.tax_amount %}<div class="row"><span>Tax</span><span>{{ order.tax_amount|money }}</span></div>{% endif %}
+            <div class="row total"><span>{{ t.total }}</span><span>{{ order.total|money }}</span></div>
+
+            <hr class="divider">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;">
+                <div><h3 style="font-size:1rem;margin-bottom:6px;">Shipping to</h3><p class="muted">{{ order.full_name }}<br>{{ order.address }}<br>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}<br>{{ order.country|country_name }}</p></div>
+                <div><h3 style="font-size:1rem;margin-bottom:6px;">Payment</h3><p class="muted">{{ order.get_payment_method_display }}<br>{{ order.get_payment_status_display }}</p></div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:26px;">
+                <a class="btn btn-primary" href="{% url 'my_orders' %}">Track this order</a>
+                <a class="btn btn-secondary" href="{% url 'invoice_pdf' order.id %}">Download invoice</a>
+                <a class="btn btn-ghost" href="{% url 'all_products' %}">{{ t.continue_shopping }}</a>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

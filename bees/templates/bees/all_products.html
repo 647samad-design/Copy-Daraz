@@ -1,23 +1,6 @@
 {% extends "bees/base.html" %}
-{% block title %}All Products - Shop online at 19Bees{% endblock %}
-{% block meta_description %}Browse all products at 19Bees - skincare, electronics, fashion, groceries and more from trusted sellers across Pakistan.{% endblock %}
+{% block title %}All products — {{ brand.site_name }}{% endblock %}
+{% block meta_description %}Browse every product at {{ brand.site_name }}: beauty, electronics, fashion, home and more from trusted sellers.{% endblock %}
 {% block content %}
-    <div class="section">
-        <div class="section-header">
-            <h2>{{ t.all_products }}</h2>
-        </div>
-        <div class="shop-layout">
-            {% include "bees/partials/filters_sidebar.html" %}
-            <div class="shop-main">
-                <div class="product-grid">
-                    {% for product in products %}
-                    {% include "bees/partials/product_card.html" %}
-                    {% empty %}
-                    <p>{{ t.no_products }}</p>
-                    {% endfor %}
-                </div>
-                {% include "bees/partials/pagination.html" %}
-            </div>
-        </div>
-    </div>
+{% include "bees/partials/listing.html" with listing_title=t.all_products empty_title="Nothing matches those filters" empty_text="Try widening the price range or clearing a filter." %}
 {% endblock %}

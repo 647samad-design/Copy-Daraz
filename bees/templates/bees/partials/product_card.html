@@ -1,32 +1,38 @@
-<div class="wishlist-heart">
+{% load bees_extras %}
+<article class="pcard">
+    <a class="pcard-media" href="{% url 'product_detail' product.id %}" onclick="return openQuickView(event, {{ product.id }})" aria-label="{{ product.name }}">
+        <img src="{{ product.image_url }}" alt="" loading="lazy">
+        {% if product.stock <= 0 %}<span class="pcard-flag badge">{{ t.out_of_stock }}</span>
+        {% elif product.discount_percent %}<span class="pcard-flag badge badge-accent">Save {{ product.discount_percent }}%</span>{% endif %}
+    </a>
     {% if user.is_authenticated %}
-    <form method="post" action="{% url 'toggle_wishlist' product.id %}" class="wishlist-form">
+    <form method="post" action="{% url 'toggle_wishlist' product.id %}" class="pcard-fav">
         {% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.path }}">
-        <button type="submit" class="{% if product.id in wishlist_ids %}active{% endif %}">&#9829;</button>
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit" class="{% if product.id in wishlist_ids %}active{% endif %}" aria-label="{% if product.id in wishlist_ids %}Remove from wishlist{% else %}Save to wishlist{% endif %}" aria-pressed="{% if product.id in wishlist_ids %}true{% else %}false{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20s-7.5-4.6-9.3-9.3C1.6 7.6 3.6 4.5 7 4.5c2 0 3.4 1.1 5 3 1.6-1.9 3-3 5-3 3.4 0 5.4 3.1 4.3 6.2C19.5 15.4 12 20 12 20Z"/></svg>
+        </button>
     </form>
     {% endif %}
-    <a class="product-card" href="{% url 'product_detail' product.id %}" onclick="return openQuickView(event, {{ product.id }})">
-        <div class="img-wrap">
-            <img src="{{ product.image_url }}" alt="{{ product.name }}" loading="lazy">
-        </div>
-        <div class="pname">{{ product.name }}</div>
-        <div>
-            <span class="price">Rs.{{ product.price }}</span>
-            {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
-        </div>
-        {% if product.old_price %}<div class="old-price">Rs.{{ product.old_price }}</div>{% endif %}
-        <div class="card-rating">
-            {% for i in "12345" %}{% if forloop.counter <= product.average_rating|add:"0.5"|floatformat:"0" %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}
-            <span class="rcount">({{ product.rating_count }})</span>
-        </div>
-        {% if product.stock <= 0 %}
-        <div class="stock-badge out">{{ t.out_of_stock }}</div>
-        {% elif product.stock <= 5 %}
-        <div class="stock-badge low">{{ t.only_left }} {{ product.stock }}</div>
+    <div class="pcard-body">
+        <span class="pcard-seller">{{ product.seller_name }}</span>
+        <a class="pcard-name" href="{% url 'product_detail' product.id %}">{{ product.name }}</a>
+        {% if product.rating_count %}
+        <span class="pcard-meta"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span><span>{{ product.average_rating }} ({{ product.rating_count }})</span></span>
         {% endif %}
-    </a>
-    <a href="{% url 'toggle_compare' product.id %}" class="compare-link" style="display:block;text-align:center;font-size:11px;text-decoration:none;padding:4px 0;border-top:1px solid #f5f5f5;">
-        {% if product.id in compare_ids %}&#10003; In compare{% else %}+ Compare{% endif %}
-    </a>
-</div>
+        <div class="pcard-price">
+            <span class="price">{{ product.price|money }}</span>
+            {% if product.old_price %}<span class="price-was"><span class="sr-only">Was </span>{{ product.old_price|money }}</span>{% endif %}
+        </div>
+        {% if product.stock > 0 and product.stock <= 5 %}<span class="pcard-stock low">Only {{ product.stock }} left</span>{% endif %}
+        <div class="pcard-actions">
+            {% if product.stock > 0 %}
+            <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-secondary btn-sm btn-block">{{ t.add_to_cart }}</button>
+            </form>
+            {% endif %}
+            <a href="{% url 'toggle_compare' product.id %}" class="pcard-compare" rel="nofollow">{% if product.id in compare_ids %}Comparing{% else %}Compare{% endif %}</a>
+        </div>
+    </div>
+</article>

@@ -1,0 +1,10 @@
+{% if order.status == "cancelled" %}
+<p class="badge badge-sale">{{ t.order_cancelled_note }}{% if order.payment_status == "refunded" %} Refunded to your card.{% endif %}</p>
+{% else %}
+<ol class="track" aria-label="Order progress">
+    <li class="done"><span class="dot"></span>Placed</li>
+    <li class="{% if order.status in 'confirmed shipped delivered' %}done{% endif %}"><span class="dot"></span>{{ t.confirmed }}</li>
+    <li class="{% if order.status in 'shipped delivered' %}done{% endif %}"><span class="dot"></span>{{ t.shipped }}</li>
+    <li class="{% if order.status == 'delivered' %}done{% endif %}"><span class="dot"></span>{{ t.delivered }}</li>
+</ol>
+{% endif %}

@@ -1,7 +1,10 @@
 import uuid
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
+
+hex_color = RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Enter a 6-digit hex colour like #0E3B43.")
 
 
 def _private_storage():
@@ -371,6 +374,9 @@ class Address(models.Model):
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=2, blank=True)
 
+    class Meta:
+        verbose_name_plural = "Addresses"
+
     def __str__(self):
         return f"{self.label} - {self.user.username}"
 
@@ -619,8 +625,8 @@ class SiteSettings(models.Model):
     )
     logo_file = models.ImageField(upload_to="branding/", blank=True, null=True, help_text="Or upload a logo here (PNG/SVG/JPG).")
     favicon_url = models.CharField(max_length=500, blank=True)
-    primary_color = models.CharField(max_length=7, default="#111827", help_text="Main brand color (buttons, header). Hex, e.g. #111827")
-    accent_color = models.CharField(max_length=7, default="#2563EB", help_text="Accent color (links, highlights). Hex, e.g. #2563EB")
+    primary_color = models.CharField(max_length=7, default="#0E3B43", validators=[hex_color], help_text="Main brand colour (buttons, footer). Use a dark colour so white text stays readable. Hex, e.g. #0E3B43")
+    accent_color = models.CharField(max_length=7, default="#F2B33D", validators=[hex_color], help_text="Accent colour (badges, highlights, announcement bar). Use a light/bright colour - dark text sits on it. Hex, e.g. #F2B33D")
     hero_title = models.CharField(max_length=120, default="Everyday essentials, beautifully curated")
     hero_subtitle = models.CharField(max_length=240, default="Shop trusted brands and independent sellers. Secure checkout, fast shipping and easy returns.")
     hero_image_url = models.CharField(max_length=500, blank=True)
@@ -640,7 +646,7 @@ class SiteSettings(models.Model):
     show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")
     banner_text = models.CharField(
         max_length=200, blank=True,
-        help_text="Shown as a site-wide announcement bar at the top of every page, e.g. 'Eid Sale: 20% off everything!'. Leave blank to hide it.",
+        help_text="Shown as a site-wide announcement bar at the top of every page, e.g. 'Summer sale: 20% off everything'. Leave blank to hide it.",
     )
     banner_active = models.BooleanField(default=False)
     banner_link = models.CharField(max_length=300, blank=True, help_text="Optional URL the banner links to (e.g. a sale category page).")

@@ -4,7 +4,7 @@ password reset) - no extra dependency, just Django's cache framework.
 
 Note: by default this uses Django's LocMemCache, which is per-process memory.
 That's fine for a single-server deployment (the common case for a project
-this size), but if 19Bees is ever deployed behind multiple app server
+this size), but if the store is ever deployed behind multiple app server
 processes/machines without a shared cache (e.g. Redis), each process would
 track its own counters independently, meaning the *effective* limit becomes
 rate x number_of_processes. Worth revisiting with a Redis cache backend if/

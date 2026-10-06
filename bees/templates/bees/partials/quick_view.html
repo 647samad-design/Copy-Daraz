@@ -1,24 +1,24 @@
-<div class="qv-layout">
-    <div class="qv-image-col">
-        <img src="{{ product.image_url }}" alt="{{ product.name }}" style="width:100%;height:220px;object-fit:cover;">
-    </div>
-    <div class="qv-text-col">
-        <h2 class="qv-title" style="font-size:18px;margin-bottom:8px;">{{ product.name }}</h2>
-        <div style="color:#f5a623;font-size:13px;margin-bottom:8px;">&#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} reviews</div>
-        <div style="margin-bottom:10px;">
-            <span class="qv-price" style="font-size:22px;font-weight:bold;">Rs.{{ product.price }}</span>
-            {% if product.old_price %}<span class="qv-oldprice" style="font-size:13px;text-decoration:line-through;margin-left:8px;">Rs.{{ product.old_price }}</span>{% endif %}
-            {% if product.discount_percent %}<span class="qv-discount" style="font-size:13px;margin-left:6px;">-{{ product.discount_percent }}%</span>{% endif %}
+{% load bees_extras %}
+<div class="qv">
+    <img src="{{ product.image_url }}" alt="{{ product.name }}">
+    <div class="stack">
+        <span class="muted small">{{ product.seller_name }}</span>
+        <h2 style="margin-top:4px;">{{ product.name }}</h2>
+        {% if product.rating_count %}<div class="pcard-meta"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span> {{ product.average_rating }} · {{ product.rating_count }} review{{ product.rating_count|pluralize }}</div>{% endif %}
+        <div class="pcard-price">
+            <span class="price" style="font-size:1.6rem;">{{ product.price|money }}</span>
+            {% if product.old_price %}<span class="price-was">{{ product.old_price|money }}</span>{% endif %}
+            {% if product.discount_percent %}<span class="price-off">Save {{ product.discount_percent }}%</span>{% endif %}
         </div>
-        <p class="qv-desc" style="font-size:13px;margin-bottom:14px;line-height:1.5;">{{ product.description|truncatewords:30 }}</p>
-        {% if product.stock > 0 %}
-        <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form" style="display:inline-block;">
-            {% csrf_token %}
-            <button type="submit" style="background:#000000;color:#fff;border:none;padding:11px 22px;font-size:13px;cursor:pointer;">Add to cart</button>
-        </form>
-        {% else %}
-        <span style="color:#c0392b;font-size:13px;">Out of stock</span>
-        {% endif %}
-        <a href="{% url 'product_detail' product.id %}" class="qv-detail-link" style="display:inline-block;margin-left:10px;font-size:13px;">View full details &rarr;</a>
+        {% if product.description %}<p class="muted">{{ product.description|truncatewords:36 }}</p>{% endif %}
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            {% if product.stock > 0 %}
+            <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary">{{ t.add_to_cart }}</button>
+            </form>
+            {% else %}<span class="badge badge-sale">{{ t.out_of_stock }}</span>{% endif %}
+            <a href="{% url 'product_detail' product.id %}" class="btn btn-secondary">See full details</a>
+        </div>
     </div>
 </div>

@@ -151,7 +151,14 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 #   - Transaction pooler (port 6543, best for serverless): connections must
 #     not be reused and server-side cursors must be off - handled below.
 # Without DATABASE_URL the project falls back to a local SQLite file.
-DATABASE_URL = os.environ.get('DATABASE_URL', '')
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+if DATABASE_URL and '://' not in DATABASE_URL:
+    raise ImproperlyConfigured(
+        "DATABASE_URL is not a valid connection string. Paste the full URI from Supabase > "
+        "Project Settings > Database > Connection string, e.g. "
+        "postgresql://postgres.xxxx:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres "
+        "- or remove DATABASE_URL to use local SQLite."
+    )
 _uses_transaction_pooler = ':6543' in DATABASE_URL
 DATABASES = {
     'default': dj_database_url.config(

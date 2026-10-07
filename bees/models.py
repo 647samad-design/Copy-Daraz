@@ -276,6 +276,8 @@ class Order(models.Model):
     # change what the goods cost) and whether it was given back on cancel.
     credit_used = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     credit_returned = models.BooleanField(default=False)
+    # Secret for the tracking link emailed to guest customers.
+    access_token = models.CharField(max_length=32, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     CANCELLABLE_STATUSES = ("pending", "confirmed")
@@ -344,8 +346,21 @@ class Order(models.Model):
             return self.user.email
         return self.guest_email
 
+    @property
+    def is_guest(self):
+        return self.user_id is None
+
+    def tracking_path(self):
+        from django.urls import reverse
+        return reverse("order_track", args=[self.pk, self.access_token])
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
+        if not self.access_token:
+            import secrets
+            self.access_token = secrets.token_urlsafe(16)[:32]
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = list(kwargs["update_fields"]) + ["access_token"]
         old_status = None
         if not is_new:
             old_status = Order.objects.filter(pk=self.pk).values_list("status", flat=True).first()
@@ -502,14 +517,16 @@ class Coupon(models.Model):
     def times_used(self):
         return Order.objects.filter(coupon_code__iexact=self.code).exclude(status="cancelled").count()
 
-    def times_used_by(self, user):
-        if not user or not user.is_authenticated:
-            return 0
-        return Order.objects.filter(
-            user=user, coupon_code__iexact=self.code
-        ).exclude(status="cancelled").count()
+    def times_used_by(self, user, email=None):
+        orders = Order.objects.filter(coupon_code__iexact=self.code).exclude(status="cancelled")
+        if user and user.is_authenticated:
+            return orders.filter(user=user).count()
+        if email:
+            # Guests are counted by the email they check out with.
+            return orders.filter(models.Q(email__iexact=email) | models.Q(guest_email__iexact=email)).count()
+        return 0
 
-    def is_valid_for(self, user, order_total):
+    def is_valid_for(self, user, order_total, email=None):
         """Returns (is_valid, error_message). error_message is None if valid."""
         from django.utils import timezone
 
@@ -522,7 +539,7 @@ class Coupon(models.Model):
             return False, f"This coupon needs a minimum order of {money(self.min_order_value)}."
         if self.usage_limit is not None and self.times_used() >= self.usage_limit:
             return False, "This coupon has reached its usage limit."
-        if self.times_used_by(user) >= self.per_user_limit:
+        if self.times_used_by(user, email) >= self.per_user_limit:
             return False, "You've already used this coupon the maximum number of times."
         return True, None
 

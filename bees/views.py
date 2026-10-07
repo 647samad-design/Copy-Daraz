@@ -192,6 +192,9 @@ def _send_html_email(subject, template, context, recipient):
 
 def _send_order_confirmation(request, order):
     invoice_url = request.build_absolute_uri(reverse("invoice_pdf", args=[order.id]))
+    if order.is_guest:
+        invoice_url += f"?t={order.access_token}"
+    track_url = request.build_absolute_uri(order.tracking_path() if order.is_guest else reverse("my_orders"))
     if order.status == "pending":
         subject = f"We've received your {_store_name()} order #{order.id}"
     else:
@@ -199,7 +202,7 @@ def _send_order_confirmation(request, order):
     _send_html_email(
         subject,
         "bees/emails/order_confirmation.html",
-        {"order": order, "invoice_url": invoice_url},
+        {"order": order, "invoice_url": invoice_url, "track_url": track_url},
         order.contact_email,
     )
 
@@ -613,6 +616,13 @@ def verify_email_code(request):
         elif secrets.compare_digest(entered, stored):
             profile.email_verified = True
             profile.save(update_fields=["email_verified"])
+            # Guest orders placed with this (now proven) email become theirs.
+            email = request.user.email
+            if email:
+                linked = Order.objects.filter(user__isnull=True).filter(
+                    Q(guest_email__iexact=email) | Q(email__iexact=email)).update(user=request.user)
+                if linked:
+                    messages.info(request, f"{linked} earlier order{'s' if linked != 1 else ''} placed as a guest {'are' if linked != 1 else 'is'} now in My orders.")
             cache.delete(f"email_verify_code:{request.user.id}")
             cache.delete(attempts_key)
             messages.success(request, "Your email has been verified.")
@@ -1010,7 +1020,6 @@ class CheckoutError(Exception):
     pass
 
 
-@login_required
 @ratelimit("checkout", rate_limit=10, window_seconds=300, redirect_to="cart",
            message="Too many checkout attempts. Please wait a few minutes and try again.")
 def checkout_view(request):
@@ -1056,6 +1065,8 @@ def checkout_view(request):
 
         request.session["cart"] = {}
         request.session["coupon_code"] = ""
+        if not order.user_id:
+            _remember_guest_order(request, order)
         request.session.modified = True
 
         if payment_method == "card" and order.total_cents > 0:
@@ -1074,7 +1085,8 @@ def checkout_view(request):
             order.save(update_fields=["payment_status", "status"])
 
         _send_order_confirmation(request, order)
-        Notification.objects.create(user=request.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
+        if order.user_id:
+            Notification.objects.create(user=request.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
         return redirect("order_success", order_id=order.id)
 
     return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods))
@@ -1086,9 +1098,10 @@ def _store_credit(user):
 
 
 def _checkout_context(request, items, pricing, coupon, methods, form=None):
+    signed_in = request.user.is_authenticated
     if form is None:
-        form = {"email": request.user.email, "full_name": request.user.get_full_name()}
-        default = Address.objects.filter(user=request.user, is_default=True).first()
+        form = {"email": request.user.email, "full_name": request.user.get_full_name()} if signed_in else {}
+        default = Address.objects.filter(user=request.user, is_default=True).first() if signed_in else None
         if default:
             form.update({f: getattr(default, f) for f in ("full_name", "phone", "address", "city", "state", "postal_code", "country")})
     from . import shipping as shipping_rules
@@ -1110,7 +1123,8 @@ def _checkout_context(request, items, pricing, coupon, methods, form=None):
         "discount_amount": pricing["discount"],
         "final_total": pricing["total"],
         "coupon": coupon,
-        "addresses": Address.objects.filter(user=request.user),
+        "addresses": Address.objects.filter(user=request.user) if signed_in else [],
+        "guest": not signed_in,
         "payment_methods": methods,
         "form": form,
     }
@@ -1154,7 +1168,7 @@ def _place_order(request, items, data, payment_method, use_credit=False):
         if code:
             coupon = Coupon.objects.select_for_update().filter(code__iexact=code).first()
             if coupon:
-                is_valid, error = coupon.is_valid_for(request.user, subtotal)
+                is_valid, error = coupon.is_valid_for(request.user, subtotal, email=data["email"])
                 if not is_valid:
                     raise CheckoutError(error)
 
@@ -1162,8 +1176,10 @@ def _place_order(request, items, data, payment_method, use_credit=False):
         if not pricing["ships"]:
             raise CheckoutError("Sorry, we don't deliver to that country yet.")
         is_card = payment_method == "card"
+        signed_in = request.user.is_authenticated
         order = Order.objects.create(
-            user=request.user,
+            user=request.user if signed_in else None,
+            guest_email="" if signed_in else data["email"],
             email=data["email"],
             full_name=data["full_name"][:150],
             address=data["address"][:255],
@@ -1197,7 +1213,7 @@ def _place_order(request, items, data, payment_method, use_credit=False):
                 variant.save(update_fields=["stock"])
             product.stock = max(product.stock - qty, 0)
             product.save(update_fields=["stock"])  # save() sends low-stock alerts
-        if use_credit:
+        if use_credit and signed_in:
             profile = Profile.objects.select_for_update().filter(user=request.user).first()
             if profile and profile.store_credit > 0:
                 credit = min(profile.store_credit, order.grand_total)
@@ -1242,19 +1258,59 @@ def apply_coupon(request):
     return redirect("checkout")
 
 
+def _remember_guest_order(request, order):
+    ids = request.session.get("guest_orders", [])
+    if order.pk not in ids:
+        request.session["guest_orders"] = (ids + [order.pk])[-20:]
+
+
+def _order_access(request, order_id, owner_only=False, lock=False):
+    """The order if this visitor may see it: its owner, staff (unless
+    ``owner_only``), or - for guest orders - the browser that placed it or
+    anyone with its private tracking link (?t=token)."""
+    qs = Order.objects.select_for_update() if lock else Order.objects.all()
+    order = get_object_or_404(qs, pk=order_id)
+    user = request.user
+    if user.is_authenticated and order.user_id == user.id:
+        return order
+    if user.is_authenticated and user.is_staff and not owner_only:
+        return order
+    if order.user_id is None:
+        token = request.GET.get("t", "")
+        if order.pk in request.session.get("guest_orders", []) or (token and secrets.compare_digest(token, order.access_token)):
+            _remember_guest_order(request, order)
+            return order
+    raise Http404
+
+
 def _get_order_for_viewer(request, order_id):
-    """Orders are visible to their owner and to staff only."""
-    if not request.user.is_authenticated:
-        raise Http404
-    if request.user.is_staff:
-        return get_object_or_404(Order, pk=order_id)
-    return get_object_or_404(Order, pk=order_id, user=request.user)
+    return _order_access(request, order_id)
 
 
-@login_required
+def _orders_page(request, order):
+    """Where to send a customer after an order action."""
+    if order.user_id and request.user.is_authenticated:
+        return redirect("my_orders")
+    return redirect(order.tracking_path())
+
+
 def order_success(request, order_id):
-    order = _get_order_for_viewer(request, order_id)
+    order = _order_access(request, order_id)
     return render(request, "bees/order_success.html", {"order": order})
+
+
+def order_track(request, order_id, token):
+    """Private tracking page for guest orders (link is in every email)."""
+    order = get_object_or_404(Order, pk=order_id)
+    if not token or not secrets.compare_digest(token, order.access_token):
+        raise Http404
+    if order.user_id:
+        if request.user.is_authenticated and request.user.id == order.user_id:
+            return redirect("my_orders")
+        return redirect(f"{reverse('login')}?{urlencode({'next': reverse('my_orders')})}")
+    _remember_guest_order(request, order)
+    order = Order.objects.prefetch_related("items", "items__product", "items__return_requests").get(pk=order.pk)
+    return render(request, "bees/my_orders.html", {"orders": [order], "guest": True})
 
 
 @login_required
@@ -1265,18 +1321,17 @@ def my_orders(request):
     return render(request, "bees/my_orders.html", {"orders": orders})
 
 
-@login_required
 @require_POST
 def cancel_order(request, pk):
     with transaction.atomic():
-        order = get_object_or_404(Order.objects.select_for_update(), pk=pk, user=request.user)
+        order = _order_access(request, pk, owner_only=True, lock=True)
         if not order.is_cancellable:
             messages.error(request, "This order can no longer be cancelled.")
-            return redirect("my_orders")
+            return _orders_page(request, order)
         if order.payment_status == "paid":
             if not payments.refund_order(order):
                 messages.error(request, "We couldn't process the refund automatically. Please contact support and we'll sort it out.")
-                return redirect("my_orders")
+                return _orders_page(request, order)
             order.payment_status = "refunded"
         payments.void_pending_payment(order)
         order.status = "cancelled"
@@ -1286,7 +1341,7 @@ def cancel_order(request, pk):
         messages.success(request, f"Order #{order.id} has been cancelled and a full refund issued to your card.")
     else:
         messages.success(request, f"Order #{order.id} has been cancelled.")
-    return redirect("my_orders")
+    return _orders_page(request, order)
 
 
 @login_required
@@ -1353,7 +1408,6 @@ def buy_again(request, order_id):
     return redirect("cart")
 
 
-@login_required
 def invoice_pdf(request, order_id):
     order = _get_order_for_viewer(request, order_id)
 
@@ -1451,21 +1505,21 @@ def invoice_pdf(request, order_id):
 # Stripe payments
 # ---------------------------------------------------------------------------
 
-@login_required
 def payment_success(request):
     session_id = request.GET.get("session_id", "")
     session = payments.retrieve_session(session_id) if session_id and payments.is_configured() else None
     if not session:
-        messages.info(request, "We're confirming your payment. You'll see it in My orders shortly.")
-        return redirect("my_orders")
+        messages.info(request, "We're confirming your payment. We'll email you as soon as it's done.")
+        return redirect("my_orders" if request.user.is_authenticated else "home")
     order_id = (session.get("metadata") or {}).get("order_id")
-    order = Order.objects.filter(pk=order_id, user=request.user).first() if order_id else None
-    if not order:
+    if not str(order_id or "").isdigit():
         raise Http404
+    order = _order_access(request, int(order_id), owner_only=True)
     order, newly_paid = payments.mark_order_paid(order.id, session)
     if newly_paid:
         _send_order_confirmation(request, order)
-        Notification.objects.create(user=order.user, message=f"Payment received for order #{order.id}.", link="/my-orders/")
+        if order.user_id:
+            Notification.objects.create(user=order.user, message=f"Payment received for order #{order.id}.", link="/my-orders/")
     if order.payment_status == "paid":
         messages.success(request, "Payment received - thank you!")
     else:
@@ -1473,18 +1527,17 @@ def payment_success(request):
     return redirect("order_success", order_id=order.id)
 
 
-@login_required
 @require_POST
 def pay_online(request, order_id):
     """Lets a customer pay a cash-on-delivery order online in advance."""
     with transaction.atomic():
-        order = get_object_or_404(Order.objects.select_for_update(), pk=order_id, user=request.user)
+        order = _order_access(request, order_id, owner_only=True, lock=True)
         if not payments.is_configured():
             messages.error(request, "Online payment isn't available right now. You can pay cash on delivery.")
-            return redirect("my_orders")
-        if order.payment_method != "cod" or order.payment_status != "not_applicable" or order.status not in ("pending", "confirmed"):
+            return _orders_page(request, order)
+        if order.payment_method != "cod" or order.payment_status != "not_applicable" or order.status not in ("pending", "confirmed") or not order.total_cents:
             messages.info(request, "This order can't be paid online.")
-            return redirect("my_orders")
+            return _orders_page(request, order)
         order.cod_fallback = True
         order.payment_method = "card"
         order.payment_status = "pending"
@@ -1494,12 +1547,11 @@ def pay_online(request, order_id):
     except payments.PaymentError as exc:
         payments.release_unpaid_order(order.id)
         messages.error(request, str(exc))
-        return redirect("my_orders")
+        return _orders_page(request, order)
 
 
-@login_required
 def payment_cancel(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    order = _order_access(request, order_id, owner_only=True)
     if order.payment_status == "pending" and order.stripe_session_id and payments.is_configured():
         session = payments.retrieve_session(order.stripe_session_id)
         if session and session.get("payment_status") == "paid":
@@ -1513,25 +1565,24 @@ def payment_cancel(request, order_id):
         payments.release_unpaid_order(order.id, reason="failed")
         if was_cod:
             messages.info(request, "Online payment cancelled - nothing was charged. Your order stays on cash on delivery.")
-            return redirect("my_orders")
+            return _orders_page(request, order)
         _restore_cart_from_order(request, order)
         messages.info(request, "Payment cancelled - nothing was charged. Your items are back in your cart.")
         return redirect("cart")
-    return redirect("my_orders")
+    return _orders_page(request, order)
 
 
-@login_required
 def resume_payment(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    order = _order_access(request, order_id, owner_only=True)
     if order.payment_status != "pending" or not order.stripe_session_id:
-        return redirect("my_orders")
+        return _orders_page(request, order)
     session = payments.retrieve_session(order.stripe_session_id)
     if session and session.get("status") == "open" and session.get("url"):
         return redirect(session["url"])
     if session and session.get("payment_status") == "paid":
         return redirect(f"{reverse('payment_success')}?session_id={order.stripe_session_id}")
     messages.error(request, "That payment link has expired. Please place the order again.")
-    return redirect("my_orders")
+    return _orders_page(request, order)
 
 
 @csrf_exempt

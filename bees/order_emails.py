@@ -83,8 +83,8 @@ def send(order, kind):
             "brand": brand,
             "order": order,
             "kind": kind,
-            "orders_url": absolute(reverse("my_orders")),
-            "invoice_url": absolute(reverse("invoice_pdf", args=[order.id])),
+            "orders_url": absolute(order.tracking_path() if order.is_guest else reverse("my_orders")),
+            "invoice_url": absolute(reverse("invoice_pdf", args=[order.id])) + (f"?t={order.access_token}" if order.is_guest else ""),
             "shop_url": absolute(reverse("home")),
             "items": [
                 {

@@ -282,10 +282,9 @@ class CartAndCheckoutTests(TestCase):
         )
         self.assertEqual(self.client.session["cart"][str(self.product.id)], self.product.stock)
 
-    def test_checkout_requires_login(self):
+    def test_empty_checkout_goes_back_to_cart(self):
         response = self.client.get(reverse("checkout"))
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/login/", response.url)
+        self.assertRedirects(response, reverse("cart"))
 
     def test_cancel_order_only_works_for_own_pending_order(self):
         other_user = User.objects.create_user("someone_else", "oe@example.com", "pass12345")
@@ -799,9 +798,11 @@ class SecurityTests(TestCase):
 
     def test_invoice_of_guest_order_not_public(self):
         order = Order.objects.create(user=None, full_name="Guest", address="x", city="y", phone="1")
-        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 302)
+        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id]) + "?t=wrong").status_code, 404)
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 404)
+        self.assertEqual(Client().get(reverse("invoice_pdf", args=[order.id]) + f"?t={order.access_token}").status_code, 200)
 
     def test_email_code_locks_after_too_many_attempts(self):
         from django.core.cache import cache
@@ -2051,3 +2052,87 @@ class StockAlertTests(TestCase):
             small.save()
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Tee (S)", mail.outbox[0].subject)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class GuestCheckoutTests(TestCase):
+    def setUp(self):
+        self.product = make_product(name="Guest Serum", price=Decimal("15.00"), stock=5)
+
+    def _guest_cod(self, client=None):
+        c = client or self.client
+        c.post(reverse("add_to_cart", args=[self.product.id]))
+        with self.captureOnCommitCallbacks(execute=True):
+            r = c.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        return Order.objects.latest("id"), r
+
+    def test_guest_places_and_tracks_order(self):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.assertContains(self.client.get(reverse("checkout")), "Checking out as a guest")
+        order, r = self._guest_cod()
+        self.assertIsNone(order.user)
+        self.assertEqual(order.guest_email, "jane@example.com")
+        self.assertRedirects(r, reverse("order_success", args=[order.id]))
+        self.assertContains(self.client.get(r.url), "Create an account")
+        email = mail.outbox[0].alternatives[0][0]
+        self.assertIn(order.tracking_path(), email)
+        # Anyone else needs the private link
+        stranger = Client()
+        self.assertEqual(stranger.get(reverse("order_success", args=[order.id])).status_code, 404)
+        self.assertEqual(stranger.get(reverse("order_track", args=[order.id, "nope"])).status_code, 404)
+        page = stranger.get(order.tracking_path())
+        self.assertContains(page, "Guest Serum")
+        # ... and can cancel from it
+        stranger.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 5)
+
+    def test_guest_cannot_touch_member_orders(self):
+        member = User.objects.create_user("mem", "mem@example.com", "pass12345")
+        order = Order.objects.create(user=member, full_name="M", address="x", city="y", phone="1")
+        self.client.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.status, "pending")
+        r = self.client.get(order.tracking_path())
+        self.assertEqual(r.status_code, 302)
+
+    def test_guest_card_payment_uses_email_not_customer(self):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        fake = mock.MagicMock(id="cs_g", url="https://checkout.stripe.com/g")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        kwargs = create.call_args.kwargs
+        self.assertEqual(kwargs["customer_email"], "jane@example.com")
+        self.assertNotIn("customer", kwargs)
+        order = Order.objects.get()
+        session = {"id": "cs_g", "payment_status": "paid", "status": "complete", "amount_total": order.total_cents,
+                   "currency": order.currency, "payment_intent": "pi_g", "metadata": {"order_id": str(order.id)}}
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=mock.MagicMock(to_dict=lambda: session)):
+            r = self.client.get(reverse("payment_success") + "?session_id=cs_g")
+        self.assertRedirects(r, reverse("order_success", args=[order.id]), fetch_redirect_response=False)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+
+    def test_guest_coupon_limit_by_email(self):
+        Coupon.objects.create(code="ONCE", percent_off=10, per_user_limit=1)
+        self.client.post(reverse("apply_coupon"), {"coupon_code": "ONCE"})
+        self._guest_cod()
+        other = Client()
+        other.post(reverse("add_to_cart", args=[self.product.id]))
+        other.post(reverse("apply_coupon"), {"coupon_code": "ONCE"})
+        other.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(Order.objects.count(), 1)  # same email can't reuse it
+
+    def test_guest_orders_join_account_after_email_verified(self):
+        order, _ = self._guest_cod()
+        user = User.objects.create_user("jane", "jane@example.com", "pass12345")
+        self.client.force_login(user)
+        from django.core.cache import cache as _cache
+        Profile.objects.create(user=user, referral_code="JN1")
+        _cache.set(f"email_verify_code:{user.id}", "123456", 900)
+        self.client.post(reverse("verify_email"), {"code": "123456"})
+        order.refresh_from_db()
+        self.assertEqual(order.user, user)
+        self.assertContains(self.client.get(reverse("my_orders")), "Guest Serum")

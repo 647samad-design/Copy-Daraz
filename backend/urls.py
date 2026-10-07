@@ -56,6 +56,7 @@ urlpatterns = [
     path('checkout/coupon/', views.apply_coupon, name='apply_coupon'),
     path('order/success/<int:order_id>/', views.order_success, name='order_success'),
     path('my-orders/', views.my_orders, name='my_orders'),
+    path('order/<int:order_id>/track/<str:token>/', views.order_track, name='order_track'),
     path('order/<int:order_id>/buy-again/', views.buy_again, name='buy_again'),
     path('order/<int:pk>/cancel/', views.cancel_order, name='cancel_order'),
     path('order-item/<int:item_id>/return/', views.request_return, name='request_return'),

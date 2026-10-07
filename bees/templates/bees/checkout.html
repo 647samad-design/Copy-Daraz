@@ -17,7 +17,7 @@
 {% endblock %}
 {% block content %}
 <div class="wrap page">
-    <div class="page-head"><div><h1>Checkout</h1><p>Review your details, then pay securely.</p></div></div>
+    <div class="page-head"><div><h1>Checkout</h1><p>{% if guest %}Checking out as a guest. <a class="link" href="{% url 'login' %}?next={% url 'checkout' %}">Sign in</a> to use saved addresses, cards and store credit.{% else %}Review your details, then pay securely.{% endif %}</p></div></div>
 
     <div class="co">
         <form method="post" id="checkout-form">

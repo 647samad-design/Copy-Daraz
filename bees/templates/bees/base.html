@@ -141,6 +141,11 @@
         .page { padding: 32px 0 56px; }
         .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 24px; }
         .page-head p { color: var(--muted); margin-top: 6px; }
+        .acct-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin: -8px 0 24px; scrollbar-width: none; }
+        .acct-tabs a { flex: none; padding: 10px 14px; font-weight: 700; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+        .acct-tabs a:hover { color: var(--ink); }
+        .acct-tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--brand); }
+        html[data-theme="dark"] .acct-tabs a[aria-current="page"] { border-bottom-color: var(--accent); }
         .section { margin-top: 48px; }
         .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
         .section-head a { color: var(--muted); font-weight: 700; text-decoration: none; }
@@ -161,6 +166,11 @@
         .stars { color: #C98A06; letter-spacing: 1px; }
         html[data-theme="dark"] .stars { color: var(--accent); }
 
+        .pay-option { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border: 1.5px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+        .pay-option + .pay-option { margin-top: 10px; }
+        .pay-option:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 5%, var(--surface)); }
+        .pay-option input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--brand); }
+        .pay-option strong { display: block; }
         .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; border: 0; }
         .choice { position: relative; display: block; border: 1.5px solid var(--line); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; }
         .choice input { position: absolute; opacity: 0; }
@@ -415,7 +425,9 @@
                         <div class="menu-head"><strong>{{ user.get_full_name|default:user.username }}</strong><span class="muted small">{{ user.email }}</span></div>
                         <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
                         <a href="{% url 'notifications_list' %}">Notifications{% if unread_notifications_count %} ({{ unread_notifications_count }}){% endif %}</a>
-                        <a href="{% url 'profile' %}">Profile &amp; addresses</a>
+                        <a href="{% url 'profile' %}">Account &amp; addresses</a>
+                        <a href="{% url 'payment_methods' %}">Saved cards</a>
+                        <a href="{% url 'account_security' %}">Password &amp; security</a>
                         {% if is_seller %}<a href="{% url 'seller_dashboard' %}">Seller dashboard</a>{% else %}<a href="{% url 'sell_on_bees' %}">{{ t.sell_on }}</a>{% endif %}
                         {% if user.is_staff %}<a href="{% url 'manage_dashboard' %}">Store admin</a>{% endif %}
                         <button type="button" onclick="toggleTheme()">Toggle dark mode</button>

@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.sitemaps.views import sitemap
 from django.views.generic import TemplateView
 from bees import views
+from bees import account_views
 from bees import manage_views as mv
 from bees.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
 from bees.ratelimit import ratelimit
@@ -69,6 +70,16 @@ urlpatterns = [
 
     path('profile/', views.profile_view, name='profile'),
     path('profile/redeem-points/', views.redeem_points, name='redeem_points'),
+    path('account/security/', account_views.security, name='account_security'),
+    path('account/payment-methods/', account_views.payment_methods, name='payment_methods'),
+    path('account/payment-methods/add/', account_views.add_card, name='add_card'),
+    path('account/payment-methods/remove/', account_views.remove_card, name='remove_card'),
+    path('account/privacy/', account_views.privacy, name='account_privacy'),
+    path('account/privacy/download/', account_views.download_data, name='download_data'),
+    path('account/delete/', account_views.delete_account, name='delete_account'),
+    path('profile/address/<int:pk>/edit/', account_views.edit_address, name='edit_address'),
+    path('profile/address/<int:pk>/default/', account_views.default_address, name='default_address'),
+    path('seller/settings/', account_views.store_settings, name='seller_store_settings'),
     path('profile/address/add/', views.add_address, name='add_address'),
     path('profile/address/delete/<int:pk>/', views.delete_address, name='delete_address'),
     path('store/<path:seller_name>/', views.store_page, name='store_page'),

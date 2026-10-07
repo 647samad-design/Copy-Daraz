@@ -1,0 +1,24 @@
+{% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}Edit address — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block content %}
+<div class="wrap"><div class="auth-shell wide"><div class="panel">
+    <h1>Edit address</h1>
+    <form method="post" style="margin-top:18px;">
+        {% csrf_token %}
+        <div class="form-grid">
+            <div class="field"><label for="a_label">Label</label><input type="text" id="a_label" name="label" value="{{ address.label }}" maxlength="30"></div>
+            <div class="field"><label for="a_name">Full name</label><input type="text" id="a_name" name="full_name" value="{{ form.full_name }}" required maxlength="150"></div>
+            <div class="field span-2"><label for="a_addr">Street address</label><input type="text" id="a_addr" name="address" value="{{ form.address }}" required maxlength="255"></div>
+            <div class="field"><label for="a_city">City</label><input type="text" id="a_city" name="city" value="{{ form.city }}" required maxlength="100"></div>
+            <div class="field"><label for="a_state">State / province</label><input type="text" id="a_state" name="state" value="{{ form.state }}" maxlength="100"></div>
+            <div class="field"><label for="a_zip">Postal code</label><input type="text" id="a_zip" name="postal_code" value="{{ form.postal_code }}" maxlength="20"></div>
+            <div class="field"><label for="a_country">Country</label>{% country_select field_id="a_country" selected=form.country %}</div>
+            <div class="field span-2"><label for="a_phone">Phone</label><input type="tel" id="a_phone" name="phone" value="{{ form.phone }}" required maxlength="30"></div>
+            <label class="span-2" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" name="is_default" value="1" {% if address.is_default %}checked{% endif %}> Use as my default address at checkout</label>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px;"><button type="submit" class="btn btn-primary">Save address</button><a class="btn btn-ghost" href="{% url 'profile' %}#addresses">Cancel</a></div>
+    </form>
+</div></div></div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "bees/base.html" %}
+{% block title %}Saved cards — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .card-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
+    .card-row:first-of-type { border-top: 0; }
+    .card-chip { display: inline-grid; place-items: center; width: 52px; height: 34px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); font-size: .72rem; font-weight: 800; letter-spacing: .02em; }
+{% endblock %}
+{% block content %}
+<div class="wrap page" style="max-width:920px;">
+    <div class="page-head"><div><h1>Your account</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    {% include "bees/partials/account_tabs.html" %}
+    <section class="panel">
+        <h2>Saved cards</h2>
+        <p class="muted" style="margin:6px 0 18px;">Cards are stored securely by Stripe, our payment provider. We never see or keep your full card number. Saved cards show up on the payment page at checkout.</p>
+        {% if not enabled %}
+        <p class="muted">Card payments aren't switched on for this store yet, so there's nothing to save. You can still pay cash on delivery.</p>
+        {% else %}
+            {% if error %}<p class="badge badge-sale">{{ error }}</p>{% endif %}
+            {% for card in cards %}
+            <div class="card-row">
+                <div style="display:flex;align-items:center;gap:14px;">
+                    <span class="card-chip" aria-hidden="true">{{ card.brand|upper|truncatechars:6 }}</span>
+                    <div><strong>{{ card.brand }} ending in {{ card.last4 }}</strong><div class="muted small">Expires {{ card.exp_month|stringformat:"02d" }}/{{ card.exp_year }}</div></div>
+                </div>
+                <form method="post" action="{% url 'remove_card' %}" onsubmit="return confirm('Remove this card?')">{% csrf_token %}<input type="hidden" name="card" value="{{ card.id }}"><button type="submit" class="btn btn-ghost btn-sm">Remove</button></form>
+            </div>
+            {% empty %}
+            {% if not error %}<p class="muted">No saved cards yet. Add one now, or tick "Save my card" when you pay.</p>{% endif %}
+            {% endfor %}
+            <form method="post" action="{% url 'add_card' %}" style="margin-top:18px;">{% csrf_token %}
+                <button type="submit" class="btn btn-primary">Add a card</button>
+                <span class="muted small" style="margin-left:8px;">Opens Stripe's secure page.</span>
+            </form>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

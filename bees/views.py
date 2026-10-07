@@ -616,6 +616,8 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user is not None:
             auth_login(request, user)
+            if not request.POST.get("remember"):
+                request.session.set_expiry(0)  # signed out when the browser closes
             return redirect(next_url)
         messages.error(request, "Incorrect username/email or password.")
 
@@ -659,7 +661,8 @@ def profile_view(request):
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return redirect("profile")
-        email_changed = new_email != (request.user.email or "").lower()
+        old_email = request.user.email or ""
+        email_changed = new_email != old_email.lower()
         request.user.first_name = request.POST.get("first_name", "")[:150]
         request.user.email = new_email
         request.user.save(update_fields=["first_name", "email"])
@@ -667,6 +670,14 @@ def profile_view(request):
         if email_changed:
             profile.email_verified = False
         profile.save()
+        if email_changed and old_email:
+            # Tell the old address, so a hijacked account doesn't go unnoticed.
+            _send_html_email("Your email address was changed", "bees/emails/security_notice.html", {
+                "user": request.user, "event": "The email address on your account was changed",
+                "detail": f"New address: {new_email or '(removed)'}. If this wasn't you, reset your password straight away and contact us.",
+                "reset_url": request.build_absolute_uri(reverse("password_reset")),
+            }, old_email)
+            AuditLog.objects.create(user=request.user, action="Changed email address")
         if email_changed and new_email:
             _send_verification_email(request, request.user)
             messages.success(request, "Profile updated. We've sent a code to verify your new email.")
@@ -697,7 +708,8 @@ def add_address(request):
     if not all(data[f] for f in ("full_name", "address", "city", "country")):
         messages.error(request, "Please fill in name, street address, city and country.")
         return redirect("profile")
-    Address.objects.create(user=request.user, label=request.POST.get("label", "Home")[:30] or "Home", **data)
+    first = not Address.objects.filter(user=request.user).exists()
+    Address.objects.create(user=request.user, label=request.POST.get("label", "Home")[:30] or "Home", is_default=first, **data)
     messages.success(request, "Address saved.")
     return redirect("profile")
 
@@ -1034,6 +1046,9 @@ def _store_credit(user):
 def _checkout_context(request, items, pricing, coupon, methods, form=None):
     if form is None:
         form = {"email": request.user.email, "full_name": request.user.get_full_name()}
+        default = Address.objects.filter(user=request.user, is_default=True).first()
+        if default:
+            form.update({f: getattr(default, f) for f in ("full_name", "phone", "address", "city", "state", "postal_code", "country")})
     credit = _store_credit(request.user)
     credit_applicable = min(credit, pricing["total"])
     return {

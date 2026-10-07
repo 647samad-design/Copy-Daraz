@@ -23,6 +23,7 @@ STRIPE_PUBLISHABLE_KEY   pk_test_... / pk_live_...  (not required by
 STRIPE_WEBHOOK_SECRET    whsec_...  (from Dashboard > Developers > Webhooks,
                          or from `stripe listen` when testing locally)
 STORE_CURRENCY           usd (default), eur, gbp ...
+STRIPE_API_BASE          optional relay URL (see deploy/supabase/stripe-relay)
 
 Until STRIPE_SECRET_KEY is set, card payments are hidden at checkout.
 """
@@ -58,6 +59,7 @@ def _stripe():
     import stripe
     stripe.api_key = settings.STRIPE_SECRET_KEY
     stripe.max_network_retries = 2
+    stripe.api_base = getattr(settings, "STRIPE_API_BASE", "") or "https://api.stripe.com"
     return stripe
 
 

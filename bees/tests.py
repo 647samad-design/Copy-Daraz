@@ -1214,3 +1214,20 @@ class DemoCatalogueTests(TestCase):
             self.assertIn("charcoal-face-wash", fw.image_url)
             self.assertFalse(Product.objects.filter(image_url__contains="picsum").exists())
             self.assertFalse(ProductImage.objects.filter(image_url__contains="picsum").exists())
+
+
+class StripeRelayTests(TestCase):
+    def tearDown(self):
+        import stripe
+        stripe.api_base = "https://api.stripe.com"
+
+    def test_default_api_base(self):
+        from . import payments
+        with self.settings(STRIPE_SECRET_KEY="sk_test_x", STRIPE_API_BASE=""):
+            self.assertEqual(payments._stripe().api_base, "https://api.stripe.com")
+
+    def test_relay_api_base(self):
+        from . import payments
+        relay = "https://ref.supabase.co/functions/v1/stripe-relay/secret"
+        with self.settings(STRIPE_SECRET_KEY="sk_test_x", STRIPE_API_BASE=relay):
+            self.assertEqual(payments._stripe().api_base, relay)

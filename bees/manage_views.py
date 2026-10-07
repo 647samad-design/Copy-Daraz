@@ -27,7 +27,7 @@ from django.views.decorators.http import require_POST
 from . import payments
 from .models import (
     AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
-    Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
+    Payout, Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
 )
 from .templatetags.bees_extras import money
 from .security import safe_next_url
@@ -57,7 +57,7 @@ def attention_counts(force=False):
         data = {
             "orders": Order.objects.filter(status__in=["pending", "confirmed"]).exclude(payment_status__in=["pending", "failed"]).count(),
             "products": Product.objects.filter(approval_status="pending").count(),
-            "sellers": SellerAccount.objects.filter(status="pending").count(),
+            "sellers": SellerAccount.objects.filter(status="pending").count() + Payout.objects.filter(status="requested").count(),
             "returns": ReturnRequest.objects.filter(status="requested").count(),
             "questions": Question.objects.filter(answer="").count(),
             "messages": ChatThread.objects.filter(is_resolved=False).filter(Exists(unread_user_msgs)).count(),
@@ -288,7 +288,7 @@ def products(request):
 
 def _notify_seller(product, message):
     if product.seller_account_id:
-        Notification.objects.create(user=product.seller_account.user, message=message[:255], link="/seller/dashboard/")
+        Notification.objects.create(user=product.seller_account.user, message=message[:255], link="/seller/products/")
 
 
 @staff_required
@@ -387,7 +387,11 @@ def sellers(request):
         qs = qs.filter(Q(business_name__icontains=q) | Q(organization_name__icontains=q) | Q(full_name__icontains=q) | Q(user__username__icontains=q) | Q(user__email__icontains=q))
     if status in dict(SellerAccount.STATUS_CHOICES):
         qs = qs.filter(status=status)
+    elif status == "payout":
+        qs = qs.filter(payouts__status="requested").distinct()
     return _render(request, "sellers.html", {
+        "payout_requests": Payout.objects.filter(status="requested").count(),
+        "pending_count": SellerAccount.objects.filter(status="pending").count(),
         "section": "sellers", "page_obj": _page(request, qs), "q": q, "status": status, "status_choices": SellerAccount.STATUS_CHOICES,
     })
 
@@ -431,17 +435,52 @@ def seller_detail(request, pk):
             except Exception:
                 messages.error(request, "Enter the payout amount as a positive number.")
                 return redirect("manage_seller", pk=pk)
-            seller.total_paid_out = (seller.total_paid_out or 0) + amount
-            seller.save(update_fields=["total_paid_out"])
-            Notification.objects.create(user=seller.user, message=f"A payout of {money(amount)} has been sent to you.", link="/seller/dashboard/")
+            method = request.POST.get("method", "")
+            if method not in dict(Payout.METHOD_CHOICES):
+                method = "bank"
+            with transaction.atomic():
+                seller = SellerAccount.objects.select_for_update().get(pk=seller.pk)
+                payout = seller.payouts.filter(status="requested").first() or Payout(seller=seller)
+                payout.amount = amount
+                payout.status = "paid"
+                payout.method = method
+                payout.reference = request.POST.get("reference", "").strip()[:120]
+                payout.note = note
+                payout.recorded_by = request.user
+                payout.paid_at = timezone.now()
+                payout.save()
+                seller.total_paid_out = (seller.total_paid_out or 0) + amount
+                seller.save(update_fields=["total_paid_out"])
+            Notification.objects.create(user=seller.user, message=f"A payout of {money(amount)} has been sent to you ({payout.get_method_display()}).", link="/seller/earnings/")
+            from .views import _send_html_email
+            transaction.on_commit(lambda: _send_html_email(
+                f"{SiteSettings.load().site_name}: payout of {money(amount)} sent", "bees/emails/seller_payout.html",
+                {"seller": seller, "payout": payout, "url": request.build_absolute_uri(reverse("seller_earnings"))},
+                seller.user.email,
+            ))
             _log(request, f"Recorded payout of {money(amount)} to seller #{seller.id}")
             messages.success(request, f"Recorded a payout of {money(amount)}.")
+        elif action == "decline_payout":
+            payout = seller.payouts.filter(status="requested").first()
+            if payout:
+                payout.status = "cancelled"
+                payout.note = note or "Declined by the store"
+                payout.recorded_by = request.user
+                payout.save(update_fields=["status", "note", "recorded_by"])
+                Notification.objects.create(user=seller.user, link="/seller/earnings/",
+                                            message=f"Your payout request of {money(payout.amount)} was declined. {payout.note}"[:255])
+                _log(request, f"Declined payout request #{payout.pk} from seller #{seller.id}")
+                messages.success(request, "Payout request declined and the seller was told.")
         _refresh_attention()
         return redirect("manage_seller", pk=pk)
     products_qs = seller.products.order_by("-id")[:12]
+    from .seller_center import balance
     return _render(request, "seller_detail.html", {
         "section": "sellers", "seller": seller, "products": products_qs,
         "product_count": seller.products.count(),
+        "payouts": seller.payouts.select_related("recorded_by")[:20],
+        "payout_request": seller.payouts.filter(status="requested").first(),
+        "balance": balance(seller), "method_choices": Payout.METHOD_CHOICES,
     })
 
 

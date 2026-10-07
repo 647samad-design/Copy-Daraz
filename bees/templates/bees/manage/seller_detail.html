@@ -66,15 +66,36 @@
             </form>
             <p class="muted small" style="margin-top:8px;">The rate drops automatically as their lifetime sales grow.</p>
         </section>
-        <section class="panel">
-            <h2>Record a payout</h2>
-            <p class="muted small" style="margin-bottom:10px;">Paid out so far: {{ seller.total_paid_out|money }}. Send the money from your bank, then record it here.</p>
-            <form method="post" class="toolbar">
+        <section class="panel" id="payouts">
+            <h2>Payouts</h2>
+            <dl class="kv" style="margin-bottom:14px;">
+                <dt>Paid so far</dt><dd>{{ seller.total_paid_out|money }}</dd>
+                <dt>Still owed</dt><dd><strong>{{ balance.owed|money }}</strong></dd>
+                <dt>From delivered orders</dt><dd>{{ balance.available|money }} <span class="muted small">(the rest is on orders not delivered yet)</span></dd>
+                <dt>Payout details</dt><dd>{{ seller.bank_details|default:"Not added yet" }}</dd>
+            </dl>
+            {% if payout_request %}<div class="callout warn" style="margin-bottom:12px;"><strong>{{ seller.display_name }} asked for {{ payout_request.amount|money }}</strong> on {{ payout_request.created_at|date:"M j" }}. Send it from your bank, then record it below.</div>{% endif %}
+            <form method="post" class="stack-sm">
                 {% csrf_token %}<input type="hidden" name="action" value="payout">
-                <label for="s-amt" class="sr-only">Amount</label>
-                <input class="input grow" id="s-amt" type="number" name="amount" min="0.01" step="0.01" value="{{ seller.amount_owed|floatformat:2 }}">
-                <button class="btn btn-primary btn-sm" type="submit">Record payout</button>
+                <div class="toolbar">
+                    <label for="s-amt" class="sr-only">Amount</label>
+                    <input class="input grow" id="s-amt" type="number" name="amount" min="0.01" step="0.01" value="{% if payout_request %}{{ payout_request.amount|floatformat:2 }}{% else %}{{ seller.amount_owed|floatformat:2 }}{% endif %}">
+                    <label for="s-method" class="sr-only">Method</label>
+                    <select class="input" id="s-method" name="method">{% for v, l in method_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+                </div>
+                <label for="s-ref" class="sr-only">Transfer reference</label>
+                <input class="input" id="s-ref" type="text" name="reference" maxlength="120" placeholder="Transfer reference (optional)">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-primary btn-sm" type="submit">Record payout</button>
+                    {% if payout_request %}<button class="btn btn-ghost btn-sm" type="submit" name="action" value="decline_payout" formnovalidate onclick="return confirm('Decline this payout request?')">Decline request</button>{% endif %}
+                </div>
             </form>
+            {% if payouts %}
+            <table class="table" style="margin-top:16px;">
+                <thead><tr><th>Date</th><th>Status</th><th class="num">Amount</th></tr></thead>
+                <tbody>{% for p in payouts %}<tr><td>{{ p.paid_at|default:p.created_at|date:"M j, Y" }}<div class="muted small">{{ p.get_method_display|default:"" }}{% if p.reference %} · {{ p.reference }}{% endif %}</div></td><td>{% if p.status == 'paid' %}<span class="pill ok">Paid</span>{% elif p.status == 'requested' %}<span class="pill warn">Requested</span>{% else %}<span class="pill">Cancelled</span>{% endif %}</td><td class="num">{{ p.amount|money }}</td></tr>{% endfor %}</tbody>
+            </table>
+            {% endif %}
         </section>
     </div>
 </div>

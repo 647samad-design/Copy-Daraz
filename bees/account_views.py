@@ -376,7 +376,9 @@ def store_settings(request):
         AuditLog.objects.create(user=request.user, action=f"Updated store settings for {seller.display_name}")
         messages.success(request, "Store settings saved.")
         return redirect("seller_store_settings")
-    return render(request, "bees/account/store_settings.html", {"seller": seller, "role": role})
+    from .seller_views import _render as seller_render
+    request.seller, request.seller_role = seller, role
+    return seller_render(request, "settings.html", {"section": "settings"})
 
 
 # ---------------------------------------------------------------------------

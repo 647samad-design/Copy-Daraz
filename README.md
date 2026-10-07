@@ -34,6 +34,18 @@ tax and contact details from **Admin → Site settings** — no code changes.
 - Rate limiting, upload validation, private storage for seller ID documents, safe production defaults
 - 85+ automated tests: `python manage.py test bees`
 
+## Seller Center (/seller/)
+
+Every individual seller and organization gets their own back office:
+
+- **Overview** – sales, units sold, commission, earnings and average order for 7 / 30 / 90 days or 12 months (with change vs. the previous period), a sales chart, best sellers, sales by country, store health and a getting-started checklist.
+- **Orders** – to pack / packed / in transit / delivered tabs, search, bulk "mark packed / handed to courier", CSV export, order page with ship-to address, courier + tracking number and a printable packing slip. Sellers get a notification and email the moment an order is ready to ship, and an alert if it is cancelled.
+- **Products** – live / in review / rejected / low / out of stock, quick price and stock edits, copy a listing, units sold and revenue per product.
+- **Earnings & payouts** – a ledger of every sale with the commission taken, a downloadable statement (CSV), balance (available / on the way / paid), commission tier progress and payout requests. Staff record payouts (method + reference) under Admin › Sellers; the seller is emailed.
+- **Returns**, **Reviews & questions**, **Store settings** (incl. holiday mode, which hides the store's products) and **Team** for organizations (staff members can't see money pages).
+
+`MIN_PAYOUT` in settings (default 10) is the smallest payout a seller can request. Payouts can only be requested from earnings on delivered orders.
+
 ## Quick start (local)
 
 ```bash

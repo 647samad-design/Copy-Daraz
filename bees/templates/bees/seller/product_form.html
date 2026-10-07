@@ -1,10 +1,9 @@
-{% extends "bees/base.html" %}
-{% block title %}{% if product %}Edit product{% else %}Add a product{% endif %} — {{ brand.site_name }}{% endblock %}
-{% block robots_meta %}noindex, nofollow{% endblock %}
-{% block content %}
-<div class="wrap"><div class="auth-shell wide"><div class="panel">
-    <h1>{% if product %}Edit product{% else %}Add a product{% endif %}</h1>
-    <p class="lede">{% if product %}Price and stock changes go live right away. Changing the name, image, category or description sends the listing for a quick review.{% else %}New listings are reviewed by our team before they go live.{% endif %}</p>
+{% extends "bees/seller/base.html" %}
+{% block page_title %}{% if product %}Edit product{% else %}Add a product{% endif %}{% endblock %}
+{% block seller %}
+<div class="adm-head"><div><a class="link small" href="{% url 'seller_products' %}">← All products</a><h1 style="margin-top:6px;">{% if product %}Edit product{% else %}Add a product{% endif %}</h1></div></div>
+<div class="panel" style="max-width:860px;">
+    <p class="muted" style="margin-bottom:18px;">{% if product %}Price and stock changes go live right away. Changing the name, image, category or description sends the listing for a quick review.{% else %}New listings are reviewed by our team before they go live.{% endif %}</p>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <div class="form-grid">
@@ -24,8 +23,8 @@
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;">
             <button type="submit" class="btn btn-primary">{% if product %}Save changes{% else %}Submit for review{% endif %}</button>
-            <a href="{% url 'seller_dashboard' %}" class="btn btn-ghost">Cancel</a>
+            <a href="{% url 'seller_products' %}" class="btn btn-ghost">Cancel</a>
         </div>
     </form>
-</div></div></div>
+</div>
 {% endblock %}

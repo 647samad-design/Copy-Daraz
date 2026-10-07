@@ -1,0 +1,123 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Overview{% endblock %}
+{% block page_css %}
+    .setup ol { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+    .setup li { display: flex; align-items: center; gap: 10px; }
+    .setup .tick { width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; flex-shrink: 0; border: 2px solid var(--line); font-size: .8rem; font-weight: 800; }
+    .setup li.done .tick { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .setup li.done span { color: var(--muted); text-decoration: line-through; }
+    .money-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
+    .money-grid div span { display: block; color: var(--muted); font-size: .88rem; }
+    .money-grid div strong { font-family: var(--font-display); font-size: 1.35rem; }
+    .bar-row { padding: 8px 0; border-top: 1px solid var(--line); }
+    .bar-row:first-of-type { border-top: 0; }
+    .bar-row .top { display: flex; justify-content: space-between; gap: 12px; }
+{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Welcome back, {{ user.first_name|default:user.username }}</h1><p>Here's how {{ seller.display_name }} is doing over the last {{ period.label }}.</p></div>
+    <div class="actions">
+        <div class="tabs" role="group" aria-label="Period">{% for key, label in ranges %}<a href="?range={{ key }}" class="{% if period.key == key %}on{% endif %}">{{ label }}</a>{% endfor %}</div>
+        {% if seller.status == "approved" %}<a class="btn btn-primary btn-sm" href="{% url 'seller_add_product' %}">+ Add product</a>{% endif %}
+    </div>
+</div>
+
+{% if setup.done < setup.total %}
+<section class="panel setup">
+    <div class="ph"><h2>Get your store ready · {{ setup.done }} of {{ setup.total }} done</h2><span class="muted small">{{ setup.pct }}%</span></div>
+    <div class="meter" aria-hidden="true"><i style="width:{{ setup.pct }}%"></i></div>
+    <ol>{% for label, ok, url in setup.steps %}<li class="{% if ok %}done{% endif %}"><span class="tick" aria-hidden="true">{% if ok %}✓{% endif %}</span>{% if ok %}<span>{{ label }}</span>{% elif url %}<a class="link" href="{% url url %}">{{ label }}</a>{% else %}{{ label }} <em class="muted small">after approval</em>{% endif %}</li>{% endfor %}</ol>
+</section>
+{% endif %}
+
+<section aria-label="Needs your attention">
+    <div class="todo">
+        <a href="{% url 'seller_orders' %}?tab=to_pack" class="{% if queue.to_pack %}hot{% endif %}"><strong>{{ queue.to_pack }}</strong><span>Items to pack</span></a>
+        <a href="{% url 'seller_orders' %}?tab=packed" class="{% if queue.packed %}hot{% endif %}"><strong>{{ queue.packed }}</strong><span>Ready to hand over</span></a>
+        <a href="{% url 'seller_orders' %}?tab=in_transit"><strong>{{ queue.in_transit }}</strong><span>In transit</span></a>
+        <a href="{% url 'seller_orders' %}?tab=to_pack" class="{% if queue.late %}bad{% endif %}"><strong>{{ queue.late }}</strong><span>Late (2+ days)</span></a>
+        <a href="{% url 'seller_reviews' %}" class="{% if open_questions %}hot{% endif %}"><strong>{{ open_questions }}</strong><span>Questions to answer</span></a>
+        <a href="{% url 'seller_products' %}?tab=out" class="{% if out_of_stock %}bad{% endif %}"><strong>{{ out_of_stock }}</strong><span>Out of stock</span></a>
+    </div>
+</section>
+
+<div class="kpis five" style="margin:0;">
+    <div class="kpi"><strong>{{ stats.sales|money }}</strong><span>Sales</span>{% include "bees/seller/_delta.html" with d=stats.sales_change %}</div>
+    <div class="kpi"><strong>{{ stats.units }}</strong><span>Units sold · {{ stats.orders }} order{{ stats.orders|pluralize }}</span>{% include "bees/seller/_delta.html" with d=stats.units_change %}</div>
+    <div class="kpi"><strong>{{ stats.commission|money }}</strong><span>Commission paid to {{ brand.site_name }}</span><small>Your rate now: {{ tier.current|floatformat:"-1" }}%</small></div>
+    <div class="kpi"><strong>{{ stats.net|money }}</strong><span>Your earnings</span>{% include "bees/seller/_delta.html" with d=stats.net_change %}</div>
+    <div class="kpi"><strong>{{ stats.aov|money }}</strong><span>Average order</span>{% include "bees/seller/_delta.html" with d=stats.aov_change %}</div>
+</div>
+
+<section class="panel">
+    <div class="ph"><h2>Sales over the last {{ period.label }}</h2><span class="muted small">{% if period.days <= 31 %}per day{% elif period.days <= 120 %}per week{% else %}per month{% endif %}</span></div>
+    <div class="chart {% if chart|length > 16 %}dense{% endif %}" role="img" aria-label="Sales over the last {{ period.label }}">
+        {% for d in chart %}
+        <div class="col {% if not d.amount %}zero{% endif %}" title="{{ d.label }}: {{ d.amount|money }}">
+            <div class="b" style="height:{{ d.pct }}%;"></div>
+            <span class="lbl">{{ d.label }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<div class="two-col">
+    <div class="col-stack">
+        <section class="panel">
+            <div class="ph"><h2>Latest orders</h2><a class="link small" href="{% url 'seller_orders' %}?tab=all">All orders</a></div>
+            <div class="table-scroll">
+                <table class="table">
+                    <thead><tr><th>Order</th><th>Product</th><th>Status</th><th class="num">You earn</th></tr></thead>
+                    <tbody>
+                    {% for item in recent %}
+                    <tr><td class="nowrap"><a class="rowlink" href="{% url 'seller_order' item.order_id %}">#{{ item.order_id }}</a><div class="muted small">{{ item.order.created_at|date:"M j" }}</div></td>
+                        <td>{{ item.product_name|truncatechars:34 }} <span class="muted small">× {{ item.quantity }}</span></td>
+                        <td><span class="pill st-{{ item.state }}">{{ item.state_label }}</span></td>
+                        <td class="num">{{ item.seller_earning|money }}</td></tr>
+                    {% empty %}<tr class="empty-row"><td colspan="4">No orders yet. They'll appear here the moment someone buys.</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        <section class="panel">
+            <h2>Best sellers this period</h2>
+            {% for p in top_products %}
+            <div class="bar-row"><div class="top"><span>{{ p.product_name|truncatechars:40 }} <span class="muted small">× {{ p.units }}</span></span><strong>{{ p.revenue|money }}</strong></div><div class="meter" aria-hidden="true"><i style="width:{{ p.pct }}%"></i></div></div>
+            {% empty %}<p class="muted">No sales in this period yet.</p>{% endfor %}
+        </section>
+    </div>
+    <div class="col-stack">
+        {% if balance %}
+        <section class="panel">
+            <div class="ph"><h2>Your money</h2><a class="link small" href="{% url 'seller_earnings' %}">Details</a></div>
+            <div class="money-grid">
+                <div><span>Available for payout</span><strong>{{ balance.available|money }}</strong></div>
+                <div><span>On the way (not delivered yet)</span><strong>{{ balance.pending|money }}</strong></div>
+                <div><span>Paid to you</span><strong>{{ balance.paid|money }}</strong></div>
+                <div><span>Earned all time</span><strong>{{ balance.earned|money }}</strong></div>
+            </div>
+            {% if tier.next %}<p class="small" style="margin-top:14px;">Sell <strong>{{ tier.next.remaining|money }}</strong> more to drop your commission to <strong>{{ tier.next.rate|floatformat:"-1" }}%</strong>.</p><div class="meter" aria-hidden="true"><i style="width:{{ tier.next.pct }}%"></i></div>{% endif %}
+        </section>
+        {% endif %}
+        <section class="panel">
+            <h2>Where your customers are</h2>
+            {% for c in countries %}
+            <div class="bar-row"><div class="top"><span>{{ c.name }}</span><span><strong>{{ c.revenue|money }}</strong> <span class="muted small">{{ c.share }}%</span></span></div><div class="meter" aria-hidden="true"><i style="width:{{ c.share }}%"></i></div></div>
+            {% empty %}<p class="muted">You'll see which countries buy from you once orders come in.</p>{% endfor %}
+        </section>
+        <section class="panel">
+            <h2>Store health</h2>
+            <div class="list-row"><span>Live products</span><strong>{{ live_count }} of {{ product_count }}</strong></div>
+            <div class="list-row"><span>Product rating</span><strong>{% if rating.n %}{{ rating.avg|floatformat:1 }} ★ <span class="muted small">({{ rating.n }})</span>{% else %}—{% endif %}</strong></div>
+            <div class="list-row"><span>Store rating</span><strong>{% if seller.average_rating %}{{ seller.average_rating }} ★{% else %}—{% endif %}</strong></div>
+        </section>
+        {% if low_stock %}
+        <section class="panel">
+            <div class="ph"><h2>Running low</h2><a class="link small" href="{% url 'seller_products' %}?tab=low">See all</a></div>
+            {% for p in low_stock %}<div class="list-row"><a class="rowlink" style="color:var(--ink);text-decoration:none;" href="{% url 'seller_edit_product' p.id %}">{{ p.name|truncatechars:32 }}</a><span class="pill warn">{{ p.stock }} left</span></div>{% endfor %}
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}{% block page_title %}Seller Center{% endblock %} — {{ seller.display_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+{% include "bees/partials/console_css.html" %}
+    .adm-top .store-name { font-weight: 700; opacity: .9; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .adm-top .links a .count { display: inline-block; min-width: 20px; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: .78rem; text-align: center; }
+    .seller-card { display: flex; gap: 12px; align-items: center; padding: 6px 12px 14px; }
+    .seller-card img, .seller-card .initial { width: 44px; height: 44px; border-radius: 999px; object-fit: cover; flex-shrink: 0; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-weight: 800; font-size: 1.1rem; }
+    .seller-card strong { display: block; line-height: 1.2; overflow-wrap: anywhere; }
+    .seller-card span { color: var(--muted); font-size: .85rem; }
+    .todo { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+    .kpis.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .kpis.five .kpi { padding: 16px; }
+    .kpis.five .kpi strong { font-size: 1.45rem; }
+    @media (max-width: 1180px) { .todo { grid-template-columns: repeat(3, minmax(0, 1fr)); } .kpis.five { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 560px) { .todo, .kpis.five { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .trio { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 20px; align-items: start; }
+    td.nowrap, .nowrap { white-space: nowrap; }
+    .todo a { display: block; padding: 14px 16px; border-radius: var(--radius); border: 1.5px solid var(--line); background: var(--surface); text-decoration: none; color: var(--ink); transition: border-color .15s, transform .15s; }
+    .todo a strong { display: block; font-family: var(--font-display); font-size: 1.6rem; line-height: 1.1; }
+    .todo a span { color: var(--muted); font-weight: 700; }
+    .todo a.hot { border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+    .todo a.bad { border-color: color-mix(in srgb, var(--sale) 50%, transparent); background: color-mix(in srgb, var(--sale) 7%, var(--surface)); }
+    .todo a:hover { border-color: var(--ink); transform: translateY(-1px); }
+    .kpi small { display: block; margin-top: 4px; font-size: .85rem; color: var(--muted); }
+    .delta { font-weight: 700; white-space: nowrap; }
+    .delta.up { color: var(--ok); } .delta.down { color: var(--sale); }
+    .chart { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; align-items: end; height: 210px; padding-top: 8px; }
+    .chart .col { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+    .chart .b { width: 100%; max-width: 40px; border-radius: 5px 5px 0 0; background: var(--brand); min-height: 2px; transition: opacity .15s; }
+    .chart .col:hover .b { opacity: .75; }
+    html[data-theme="dark"] .chart .b { background: var(--accent); }
+    .chart .col.zero .b { background: var(--line); }
+    .chart .lbl { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+    .chart.dense .lbl { visibility: hidden; }
+    .chart.dense .col:nth-child(5n+1) .lbl { visibility: visible; }
+    .list-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .list-row:first-of-type { border-top: 0; }
+    .meter { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
+    .meter i { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+    html[data-theme="dark"] .meter i { background: var(--accent); }
+    .ph { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .ph h2 { margin: 0 !important; }
+    .pill.st-pending, .pill.st-unpaid { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
+    .pill.st-packed, .pill.st-handed_to_courier, .pill.st-mixed { background: color-mix(in srgb, var(--brand) 12%, var(--surface)); color: var(--brand); }
+    html[data-theme="dark"] .pill.st-packed, html[data-theme="dark"] .pill.st-handed_to_courier, html[data-theme="dark"] .pill.st-mixed { color: var(--accent); }
+    .pill.st-delivered { background: color-mix(in srgb, var(--ok) 15%, var(--surface)); color: var(--ok); }
+    .pill.st-cancelled, .pill.st-refunded { background: color-mix(in srgb, var(--sale) 13%, var(--surface)); color: var(--sale); }
+    @media (max-width: 960px) { .seller-card.hide-mobile { display: none; } }
+    @media print {
+        .adm-top, .adm-nav, .no-print, .toast-stack, #nav-progress { display: none !important; }
+        .adm { display: block; padding: 0; }
+        body { background: #fff; }
+    }
+    {% block page_css %}{% endblock %}
+{% endblock %}
+
+{% block site_header %}
+<header class="adm-top">
+    <div class="wrap adm-bar">
+        <a href="{% url 'home' %}" class="logo" aria-label="{{ brand.site_name }} home" style="text-decoration:none;">
+            {% if brand.logo %}<img src="{{ brand.logo }}" alt="{{ brand.site_name }}" style="height:30px;">{% else %}<span class="logo-text">{{ brand.site_name }}</span>{% endif %}
+        </a>
+        <span class="tag hide-xs">Seller Center</span>
+        <nav class="links" aria-label="Seller shortcuts">
+            {% if seller.status == "approved" %}<a href="{% url 'store_page' seller.display_name %}" target="_blank" rel="noopener" class="hide-sm">My store page</a>{% endif %}
+            <a href="{% url 'home' %}" class="hide-sm">Shop</a>
+            <a href="{% url 'notifications_list' %}">Alerts{% if unread_notifications_count %}<span class="count">{{ unread_notifications_count }}</span>{% endif %}</a>
+            <button type="button" onclick="toggleTheme()" class="hide-sm" aria-label="Toggle dark mode">Theme</button>
+            <form method="post" action="{% url 'logout' %}" style="margin:0;">{% csrf_token %}<button type="submit">Sign out</button></form>
+        </nav>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="wrap adm">
+    <nav class="adm-nav" aria-label="Seller Center sections">
+        <div class="seller-card hide-mobile">
+            {% if seller.store_logo %}<img src="{{ seller.store_logo.url }}" alt="">{% else %}<span class="initial" aria-hidden="true">{{ seller.display_name|first|upper }}</span>{% endif %}
+            <div><strong>{{ seller.display_name }}</strong><span>{% if seller.account_type == "organization" %}Business{% else %}Individual{% endif %} · {% if role == "owner" %}Owner{% else %}Team {{ role }}{% endif %}</span></div>
+        </div>
+        <a href="{% url 'seller_dashboard' %}" class="{% if section == 'overview' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+        <a href="{% url 'seller_orders' %}" class="{% if section == 'orders' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 7h16l-1.5 12.5a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5L4 7Z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>Orders{% if nav.orders %}<span class="n">{{ nav.orders }}</span>{% endif %}</a>
+        <a href="{% url 'seller_products' %}" class="{% if section == 'products' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>Products{% if nav.products %}<span class="n">{{ nav.products }}</span>{% endif %}</a>
+        {% if can_money %}<a href="{% url 'seller_earnings' %}" class="{% if section == 'earnings' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10h19M7 15h3"/></svg>Earnings &amp; payouts</a>{% endif %}
+        <a href="{% url 'seller_returns' %}" class="{% if section == 'returns' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Returns{% if nav.returns %}<span class="n">{{ nav.returns }}</span>{% endif %}</a>
+        <a href="{% url 'seller_reviews' %}" class="{% if section == 'reviews' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg>Reviews &amp; questions{% if nav.questions %}<span class="n">{{ nav.questions }}</span>{% endif %}</a>
+        {% if can_money and seller.account_type == "organization" %}<a href="{% url 'seller_team' %}" class="{% if section == 'team' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14c2.8 0 4.5 2 4.5 5"/></svg>Team</a>{% endif %}
+        <hr>
+        {% if can_money %}<a href="{% url 'seller_store_settings' %}" class="{% if section == 'settings' %}on{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 10h16v10H4zM3 6l2-3h14l2 3v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0V6Z"/></svg>Store settings</a>{% endif %}
+        <a href="{% url 'help_support' %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg>Help</a>
+    </nav>
+    <div class="adm-main">
+        {% if seller.status == "pending" %}<div class="callout warn" style="margin:0;"><strong>Your application is under review.</strong> We'll notify you as soon as it's approved, usually within two business days. Meanwhile, set up your store details.</div>
+        {% elif seller.status == "suspended" %}<div class="callout bad" style="margin:0;"><strong>Your account is suspended</strong> and your products are hidden.{% if seller.admin_note %} {{ seller.admin_note }}{% endif %} Please contact support.</div>
+        {% elif seller.status == "rejected" %}<div class="callout bad" style="margin:0;"><strong>Your application wasn't approved.</strong>{% if seller.admin_note %} {{ seller.admin_note }}{% endif %}</div>{% endif %}
+        {% if seller.vacation_mode %}<div class="callout warn" style="margin:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;"><span><strong>Holiday mode is on.</strong> Your products are hidden from the shop.</span>{% if can_money %}<form method="post" action="{% url 'seller_vacation' %}" style="margin:0;">{% csrf_token %}<input type="hidden" name="vacation_mode" value="off"><button class="btn btn-secondary btn-sm" type="submit">I'm back - show my products</button></form>{% endif %}</div>{% endif %}
+        {% block seller %}{% endblock %}
+    </div>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

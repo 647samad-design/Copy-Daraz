@@ -5,7 +5,8 @@
 <div class="adm-head"><div><h1>Sellers</h1><p>Approve applications, set commission and record payouts.</p></div></div>
 <div class="tabs" role="group" aria-label="Filter by status">
     <a href="?" class="{% if not status %}on{% endif %}">All</a>
-    {% for v, l in status_choices %}<a href="?status={{ v }}" class="{% if status == v %}on{% endif %}">{% if v == 'pending' %}Applications{% if attention.sellers %} ({{ attention.sellers }}){% endif %}{% else %}{{ l }}{% endif %}</a>{% endfor %}
+    {% for v, l in status_choices %}<a href="?status={{ v }}" class="{% if status == v %}on{% endif %}">{% if v == 'pending' %}Applications{% if pending_count %} ({{ pending_count }}){% endif %}{% else %}{{ l }}{% endif %}</a>{% endfor %}
+    <a href="?status=payout" class="{% if status == 'payout' %}on{% endif %}">Payout requests{% if payout_requests %} ({{ payout_requests }}){% endif %}</a>
 </div>
 <form method="get" class="toolbar">
     {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}

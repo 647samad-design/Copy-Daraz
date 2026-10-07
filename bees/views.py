@@ -210,6 +210,8 @@ def _send_order_confirmation(request, order):
         {"order": order, "invoice_url": invoice_url, "track_url": track_url},
         order.contact_email,
     )
+    from . import seller_center
+    seller_center.notify_new_order(order)
 
 
 # ---------------------------------------------------------------------------
@@ -408,15 +410,35 @@ def search_suggest(request):
 
 
 def store_page(request, seller_name):
-    products = with_ratings(Product.objects.live().filter(seller_name=seller_name))
     seller_account = SellerAccount.objects.filter(
         Q(business_name=seller_name) | Q(organization_name=seller_name),
         status="approved",
     ).first()
+    base = Product.objects.live().filter(seller_name=seller_name)
+    total_count = base.count()
+    products = base
+    q = request.GET.get("q", "").strip()
+    if q:
+        products = products.filter(Q(name__icontains=q) | Q(description__icontains=q))
+    sort = request.GET.get("sort", "")
+    products = _apply_sort(with_ratings(products), sort)
+    if not sort:
+        products = products.order_by("-created_at")
+    page_obj = Paginator(products, 24).get_page(request.GET.get("page"))
+    stats = {}
+    if seller_account:
+        stats = Review.objects.filter(product__seller_account=seller_account).aggregate(avg=Avg("rating"), n=Count("id"))
+        stats["sold"] = OrderItem.objects.filter(seller_account=seller_account).counted().aggregate(n=Sum("quantity"))["n"] or 0
+        stats["store_reviews"] = seller_account.seller_reviews.select_related("user")[:3]
     return render(request, "bees/store.html", {
         "seller_name": seller_name,
-        "products": products,
+        "products": page_obj,
+        "page_obj": page_obj,
+        "total_count": total_count,
         "seller_account": seller_account,
+        "stats": stats,
+        "q": q,
+        "current_sort": sort,
     })
 
 
@@ -456,7 +478,7 @@ def ask_question(request, pk):
             Question.objects.create(product=product, user=request.user, username=request.user.username, question=text)
             if product.seller_account_id:
                 Notification.objects.create(
-                    user_id=product.seller_account.user_id, link="/seller/dashboard/#questions",
+                    user_id=product.seller_account.user_id, link="/seller/reviews/",
                     message=f"New customer question on '{product.name[:120]}'.",
                 )
             messages.success(request, "Your question has been posted. We'll notify you when it's answered.")
@@ -1782,22 +1804,22 @@ def become_seller(request):
 def update_fulfillment_status(request, item_id):
     seller, role = get_seller_account_for_user(request.user)
     if not seller:
-        return redirect("seller_dashboard")
+        return redirect_back(request, "seller_orders")
     item = get_object_or_404(OrderItem.objects.filter(Q(seller_account=seller) | Q(product__seller_account=seller)), pk=item_id)
     new_status = request.POST.get("fulfillment_status")
     if request.method == "POST" and new_status in dict(OrderItem.FULFILLMENT_CHOICES):
         if item.order.status == "cancelled":
             messages.error(request, f"Order #{item.order_id} was cancelled - don't ship '{item.product_name}'.")
-            return redirect("seller_dashboard")
+            return redirect_back(request, "seller_orders")
         if item.order.payment_status in ("pending", "failed"):
             messages.error(request, f"Order #{item.order_id} hasn't been paid yet - wait before shipping.")
-            return redirect("seller_dashboard")
+            return redirect_back(request, "seller_orders")
         item.fulfillment_status = new_status
         item.save(update_fields=["fulfillment_status"])
         moved = sync_order_status_from_items(item.order)
         note = f" Order #{item.order_id} is now {moved} and the customer has been emailed." if moved else ""
         messages.success(request, f"Marked '{item.product_name}' as {item.get_fulfillment_status_display()}.{note}")
-    return redirect("seller_dashboard")
+    return redirect_back(request, "seller_orders")
 
 
 def sync_order_status_from_items(order):
@@ -1824,64 +1846,12 @@ def sync_order_status_from_items(order):
     return order.get_status_display().lower()
 
 
-@login_required
-def seller_dashboard(request):
-    seller, role = get_seller_account_for_user(request.user)
-    if not seller:
-        raise Http404("No seller account found for this user.")
-    products = Product.objects.filter(seller_account=seller)
-
-    order_items_qs = OrderItem.objects.filter(seller_account=seller).select_related(
-        "order", "product"
-    ).order_by("-order__created_at")
-    order_items = list(order_items_qs)
-    counted_ids = set(OrderItem.objects.filter(seller_account=seller).counted().values_list("id", flat=True))
-    counted_items = [i for i in order_items if i.id in counted_ids]
-    for i in order_items:
-        i.counts = i.id in counted_ids
-    total_sales = seller.lifetime_sales
-    commission_owed = seller.commission_total
-    net_earnings = seller.net_earnings
-
-    from datetime import timedelta
-    from django.utils import timezone
-    today = timezone.localdate()
-    daily_sales = []
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        day_total = sum(
-            it.subtotal for it in counted_items if it.order.created_at.date() == day
-        )
-        daily_sales.append({"label": day.strftime("%a"), "amount": float(day_total)})
-    max_daily = max([d["amount"] for d in daily_sales] or [1]) or 1
-    for d in daily_sales:
-        d["pct"] = round((d["amount"] / max_daily) * 100, 1) if max_daily else 0
-
-    top_products = (
-        products.annotate(units_sold=Sum("orderitem__quantity"))
-        .filter(units_sold__gt=0)
-        .order_by("-units_sold")[:5]
-    )
-    low_stock_products = products.filter(stock__gt=0, stock__lte=5)
-    out_of_stock_products = products.filter(stock__lte=0)
-
-    return render(request, "bees/seller_dashboard.html", {
-        "seller": seller,
-        "role": role,
-        "products": products,
-        "order_items": order_items[:30],
-        "amount_owed": seller.amount_owed,
-        "current_rate": seller.effective_commission_rate,
-        "total_sales": total_sales,
-        "commission_owed": commission_owed,
-        "net_earnings": net_earnings,
-        "product_count": products.count(),
-        "daily_sales": daily_sales,
-        "top_products": top_products,
-        "low_stock_products": low_stock_products,
-        "out_of_stock_products": out_of_stock_products,
-        "open_questions": Question.objects.filter(product__seller_account=seller, answer="").select_related("product").order_by("created_at")[:20],
-    })
+def _seller_form(request, seller, role, context):
+    """Shows the product form inside the Seller Center layout."""
+    from .seller_views import _render as seller_render
+    request.seller, request.seller_role = seller, role
+    context["section"] = "products"
+    return seller_render(request, "product_form.html", context)
 
 
 def _approved_seller_or_404(user):
@@ -1984,7 +1954,7 @@ def seller_add_product(request):
                 raise ValidationError("Please add a product image (upload a file or paste an https:// link).")
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
-            return render(request, "bees/seller_add_product.html", {
+            return _seller_form(request, seller, role, {
                 "categories": Product.CATEGORY_CHOICES, "p": request.POST, "variant_rows": variant_rows_for_form(request),
             })
         with transaction.atomic():
@@ -1997,8 +1967,8 @@ def seller_add_product(request):
             if variant_rows:
                 apply_variant_rows(product, variant_rows)
         messages.success(request, "Product submitted for review. It will go live once approved by an admin.")
-        return redirect("seller_dashboard")
-    return render(request, "bees/seller_add_product.html", {
+        return redirect("seller_products")
+    return _seller_form(request, seller, role, {
         "categories": Product.CATEGORY_CHOICES, "p": {"stock": 10, "discount_percent": 0}, "variant_rows": [],
     })
 
@@ -2018,7 +1988,7 @@ def seller_edit_product(request, pk):
             variant_rows = parse_variant_rows(request)
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
-            return render(request, "bees/seller_add_product.html", {
+            return _seller_form(request, seller, role, {
                 "categories": Product.CATEGORY_CHOICES, "product": product, "p": request.POST,
                 "variant_rows": variant_rows_for_form(request, product),
             })
@@ -2035,8 +2005,8 @@ def seller_edit_product(request, pk):
         with transaction.atomic():
             product.save()
             apply_variant_rows(product, variant_rows)
-        return redirect("seller_dashboard")
-    return render(request, "bees/seller_add_product.html", {
+        return redirect("seller_products")
+    return _seller_form(request, seller, role, {
         "categories": Product.CATEGORY_CHOICES,
         "product": product, "p": product, "variant_rows": variant_rows_for_form(request, product),
     })
@@ -2048,7 +2018,7 @@ def seller_delete_product(request, pk):
     seller, role = _approved_seller_or_404(request.user)
     Product.objects.filter(pk=pk, seller_account=seller).delete()
     messages.success(request, "Product removed from your store.")
-    return redirect("seller_dashboard")
+    return redirect_back(request, "seller_products")
 
 
 @login_required
@@ -2057,10 +2027,10 @@ def add_team_member(request):
     seller, role = get_seller_account_for_user(request.user)
     if not seller or role not in ("owner", "admin"):
         messages.error(request, "Only the account owner or a team admin can manage team members.")
-        return redirect("seller_dashboard")
+        return redirect("seller_team")
     if seller.account_type != "organization":
         messages.error(request, "Team members are only available for organization accounts.")
-        return redirect("seller_dashboard")
+        return redirect("seller_team")
     identifier = request.POST.get("username_or_email", "").strip()
     member_role = request.POST.get("role", "staff")
     if member_role not in dict(OrganizationMember.ROLE_CHOICES):
@@ -2082,7 +2052,7 @@ def add_team_member(request):
             link="/seller/dashboard/",
         )
         messages.success(request, f"{user.username} added to the team.")
-    return redirect("seller_dashboard")
+    return redirect("seller_team")
 
 
 def notify_question_answered(question):
@@ -2108,7 +2078,7 @@ def seller_answer_question(request, pk):
         if not had_answer:
             notify_question_answered(question)
         messages.success(request, "Answer published on the product page.")
-    return redirect(reverse("seller_dashboard") + "#questions")
+    return redirect_back(request, "seller_reviews")
 
 
 @login_required
@@ -2117,11 +2087,11 @@ def remove_team_member(request, member_id):
     seller, role = get_seller_account_for_user(request.user)
     if not seller or role not in ("owner", "admin"):
         messages.error(request, "Only the account owner or a team admin can manage team members.")
-        return redirect("seller_dashboard")
+        return redirect("seller_team")
     member = get_object_or_404(OrganizationMember, pk=member_id, organization=seller)
     member.delete()
     messages.success(request, "Team member removed.")
-    return redirect("seller_dashboard")
+    return redirect("seller_team")
 
 
 # ---------------------------------------------------------------------------

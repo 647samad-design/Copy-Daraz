@@ -1,0 +1,39 @@
+{% extends "bees/seller/base.html" %}
+{% block page_title %}Team{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Team</h1><p>Give colleagues their own login to help run {{ seller.display_name }} - no password sharing.</p></div>
+</div>
+<div class="two-col">
+    <section class="panel" style="padding:0;overflow:hidden;">
+        <div class="table-scroll">
+            <table class="table">
+                <thead><tr><th>Member</th><th>Role</th><th>Added</th><th class="num"><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                <tr><td><strong>{{ seller.user.username }}</strong><div class="muted small">{{ seller.user.email }}</div></td><td><span class="pill info">Owner</span></td><td>{{ seller.created_at|date:"M j, Y" }}</td><td></td></tr>
+                {% for m in members %}
+                <tr><td><strong>{{ m.user.username }}</strong><div class="muted small">{{ m.user.email }}</div></td><td><span class="pill">{% if m.role == "admin" %}Admin{% else %}Staff{% endif %}</span></td><td>{{ m.added_at|date:"M j, Y" }}</td>
+                    <td class="num"><form method="post" action="{% url 'remove_team_member' m.id %}" onsubmit="return confirm('Remove {{ m.user.username|escapejs }} from the team?')">{% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm">Remove</button></form></td></tr>
+                {% empty %}<tr class="empty-row"><td colspan="4">No team members yet.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Add someone</h2>
+            <form method="post" action="{% url 'add_team_member' %}" class="stack-sm">
+                {% csrf_token %}
+                <div class="field"><label for="tm_user">Username or email</label><input id="tm_user" type="text" name="username_or_email" required><span class="hint">They need to create a customer account first.</span></div>
+                <div class="field"><label for="tm_role">Role</label><select id="tm_role" name="role"><option value="staff">Staff - orders, products, returns, reviews</option><option value="admin">Admin - everything, including money and team</option></select></div>
+                <button type="submit" class="btn btn-primary btn-sm">Add to team</button>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>What each role can do</h2>
+            <div class="list-row"><span>Orders, products, returns, reviews</span><span class="muted">Staff · Admin</span></div>
+            <div class="list-row"><span>Earnings, payouts, settings, team</span><span class="muted">Admin</span></div>
+        </section>
+    </div>
+</div>
+{% endblock %}

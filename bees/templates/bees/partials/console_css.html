@@ -1,0 +1,62 @@
+{# Shared layout for the store admin (/manage/) and the Seller Center (/seller/). #}
+    body { background: var(--paper); }
+    .adm-top { position: sticky; top: 0; z-index: 200; background: var(--brand); color: var(--on-brand); }
+    .adm-top .adm-bar { display: flex; align-items: center; gap: 16px; min-height: 60px; }
+    .adm-top .logo-text { color: var(--on-brand); font-size: 1.25rem; }
+    .adm-top .tag { font-weight: 700; font-size: 0.85rem; padding: 3px 10px; border-radius: 999px; background: var(--accent); color: var(--on-accent); }
+    .adm-top .links { margin-left: auto; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+    .adm-top .links a, .adm-top .links button { color: var(--on-brand); text-decoration: none; font-weight: 700; padding: 8px 12px; border-radius: var(--radius-sm); background: none; border: 0; cursor: pointer; font-size: 0.95rem; }
+    .adm-top .links a:hover, .adm-top .links button:hover { background: color-mix(in srgb, var(--on-brand) 12%, transparent); }
+    .adm { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 28px; align-items: start; padding-block: 28px 64px; }
+    .adm-nav { position: sticky; top: 84px; display: grid; gap: 2px; }
+    .adm-nav a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--muted); font-weight: 700; }
+    .adm-nav a svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .adm-nav a:hover { background: var(--surface); color: var(--ink); }
+    .adm-nav a.on { background: var(--surface); color: var(--ink); box-shadow: inset 3px 0 0 var(--brand); }
+    html[data-theme="dark"] .adm-nav a.on { box-shadow: inset 3px 0 0 var(--accent); }
+    .adm-nav .n { margin-left: auto; min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 0.8rem; text-align: center; }
+    .adm-nav hr { border: 0; border-top: 1px solid var(--line); margin: 10px 4px; }
+    .adm-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; }
+    .col-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; min-width: 0; }
+    .col-stack.tight { gap: 12px; }
+    .adm-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; }
+    .adm-head p { color: var(--muted); margin-top: 4px; }
+    .adm-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .toolbar .input, .toolbar select { min-height: 44px; width: auto; }
+    .toolbar .grow { flex: 1 1 220px; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tabs a { padding: 8px 14px; border-radius: 999px; text-decoration: none; font-weight: 700; color: var(--muted); border: 1.5px solid var(--line); background: var(--surface); }
+    .tabs a.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+    .tabs a .n { margin-left: 4px; }
+    .table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .table tr.clickable { cursor: pointer; }
+    .table tr.clickable:hover td { background: var(--surface-2); }
+    .table a.rowlink { color: var(--ink); text-decoration: none; font-weight: 700; }
+    .table a.rowlink:hover { text-decoration: underline; }
+    .thumb { width: 44px; height: 44px; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-2); }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.82rem; font-weight: 700; white-space: nowrap; background: var(--surface-2); color: var(--ink); }
+    .pill.ok { background: color-mix(in srgb, var(--ok) 15%, var(--surface)); color: var(--ok); }
+    .pill.warn { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
+    .pill.bad { background: color-mix(in srgb, var(--sale) 13%, var(--surface)); color: var(--sale); }
+    .pill.info { background: color-mix(in srgb, var(--brand) 12%, var(--surface)); color: var(--brand); }
+    html[data-theme="dark"] .pill.info { color: var(--accent); }
+    .empty-row td { text-align: center; color: var(--muted); padding: 36px 12px; }
+    .two-col { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+    .panel h2 { font-size: 1.15rem; margin-bottom: 14px; }
+    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+    .stack-sm > * + * { margin-top: 10px; }
+    .bulkbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
+    @media (max-width: 960px) {
+        .adm { grid-template-columns: minmax(0, 1fr); padding-top: 12px; gap: 16px; }
+        .adm-nav { position: static; display: flex; overflow-x: auto; gap: 4px; padding-bottom: 6px; scrollbar-width: thin; }
+        .adm-nav a { white-space: nowrap; background: var(--surface); border: 1px solid var(--line); }
+        .adm-nav a.on { box-shadow: none; border-color: var(--brand); }
+        .adm-nav hr { display: none; }
+        .two-col { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 420px) { .adm-top .hide-xs { display: none; } }
+    @media (max-width: 560px) { .adm-top .links .hide-sm { display: none; } .adm-top .links { flex-wrap: nowrap; gap: 0; } .adm-top .links a, .adm-top .links button { padding: 8px; font-size: 0.9rem; white-space: nowrap; } .adm-top .adm-bar { gap: 10px; } }
+    .table-scroll { position: relative; } /* keeps visually-hidden labels inside the scroll area */

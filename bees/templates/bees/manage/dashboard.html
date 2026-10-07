@@ -34,7 +34,7 @@
     <div class="todo">
         <a href="{% url 'manage_orders' %}?status=open" class="{% if attention.orders %}hot{% endif %}"><strong>{{ attention.orders }}</strong><span>Orders to ship</span></a>
         <a href="{% url 'manage_products' %}?state=pending" class="{% if attention.products %}hot{% endif %}"><strong>{{ attention.products }}</strong><span>Products to review</span></a>
-        <a href="{% url 'manage_sellers' %}?status=pending" class="{% if attention.sellers %}hot{% endif %}"><strong>{{ attention.sellers }}</strong><span>Seller applications</span></a>
+        <a href="{% url 'manage_sellers' %}?status=pending" class="{% if attention.sellers %}hot{% endif %}"><strong>{{ attention.sellers }}</strong><span>Seller requests</span></a>
         <a href="{% url 'manage_returns' %}" class="{% if attention.returns %}hot{% endif %}"><strong>{{ attention.returns }}</strong><span>Return requests</span></a>
         <a href="{% url 'manage_support' %}" class="{% if attention.messages %}hot{% endif %}"><strong>{{ attention.messages }}</strong><span>Unread messages</span></a>
         <a href="{% url 'manage_reviews' %}?tab=questions" class="{% if attention.questions %}hot{% endif %}"><strong>{{ attention.questions }}</strong><span>Unanswered questions</span></a>

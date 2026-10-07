@@ -218,7 +218,7 @@
 
     <section class="panel section" id="reviews">
         <div class="section-head" style="margin-bottom:8px;"><h2>{{ t.ratings_reviews }}</h2></div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:32px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(300px, 100%),1fr));gap:32px;">
             <div>
                 {% if product.rating_count %}
                 <div class="rating-summary">

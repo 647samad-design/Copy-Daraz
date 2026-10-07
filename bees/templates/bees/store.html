@@ -19,7 +19,7 @@
     .store-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
     .store-bar form.search { display: flex; gap: 8px; flex: 1 1 280px; max-width: 460px; }
     .store-bar form.search input { flex: 1; min-width: 0; }
-    .store-reviews { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 36px; }
+    .store-reviews { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 14px; margin-top: 36px; }
     .store-reviews .panel p { margin: 6px 0; }
     @media (max-width: 600px) { .store-hero-body { padding: 20px; } .store-logo, .store-initial { width: 64px; height: 64px; font-size: 1.6rem; } }
 {% endblock %}

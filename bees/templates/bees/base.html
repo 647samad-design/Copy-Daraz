@@ -172,14 +172,14 @@
         .pay-option:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 5%, var(--surface)); }
         .pay-option input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--brand); }
         .pay-option strong { display: block; }
-        .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; border: 0; }
+        .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 10px; border: 0; }
         .choice { position: relative; display: block; border: 1.5px solid var(--line); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; }
         .choice input { position: absolute; opacity: 0; }
         .choice strong { display: block; }
         .choice span { font-size: 0.9rem; color: var(--muted); }
         .choice:has(input:checked) { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); }
         .choice:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
-        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 24px; }
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 14px; margin-bottom: 24px; }
         .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
         .kpi strong { display: block; font-family: var(--font-display); font-size: 1.75rem; line-height: 1.15; letter-spacing: -0.01em; }
         .kpi span { color: var(--muted); }
@@ -257,7 +257,7 @@
         .catnav a.active { color: var(--on-brand); background: var(--brand); }
 
         /* ================= Product card ================= */
-        .grid-products { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 28px 20px; }
+        .grid-products { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 28px 20px; }
         .pcard { position: relative; display: flex; flex-direction: column; }
         .pcard-media { position: relative; display: block; aspect-ratio: 1 / 1; border-radius: var(--radius); background: var(--surface-2); overflow: hidden; }
         .pcard-media img { width: 100%; height: 100%; object-fit: cover; transition: transform .4s ease; }
@@ -408,7 +408,19 @@
             .footer-top { grid-template-columns: 1fr; gap: 28px; }
             .qv { grid-template-columns: 1fr; }
             .pcard-actions { flex-direction: column; }
+            /* Long button labels wrap instead of running off a phone screen. */
+            .btn { white-space: normal; text-align: center; line-height: 1.25; padding-top: 8px; padding-bottom: 8px; }
+            /* Header menus open as a full-width sheet so they never go off-screen. */
+            .menu-panel { position: fixed; left: 10px; right: 10px; top: 64px; min-width: 0; max-height: calc(100vh - 84px); overflow-y: auto; }
         }
+        @media (max-width: 560px) {
+            .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+            .kpi { padding: 14px; }
+            .kpi strong { font-size: 1.35rem; }
+        }
+        /* Big monitors and TVs: use more of the screen and scale type up a little. */
+        @media (min-width: 1600px) { :root { --wrap: 1440px; } }
+        @media (min-width: 2200px) { :root { --wrap: 1680px; } html { font-size: 112.5%; } }
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
         }

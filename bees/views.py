@@ -38,7 +38,7 @@ from .ratelimit import ratelimit
 from .security import (
     safe_next_url, redirect_back, validate_image_upload, validate_document_upload, random_upload_name,
 )
-from .templatetags.bees_extras import money
+from .templatetags.bees_extras import country_name, money
 
 logger = logging.getLogger(__name__)
 
@@ -933,23 +933,29 @@ def _payment_methods():
     return methods
 
 
-def _price_cart(subtotal, coupon=None):
-    """Returns the full price breakdown for a cart subtotal."""
+def _price_cart(subtotal, coupon=None, country=None):
+    """Returns the full price breakdown for a cart subtotal. Shipping
+    depends on the destination country; ``shipping`` is None while the
+    country isn't known, and ``ships`` is False if we don't deliver there."""
+    from . import shipping as shipping_rules
     brand = _brand()
     discount = Decimal("0")
     if coupon:
         discount = (subtotal * Decimal(coupon.percent_off) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     discounted = max(subtotal - discount, Decimal("0"))
-    # Free-shipping threshold is checked against what the customer actually
-    # pays for the goods (after the coupon).
-    shipping = brand.shipping_for(discounted) if subtotal else Decimal("0")
+    # Free-shipping thresholds are checked against what the customer
+    # actually pays for the goods (after the coupon).
+    quote = shipping_rules.quote(country, discounted) if subtotal else {"ships": True, "fee": Decimal("0"), "zone": None}
+    shipping = quote["fee"]
     tax = (discounted * Decimal(brand.tax_percent or 0) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
         "subtotal": subtotal,
         "discount": discount,
+        "ships": quote["ships"],
+        "shipping_zone": quote["zone"],
         "shipping": shipping,
         "tax": tax,
-        "total": discounted + shipping + tax,
+        "total": discounted + (shipping or Decimal("0")) + tax,
         "tax_percent": brand.tax_percent,
     }
 
@@ -982,7 +988,8 @@ def checkout_view(request):
         return redirect("cart")
 
     coupon, coupon_error = _session_coupon(request, subtotal)
-    pricing = _price_cart(subtotal, coupon)
+    default_address = Address.objects.filter(user=request.user, is_default=True).first() if request.user.is_authenticated else None
+    pricing = _price_cart(subtotal, coupon, default_address.country if default_address else None)
     methods = _payment_methods()
 
     if request.method == "POST":
@@ -998,10 +1005,13 @@ def checkout_view(request):
         data = {f: request.POST.get(f, "").strip() for f in CHECKOUT_REQUIRED + ("state",)}
         data["country"] = data["country"].upper()[:2]
         missing = [f.replace("_", " ") for f in CHECKOUT_REQUIRED if not data[f]]
+        pricing = _price_cart(subtotal, coupon, data["country"])
         try:
             if missing:
                 raise ValidationError(f"Please fill in: {', '.join(missing)}.")
             validate_email(data["email"])
+            if not pricing["ships"]:
+                raise ValidationError(f"Sorry, we don't deliver to {country_name(data['country'])} yet.")
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods, data))
@@ -1049,9 +1059,16 @@ def _checkout_context(request, items, pricing, coupon, methods, form=None):
         default = Address.objects.filter(user=request.user, is_default=True).first()
         if default:
             form.update({f: getattr(default, f) for f in ("full_name", "phone", "address", "city", "state", "postal_code", "country")})
-    credit = _store_credit(request.user)
+    from . import shipping as shipping_rules
+    credit = _store_credit(request.user) if request.user.is_authenticated else Decimal("0")
     credit_applicable = min(credit, pricing["total"])
+    checkout_data = {
+        "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "tax": str(pricing["tax"]),
+        "credit": str(credit), "currency": settings.STORE_CURRENCY.upper(),
+        "shipping": shipping_rules.table(), "card": "card" in methods,
+    }
     return {
+        "checkout_data": checkout_data,
         "store_credit": credit,
         "credit_applicable": credit_applicable,
         "total_after_credit": pricing["total"] - credit_applicable,
@@ -1095,7 +1112,9 @@ def _place_order(request, items, data, payment_method, use_credit=False):
                 if not is_valid:
                     raise CheckoutError(error)
 
-        pricing = _price_cart(subtotal, coupon)
+        pricing = _price_cart(subtotal, coupon, data["country"])
+        if not pricing["ships"]:
+            raise CheckoutError("Sorry, we don't deliver to that country yet.")
         is_card = payment_method == "card"
         order = Order.objects.create(
             user=request.user,
@@ -1114,7 +1133,7 @@ def _place_order(request, items, data, payment_method, use_credit=False):
             discount_amount=pricing["discount"],
             shipping_amount=pricing["shipping"],
             tax_amount=pricing["tax"],
-            estimated_delivery=order_emails.default_delivery_date(),
+            estimated_delivery=order_emails.default_delivery_date(country=data["country"]),
         )
         seller_cache = {}
         for product, qty in lines:

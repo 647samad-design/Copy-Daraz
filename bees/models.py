@@ -802,6 +802,41 @@ class ReturnRequest(models.Model):
         return f"Return: {self.order_item.product_name} ({self.status})"
 
 
+class ShippingZone(models.Model):
+    """Shipping fee for a group of countries. A zone whose countries are
+    "*" covers every country not listed in another zone ("rest of the
+    world"). With no zones at all, the flat fee in Settings applies
+    everywhere."""
+    name = models.CharField(max_length=60, help_text="e.g. United States, Europe, Rest of world")
+    countries = models.TextField(help_text="Two-letter country codes separated by commas (US, CA), or * for every other country.")
+    fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    free_over = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                    help_text="Orders at or above this amount (after discounts) ship free. Empty = never free.")
+    delivery_days = models.PositiveSmallIntegerField(null=True, blank=True,
+                                                     help_text="Usual delivery time in business days. Empty = store default.")
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_rest_of_world(self):
+        return self.countries.strip() == "*"
+
+    @property
+    def country_codes(self):
+        return [c.strip().upper() for c in self.countries.replace("\n", ",").split(",") if c.strip() and c.strip() != "*"]
+
+    def fee_for(self, amount):
+        from decimal import Decimal
+        if self.free_over is not None and amount >= self.free_over:
+            return Decimal("0")
+        return self.fee
+
+
 class SiteSettings(models.Model):
     """A single-row table for site-wide settings, editable from the admin
     panel. Everything brand-related lives here so the store can be
@@ -932,6 +967,12 @@ class ChatMessage(models.Model):
 # membership changes.
 from django.db.models.signals import post_delete, post_save  # noqa: E402
 from django.dispatch import receiver  # noqa: E402
+
+
+@receiver([post_save, post_delete], sender=ShippingZone)
+def _clear_shipping_cache(sender, **kwargs):
+    from .shipping import clear_cache
+    clear_cache()
 
 
 @receiver([post_save, post_delete], sender=SellerAccount)

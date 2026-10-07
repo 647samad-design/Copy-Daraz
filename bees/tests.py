@@ -1863,3 +1863,65 @@ class AccountSettingsTests(TestCase):
         self.client.post(reverse("seller_store_settings"), {"store_name": "Hijack"})
         org.refresh_from_db()
         self.assertEqual(org.business_name, "Org")
+
+
+class ShippingZoneTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("ship", "ship@example.com", "pass12345")
+        self.product = make_product(price=Decimal("20.00"), stock=10)
+        self.client.force_login(self.user)
+
+    def _checkout(self, country):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        return self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "country": country, "payment_method": "cod"}, follow=True)
+
+    def test_flat_fee_without_zones(self):
+        SiteSettings.objects.update_or_create(pk=1, defaults={"shipping_flat_fee": Decimal("7")})
+        cache.clear()
+        self._checkout("DE")
+        self.assertEqual(Order.objects.get().shipping_amount, Decimal("7"))
+
+    def test_fee_by_country_and_unsupported_country(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="US", countries="US", fee=Decimal("5"), free_over=Decimal("50"), delivery_days=3)
+        rest = ShippingZone.objects.create(name="World", countries="*", fee=Decimal("20"), delivery_days=12)
+        self._checkout("US")
+        us = Order.objects.get()
+        self.assertEqual(us.shipping_amount, Decimal("5"))
+        from .order_emails import add_business_days
+        from django.utils import timezone
+        self.assertEqual(us.estimated_delivery, add_business_days(timezone.localdate(), 3))
+        self._checkout("DE")
+        self.assertEqual(Order.objects.latest("id").shipping_amount, Decimal("20"))
+        rest.delete()
+        r = self._checkout("DE")
+        self.assertContains(r, "don&#x27;t deliver to Germany")
+        self.assertEqual(Order.objects.count(), 2)
+
+    def test_free_over_threshold(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="US", countries="US", fee=Decimal("5"), free_over=Decimal("50"))
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 3})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "country": "US", "payment_method": "cod"})
+        self.assertEqual(Order.objects.get().shipping_amount, 0)
+
+    def test_checkout_page_has_shipping_table(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="US", countries="US, CA", fee=Decimal("5"))
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        page = self.client.get(reverse("checkout"))
+        self.assertContains(page, '"CA": {"fee": "5.00"')
+        self.assertContains(page, "Choose a country")
+
+    def test_admin_manages_zones(self):
+        from .models import ShippingZone
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(staff)
+        r = self.client.post(reverse("manage_shipping"), {"action": "save", "name": "Bad", "countries": "US, XX", "fee": "5"})
+        self.assertContains(r, "Unknown country code(s): XX")
+        self.client.post(reverse("manage_shipping"), {"action": "save", "name": "North America", "countries": "us,ca, us", "fee": "6", "active": "on"})
+        self.assertEqual(ShippingZone.objects.get().countries, "US, CA")
+        ShippingZone.objects.all().delete()
+        self.client.post(reverse("manage_shipping"), {"action": "starter"})
+        self.assertEqual(ShippingZone.objects.count(), 3)
+        self.assertEqual(self.client.get(reverse("manage_shipping")).status_code, 200)

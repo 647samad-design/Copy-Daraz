@@ -27,7 +27,7 @@ from django.views.decorators.http import require_POST
 from . import payments
 from .models import (
     AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
-    Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, SiteSettings,
+    Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
 )
 from .templatetags.bees_extras import money
 from .security import safe_next_url
@@ -518,6 +518,76 @@ def coupons(request):
     for c in rows:
         c.used = usage.get(c.code.upper(), 0)
     return _render(request, "coupons.html", {"section": "coupons", "coupons": rows, "form": form})
+
+
+# ---------------------------------------------------------------------------
+# Shipping zones
+# ---------------------------------------------------------------------------
+
+EU = "AT, BE, BG, HR, CY, CZ, DK, EE, FI, FR, DE, GR, HU, IE, IT, LV, LT, LU, MT, NL, PL, PT, RO, SK, SI, ES, SE"
+
+
+class ShippingZoneForm(forms.ModelForm):
+    class Meta:
+        model = ShippingZone
+        fields = ["name", "countries", "fee", "free_over", "delivery_days", "active"]
+        widgets = {"countries": forms.Textarea(attrs={"rows": 3, "placeholder": "US, CA  — or * for all other countries"})}
+
+    def clean_countries(self):
+        from .countries import COUNTRIES
+        raw = self.cleaned_data["countries"].strip()
+        if raw == "*":
+            return raw
+        valid = {code for code, _ in COUNTRIES}
+        codes = [c.strip().upper() for c in raw.replace("\n", ",").split(",") if c.strip()]
+        bad = [c for c in codes if c not in valid]
+        if not codes:
+            raise ValidationError("Add at least one country code, or * for every other country.")
+        if bad:
+            raise ValidationError(f"Unknown country code(s): {', '.join(bad)}. Use two-letter codes like US, GB, DE.")
+        return ", ".join(dict.fromkeys(codes))
+
+
+@staff_required
+def shipping(request):
+    zone = get_object_or_404(ShippingZone, pk=request.GET["edit"]) if request.GET.get("edit") else None
+    form = ShippingZoneForm(request.POST or None, instance=zone, initial=None if zone else {"active": True})
+    if request.method == "POST":
+        action = request.POST.get("action", "save")
+        if action == "delete":
+            z = get_object_or_404(ShippingZone, pk=request.POST.get("id"))
+            _log(request, f"Deleted shipping zone {z.name}")
+            z.delete()
+            messages.success(request, "Shipping zone deleted.")
+            return redirect("manage_shipping")
+        if action == "starter":
+            if not ShippingZone.objects.exists():
+                ShippingZone.objects.bulk_create([
+                    ShippingZone(name="United States", countries="US", fee=Decimal("5.00"), free_over=Decimal("50"), delivery_days=5),
+                    ShippingZone(name="Europe", countries=EU + ", GB, CH, NO", fee=Decimal("12.00"), free_over=Decimal("100"), delivery_days=8),
+                    ShippingZone(name="Rest of world", countries="*", fee=Decimal("20.00"), delivery_days=12),
+                ])
+                from .shipping import clear_cache
+                clear_cache()
+                messages.success(request, "Starter zones added. Adjust the fees to match your courier.")
+            return redirect("manage_shipping")
+        if form.is_valid():
+            z = form.save()
+            _log(request, f"Saved shipping zone {z.name}")
+            messages.success(request, f"Shipping zone '{z.name}' saved.")
+            return redirect("manage_shipping")
+        messages.error(request, "Please fix the details below.")
+    zones = list(ShippingZone.objects.all())
+    claimed = {}
+    for z in zones:
+        for code in z.country_codes:
+            claimed.setdefault(code, []).append(z.name)
+    duplicates = {c: n for c, n in claimed.items() if len(n) > 1}
+    return _render(request, "shipping.html", {
+        "section": "shipping", "zones": zones, "form": form, "editing": zone,
+        "has_rest": any(z.is_rest_of_world and z.active for z in zones), "duplicates": duplicates,
+        "brand": SiteSettings.load(),
+    })
 
 
 # ---------------------------------------------------------------------------

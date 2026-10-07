@@ -1,29 +1,35 @@
 {% extends "bees/base.html" %}
+{% block title %}Help center — {{ brand.site_name }}{% endblock %}
 {% block extra_css %}
-    .help-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 24px; }
-    .help-wrap h1 { font-size: 20px; margin-bottom: 16px; }
-    .faq-item { border-bottom: 1px solid #f0f0f0; padding: 14px 0; }
-    .faq-q { font-weight: 500; margin-bottom: 6px; color: #333; }
-    .faq-a { font-size: 13px; color: #666; line-height: 1.6; }
-    .contact-box { margin-top: 20px; background: #f5f5f5; border: 1px solid #e5e5e5; padding: 16px; font-size: 13px; color: #555; }
-
-    html[data-theme="dark"] .help-wrap { background: #1e1f26; border-color: #333; }
-    html[data-theme="dark"] .faq-item { border-color: #333; }
-    html[data-theme="dark"] .faq-q { color: #eee; }
-    html[data-theme="dark"] .faq-a { color: #aaa; }
-    html[data-theme="dark"] .contact-box { background: #17181d; border-color: #333; color: #ccc; }
+    .faq details { border-bottom: 1px solid var(--line); }
+    .faq details:last-child { border-bottom: 0; }
+    .faq summary { cursor: pointer; padding: 18px 0; font-weight: 700; font-size: 1.05rem; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: "+"; font-size: 1.4rem; line-height: 1; color: var(--muted); }
+    .faq details[open] summary::after { content: "−"; }
+    .faq p { padding: 0 0 18px; color: var(--muted); line-height: 1.7; }
+    .help-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+    @media (max-width: 860px) { .help-grid { grid-template-columns: 1fr; } }
 {% endblock %}
 {% block content %}
-<div class="help-wrap">
-    <h1>{{ t.help_title }}</h1>
-    {% for question, answer in faqs %}
-    <div class="faq-item">
-        <div class="faq-q">{{ question }}</div>
-        <div class="faq-a">{{ answer }}</div>
-    </div>
-    {% endfor %}
-    <div class="contact-box">
-        {{ t.still_need_help }}
+<div class="wrap page">
+    <div class="page-head"><div><h1>How can we help?</h1><p>Answers to the questions we hear most.</p></div></div>
+    <div class="help-grid">
+        <section class="panel faq" id="returns">
+            {% for question, answer in faqs %}
+            <details {% if forloop.first %}open{% endif %}><summary>{{ question }}</summary><p>{{ answer }}</p></details>
+            {% endfor %}
+        </section>
+        <aside class="panel">
+            <h2 style="font-size:1.25rem;margin-bottom:10px;">Still need help?</h2>
+            <p class="muted" style="margin-bottom:18px;">Our team replies within a few hours on business days.</p>
+            <div style="display:grid;gap:10px;">
+                <button type="button" class="btn btn-primary" onclick="toggleChat()">Chat with us</button>
+                {% if brand.support_email %}<a class="btn btn-secondary" href="mailto:{{ brand.support_email }}">Email {{ brand.support_email }}</a>{% endif %}
+                {% if brand.support_phone %}<a class="btn btn-secondary" href="tel:{{ brand.support_phone }}">Call {{ brand.support_phone }}</a>{% endif %}
+                {% if user.is_authenticated %}<a class="btn btn-ghost" href="{% url 'my_orders' %}">Go to my orders</a>{% endif %}
+            </div>
+        </aside>
     </div>
 </div>
 {% endblock %}

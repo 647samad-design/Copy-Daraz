@@ -1,18 +1,19 @@
 {% extends "bees/base.html" %}
+{% block title %}{{ t.my_wishlist }} — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block content %}
-    <div class="section">
-        <div class="section-header">
-            <h2>{{ t.my_wishlist }}</h2>
-        </div>
-        <div class="product-grid">
-            {% for item in items %}
-            {% with product=item.product %}
-            {% include "bees/partials/product_card.html" %}
-            {% endwith %}
-            {% empty %}
-            <p>{{ t.empty_wishlist }}</p>
-            {% endfor %}
-        </div>
+<div class="wrap page">
+    <div class="page-head"><div><h1>{{ t.my_wishlist }}</h1><p>{{ items|length }} saved item{{ items|length|pluralize }}</p></div></div>
+    {% if items %}
+    <div class="grid-products">
+        {% for item in items %}{% with product=item.product %}{% include "bees/partials/product_card.html" %}{% endwith %}{% endfor %}
     </div>
+    {% else %}
+    <div class="panel empty">
+        <h2>Nothing saved yet</h2>
+        <p>{{ t.empty_wishlist }}</p>
+        <a href="{% url 'all_products' %}" class="btn btn-primary">Browse products</a>
+    </div>
+    {% endif %}
+</div>
 {% endblock %}

@@ -1,5 +1,5 @@
 """
-Automated tests for 19Bees.
+Automated tests for the marketplace.
 
 These aren't exhaustive - they focus on the business logic that's most
 likely to break silently: money calculations (order totals, commission),
@@ -365,7 +365,7 @@ class CouponValidationTests(TestCase):
         self.client.force_login(self.user)
         self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
         response = self.client.post(reverse("apply_coupon"), {"coupon_code": "DOESNOTEXIST"}, follow=True)
-        self.assertContains(response, "Invalid coupon code")
+        self.assertContains(response, "coupon code isn")
 
     def test_apply_coupon_view_accepts_valid_code(self):
         from .models import Coupon
@@ -425,7 +425,7 @@ class ChatTests(TestCase):
 
     def test_order_keyword_triggers_relevant_auto_reply(self):
         response = self.client.post(reverse("chat_send"), {"message": "where is my order tracking"})
-        self.assertIn("My Orders", response.json()["reply"]["message"])
+        self.assertIn("My orders", response.json()["reply"]["message"])
 
     def test_logged_in_user_thread_persists_across_requests(self):
         user = User.objects.create_user(username="chatuser", password="pass12345")
@@ -440,134 +440,432 @@ class ChatTests(TestCase):
         self.assertEqual(len(user_messages), 2)
 
 
-class JazzCashTests(TestCase):
+# ---------------------------------------------------------------------------
+# Checkout, Stripe and security regression tests
+# ---------------------------------------------------------------------------
+import json
+from unittest import mock
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+
+from .models import Coupon, SiteSettings
+
+
+CHECKOUT_FORM = {
+    "full_name": "Jane Doe", "email": "jane@example.com", "phone": "+1 555 0100",
+    "address": "1 Main St", "city": "Austin", "state": "TX", "postal_code": "73301", "country": "us",
+}
+
+
+class CheckoutTests(TestCase):
     def setUp(self):
-        from django.test import override_settings
-        self._override = override_settings(
-            JAZZCASH_MERCHANT_ID="TESTMERCH",
-            JAZZCASH_PASSWORD="testpass",
-            JAZZCASH_INTEGRITY_SALT="testsalt123",
-        )
-        self._override.enable()
-        self.addCleanup(self._override.disable)
-
-        self.user = User.objects.create_user(username="buyer", password="pass12345")
-        self.product = make_product(price=Decimal("1000.00"), stock=5)
-
-    def test_is_configured_true_when_all_three_values_set(self):
-        from . import jazzcash
-        self.assertTrue(jazzcash.is_configured())
-
-    def test_is_configured_false_when_missing(self):
-        from django.test import override_settings
-        from . import jazzcash
-        with override_settings(JAZZCASH_INTEGRITY_SALT=""):
-            self.assertFalse(jazzcash.is_configured())
-
-    def test_build_payment_request_produces_valid_verifiable_hash(self):
-        from . import jazzcash
-        order = Order.objects.create(user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi", phone="03001234567")
-        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
-
-        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
-        self.assertEqual(params["pp_TxnRefNo"], txn_ref)
-        self.assertEqual(params["pp_Amount"], "100000")  # Rs.1000 -> 100000 paisa
-        self.assertTrue(jazzcash.verify_response(params))
-
-    def test_verify_response_rejects_tampered_data(self):
-        from . import jazzcash
-        order = Order.objects.create(user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi", phone="03001234567")
-        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
-        params, _ = jazzcash.build_payment_request(order, "https://example.com/return/")
-
-        tampered = dict(params)
-        tampered["pp_Amount"] = "1"  # attacker tries to pay Rs.0.01 instead
-        self.assertFalse(jazzcash.verify_response(tampered))
-
-    def test_checkout_rejects_jazzcash_when_not_configured(self):
-        from django.test import override_settings
+        self.user = User.objects.create_user("jane", "jane@example.com", "pass12345")
+        self.product = make_product(price=Decimal("20.00"), stock=3)
         self.client.force_login(self.user)
-        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
-        with override_settings(JAZZCASH_MERCHANT_ID=""):
-            response = self.client.post(reverse("checkout"), {
-                "full_name": "Test Buyer", "address": "1 Test St", "city": "Karachi",
-                "phone": "03001234567", "payment_method": "jazzcash",
-            }, follow=True)
-        self.assertContains(response, "Online payment isn")
-        self.assertEqual(Order.objects.count(), 0)
 
-    def test_checkout_with_jazzcash_redirects_to_payment_page(self):
-        self.client.force_login(self.user)
-        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
-        response = self.client.post(reverse("checkout"), {
-            "full_name": "Test Buyer", "address": "1 Test St", "city": "Karachi",
-            "phone": "03001234567", "payment_method": "jazzcash",
-        }, follow=True)
-        order = Order.objects.first()
+    def _add(self, qty=1, product=None):
+        self.client.post(reverse("add_to_cart", args=[(product or self.product).id]), {"quantity": qty})
+
+    def test_cod_checkout_creates_order_and_decrements_stock(self):
+        self._add(2)
+        response = self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        order = Order.objects.get(user=self.user)
+        self.assertRedirects(response, reverse("order_success", args=[order.id]))
+        self.assertEqual(order.country, "US")
+        self.assertEqual(order.total, Decimal("40.00"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 1)
+        self.assertEqual(self.client.session["cart"], {})
+
+    def test_checkout_blocks_when_stock_ran_out(self):
+        self._add(3)
+        Product.objects.filter(pk=self.product.pk).update(stock=1)  # someone else bought it
+        response = self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertRedirects(response, reverse("cart"))
+        self.assertFalse(Order.objects.exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 1)
+
+    def test_missing_address_fields_rejected(self):
+        self._add()
+        form = {**CHECKOUT_FORM, "postal_code": "", "payment_method": "cod"}
+        response = self.client.post(reverse("checkout"), form)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Order.objects.exists())
+
+    def test_shipping_and_tax_applied(self):
+        settings_obj = SiteSettings.load()
+        settings_obj.shipping_flat_fee = Decimal("5.00")
+        settings_obj.tax_percent = Decimal("10")
+        settings_obj.save()
+        self._add(1)
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        order = Order.objects.get()
+        self.assertEqual(order.shipping_amount, Decimal("5.00"))
+        self.assertEqual(order.tax_amount, Decimal("2.00"))
+        self.assertEqual(order.total, Decimal("27.00"))
+
+    def test_free_shipping_threshold(self):
+        settings_obj = SiteSettings.load()
+        settings_obj.shipping_flat_fee = Decimal("5.00")
+        settings_obj.free_shipping_threshold = Decimal("30.00")
+        settings_obj.save()
+        self._add(2)
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(Order.objects.get().shipping_amount, Decimal("0"))
+
+    def test_cod_disabled_hides_method(self):
+        settings_obj = SiteSettings.load()
+        settings_obj.allow_cash_on_delivery = False
+        settings_obj.save()
+        self._add()
+        response = self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertRedirects(response, reverse("checkout"), fetch_redirect_response=False)
+        self.assertFalse(Order.objects.exists())
+
+    def test_coupon_applied_to_order(self):
+        Coupon.objects.create(code="TEN", percent_off=10)
+        self._add(1)
+        self.client.post(reverse("apply_coupon"), {"coupon_code": "ten"})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        order = Order.objects.get()
+        self.assertEqual(order.coupon_code, "TEN")
+        self.assertEqual(order.discount_amount, Decimal("2.00"))
+
+    def test_negative_quantity_cannot_lower_cart_total(self):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": -5})
+        self.assertEqual(self.client.session["cart"][str(self.product.id)], 1)
+
+    def test_cannot_add_unapproved_product(self):
+        hidden = make_product(name="Hidden", approval_status="pending")
+        response = self.client.post(reverse("add_to_cart", args=[hidden.id]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_cancel_cod_order_restocks(self):
+        self._add(2)
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        order = Order.objects.get()
+        self.client.post(reverse("cancel_order", args=[order.id]))
         order.refresh_from_db()
-        self.assertEqual(order.payment_status, "pending")
-        self.assertTrue(order.jazzcash_txn_ref)
-        self.assertContains(response, "Redirecting you to JazzCash")
+        self.product.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(self.product.stock, 3)
 
-    def test_jazzcash_return_marks_order_paid_on_success(self):
-        from . import jazzcash
+    def test_cancel_requires_post(self):
+        self._add(1)
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        order = Order.objects.get()
+        response = self.client.get(reverse("cancel_order", args=[order.id]))
+        self.assertEqual(response.status_code, 405)
+
+
+def _fake_session(order, **overrides):
+    data = {
+        "id": order.stripe_session_id or "cs_test_123",
+        "payment_status": "paid",
+        "status": "complete",
+        "amount_total": order.total_cents,
+        "currency": order.currency,
+        "payment_intent": "pi_test_123",
+        "metadata": {"order_id": str(order.id)},
+    }
+    data.update(overrides)
+    return data
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class StripeTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("payer", "payer@example.com", "pass12345")
+        self.product = make_product(price=Decimal("25.00"), stock=5)
         self.client.force_login(self.user)
-        order = Order.objects.create(
-            user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi",
-            phone="03001234567", payment_method="jazzcash", payment_status="pending",
-        )
-        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
-        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
-        order.jazzcash_txn_ref = txn_ref
-        order.save(update_fields=["jazzcash_txn_ref"])
 
-        callback_data = dict(params)
-        callback_data["pp_ResponseCode"] = "000"
-        callback_data["pp_SecureHash"] = jazzcash._secure_hash(
-            {k: v for k, v in callback_data.items() if k != "pp_SecureHash"}
-        )
+    def _checkout_card(self, qty=2):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": qty})
+        fake = mock.MagicMock()
+        fake.id = "cs_test_123"
+        fake.url = "https://checkout.stripe.com/c/pay/cs_test_123"
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            response = self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        return response, create
 
-        response = self.client.post(reverse("jazzcash_return"), callback_data)
+    def test_card_checkout_redirects_to_stripe_with_correct_amounts(self):
+        response, create = self._checkout_card()
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith("https://checkout.stripe.com/"))
+        kwargs = create.call_args.kwargs
+        self.assertEqual(kwargs["line_items"][0]["price_data"]["unit_amount"], 2500)
+        self.assertEqual(kwargs["line_items"][0]["quantity"], 2)
+        self.assertEqual(kwargs["metadata"]["order_id"], str(Order.objects.get().id))
+        order = Order.objects.get()
+        self.assertEqual(order.payment_status, "pending")
+        self.assertEqual(order.stripe_session_id, "cs_test_123")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 3)  # reserved while paying
+
+    def test_stripe_failure_releases_stock_and_restores_cart(self):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 2})
+        with mock.patch("stripe.checkout.Session.create", side_effect=Exception("boom")):
+            response = self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        self.assertRedirects(response, reverse("cart"))
+        order = Order.objects.get()
+        self.assertEqual(order.status, "cancelled")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 5)
+        self.assertEqual(self.client.session["cart"], {str(self.product.id): 2})
+
+    def _webhook(self, event_type, session):
+        payload = json.dumps({"type": event_type, "data": {"object": session}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}):
+            return self.client.post(
+                reverse("stripe_webhook"), data=payload, content_type="application/json",
+                HTTP_STRIPE_SIGNATURE="t=1,v1=fake",
+            )
+
+    def test_webhook_marks_order_paid(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        response = self._webhook("checkout.session.completed", _fake_session(order))
+        self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
         self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.status, "confirmed")
+        self.assertEqual(order.stripe_payment_intent, "pi_test_123")
+
+    def test_webhook_rejects_amount_mismatch(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        self._webhook("checkout.session.completed", _fake_session(order, amount_total=100))
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "pending")
+
+    def test_webhook_bad_signature_rejected(self):
+        with mock.patch("stripe.Webhook.construct_event", side_effect=ValueError("bad")):
+            response = self.client.post(reverse("stripe_webhook"), data="{}", content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_expired_session_cancels_and_restocks(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        self._webhook("checkout.session.expired", _fake_session(order, payment_status="unpaid", status="expired"))
+        order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(self.product.stock, 5)
+
+    def test_webhook_is_idempotent(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        self._webhook("checkout.session.completed", _fake_session(order))
+        self._webhook("checkout.session.completed", _fake_session(order))
+        self._webhook("checkout.session.expired", _fake_session(order, status="expired"))
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.status, "confirmed")
+
+    def test_success_page_confirms_payment(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        fake = mock.MagicMock()
+        fake.to_dict.return_value = _fake_session(order)
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=fake):
+            response = self.client.get(reverse("payment_success"), {"session_id": "cs_test_123"})
         self.assertRedirects(response, reverse("order_success", args=[order.id]))
-
-    def test_jazzcash_return_marks_order_failed_on_decline(self):
-        from . import jazzcash
-        order = Order.objects.create(
-            user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi",
-            phone="03001234567", payment_method="jazzcash", payment_status="pending",
-        )
-        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
-        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
-        order.jazzcash_txn_ref = txn_ref
-        order.save(update_fields=["jazzcash_txn_ref"])
-
-        callback_data = dict(params)
-        callback_data["pp_ResponseCode"] = "134"  # declined
-        callback_data["pp_SecureHash"] = jazzcash._secure_hash(
-            {k: v for k, v in callback_data.items() if k != "pp_SecureHash"}
-        )
-
-        self.client.post(reverse("jazzcash_return"), callback_data)
         order.refresh_from_db()
-        self.assertEqual(order.payment_status, "failed")
+        self.assertEqual(order.payment_status, "paid")
 
-    def test_jazzcash_return_rejects_tampered_callback(self):
-        from . import jazzcash
-        order = Order.objects.create(
-            user=self.user, full_name="Test Buyer", address="1 Test St", city="Karachi",
-            phone="03001234567", payment_method="jazzcash", payment_status="pending",
-        )
-        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=self.product.price, quantity=1)
-        params, txn_ref = jazzcash.build_payment_request(order, "https://example.com/return/")
-        order.jazzcash_txn_ref = txn_ref
-        order.save(update_fields=["jazzcash_txn_ref"])
-
-        callback_data = dict(params)
-        callback_data["pp_ResponseCode"] = "000"
-        callback_data["pp_SecureHash"] = "totally-fake-hash-an-attacker-made-up"
-
-        self.client.post(reverse("jazzcash_return"), callback_data)
+    def test_cancel_page_restores_cart(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        fake = mock.MagicMock()
+        fake.to_dict.return_value = _fake_session(order, payment_status="unpaid", status="open")
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=fake), \
+                mock.patch("stripe.checkout.Session.expire"):
+            response = self.client.get(reverse("payment_cancel", args=[order.id]))
+        self.assertRedirects(response, reverse("cart"))
         order.refresh_from_db()
-        self.assertEqual(order.payment_status, "pending")  # unchanged - forged callback ignored
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(self.client.session["cart"], {str(self.product.id): 2})
+
+    def test_cancelling_paid_order_refunds(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        self._webhook("checkout.session.completed", _fake_session(order))
+        with mock.patch("stripe.Refund.create") as refund:
+            self.client.post(reverse("cancel_order", args=[order.id]))
+        refund.assert_called_once()
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertEqual(order.status, "cancelled")
+
+    def test_refund_failure_keeps_order_active(self):
+        self._checkout_card()
+        order = Order.objects.get()
+        self._webhook("checkout.session.completed", _fake_session(order))
+        with mock.patch("stripe.Refund.create", side_effect=Exception("declined")):
+            self.client.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.status, "confirmed")
+
+
+class SecurityTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("alice", "alice@example.com", "Sup3r-secret-pass")
+
+    def test_login_ignores_external_next_url(self):
+        response = self.client.post(
+            reverse("login") + "?next=https://evil.example/phish",
+            {"username": "alice", "password": "Sup3r-secret-pass"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("home"))
+
+    def test_login_allows_local_next_url(self):
+        response = self.client.post(
+            reverse("login"), {"username": "alice", "password": "Sup3r-secret-pass", "next": "/my-orders/"},
+        )
+        self.assertEqual(response.url, "/my-orders/")
+
+    def test_login_with_email(self):
+        response = self.client.post(reverse("login"), {"username": "ALICE@example.com", "password": "Sup3r-secret-pass"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.id)
+
+    def test_spoofed_forwarded_for_does_not_bypass_rate_limit(self):
+        from django.core.cache import cache
+        cache.clear()
+        for i in range(8):
+            self.client.post(reverse("login"), {"username": "alice", "password": "wrong"},
+                             HTTP_X_FORWARDED_FOR=f"10.0.0.{i}")
+        response = self.client.post(reverse("login"), {"username": "alice", "password": "Sup3r-secret-pass"},
+                                    HTTP_X_FORWARDED_FOR="10.0.0.99")
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertRedirects(response, reverse("login"), fetch_redirect_response=False)
+        cache.clear()
+
+    def test_google_login_route_removed(self):
+        self.assertEqual(self.client.post("/auth/google/").status_code, 404)
+
+    def test_signup_rejects_weak_password_and_duplicate_email(self):
+        self.client.post(reverse("signup"), {
+            "username": "bob", "email": "bob@example.com", "password": "123", "confirm_password": "123",
+        })
+        self.assertFalse(User.objects.filter(username="bob").exists())
+        self.client.post(reverse("signup"), {
+            "username": "bob2", "email": "ALICE@example.com",
+            "password": "Another-strong-pass1", "confirm_password": "Another-strong-pass1",
+        })
+        self.assertFalse(User.objects.filter(username="bob2").exists())
+
+    def test_signup_rejects_email_as_username(self):
+        self.client.post(reverse("signup"), {
+            "username": "victim@example.com", "email": "attacker@example.com",
+            "password": "Another-strong-pass1", "confirm_password": "Another-strong-pass1",
+        })
+        self.assertFalse(User.objects.filter(username="victim@example.com").exists())
+
+    def test_logout_requires_post(self):
+        self.client.force_login(self.user)
+        self.client.get(reverse("logout"))
+        self.assertIn("_auth_user_id", self.client.session)
+        self.client.post(reverse("logout"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_invoice_of_guest_order_not_public(self):
+        order = Order.objects.create(user=None, full_name="Guest", address="x", city="y", phone="1")
+        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 302)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 404)
+
+    def test_email_code_locks_after_too_many_attempts(self):
+        from django.core.cache import cache
+        self.client.force_login(self.user)
+        Profile_ = __import__("bees.models", fromlist=["Profile"]).Profile
+        Profile_.objects.create(user=self.user, referral_code="ABC123")
+        cache.set(f"email_verify_code:{self.user.id}", "123456", 900)
+        for _ in range(5):
+            self.client.post(reverse("verify_email"), {"code": "000000"})
+        self.client.post(reverse("verify_email"), {"code": "123456"})
+        self.user.profile.refresh_from_db()
+        self.assertFalse(self.user.profile.email_verified)
+
+    def test_review_requires_login_and_clamps_rating(self):
+        product = make_product()
+        self.client.post(reverse("product_detail", args=[product.id]), {"rating": 5, "comment": "Spam"})
+        self.assertFalse(Review.objects.exists())
+        self.client.force_login(self.user)
+        self.client.post(reverse("product_detail", args=[product.id]), {"rating": 999, "comment": "Great"})
+        self.assertFalse(Review.objects.exists())
+        self.client.post(reverse("product_detail", args=[product.id]), {"rating": 4, "comment": "Great"})
+        self.client.post(reverse("product_detail", args=[product.id]), {"rating": 5, "comment": "Even better"})
+        self.assertEqual(Review.objects.get().rating, 5)
+
+
+class SellerProductSecurityTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("maker", "maker@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, status="approved", business_name="Maker Co")
+        self.product = make_product(seller_account=self.seller, seller_name="Maker Co", approval_status="approved")
+        self.client.force_login(self.user)
+
+    def _form(self, **overrides):
+        data = {
+            "name": self.product.name, "category": "skincare", "price": "10.00", "stock": "4",
+            "image_url": self.product.image_url, "description": self.product.description,
+        }
+        data.update(overrides)
+        return data
+
+    def test_editing_listing_details_requires_re_approval(self):
+        self.client.post(reverse("seller_edit_product", args=[self.product.id]), self._form(name="Totally different"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.approval_status, "pending")
+
+    def test_price_and_stock_changes_stay_live(self):
+        self.client.post(reverse("seller_edit_product", args=[self.product.id]), self._form(price="12.50", stock="9"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.approval_status, "approved")
+        self.assertEqual(self.product.price, Decimal("12.50"))
+
+    def test_html_upload_rejected(self):
+        evil = SimpleUploadedFile("x.html", b"<script>alert(1)</script>", content_type="text/html")
+        self.client.post(reverse("seller_add_product"), {**self._form(name="New", image_url=""), "image_file": evil})
+        self.assertFalse(Product.objects.filter(name="New").exists())
+
+    def test_fake_image_rejected(self):
+        evil = SimpleUploadedFile("x.png", b"<svg onload=alert(1)>", content_type="image/png")
+        self.client.post(reverse("seller_add_product"), {**self._form(name="New2", image_url=""), "image_file": evil})
+        self.assertFalse(Product.objects.filter(name="New2").exists())
+
+    def test_invalid_price_does_not_crash(self):
+        response = self.client.post(reverse("seller_add_product"), self._form(name="Bad", price="abc"))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Product.objects.filter(name="Bad").exists())
+
+    def test_delete_requires_post(self):
+        response = self.client.get(reverse("seller_delete_product", args=[self.product.id]))
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())
+
+    def test_seller_documents_are_staff_only(self):
+        response = self.client.get(reverse("seller_document", args=[self.seller.id, "id_document"]))
+        self.assertEqual(response.status_code, 403)
+
+
+class WhiteLabelTests(TestCase):
+    def test_store_name_comes_from_settings(self):
+        make_product(name="Branded Product")
+        settings_obj = SiteSettings.load()
+        settings_obj.site_name = "Acme Goods"
+        settings_obj.save()
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "Acme Goods")
+        self.assertNotContains(response, "19Bees")
+
+    @override_settings(STORE_CURRENCY="eur")
+    def test_prices_use_store_currency(self):
+        make_product(name="Euro Product", price=Decimal("1234.50"))
+        response = self.client.get(reverse("all_products"))
+        self.assertContains(response, "€1,234.50")

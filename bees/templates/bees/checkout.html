@@ -1,91 +1,124 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}Checkout — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
-    .checkout-wrap { display: flex; gap: 20px; margin: 20px 40px; align-items: flex-start; }
-    .checkout-form { flex: 1; background: #fff; border: 1px solid #eee; padding: 24px; }
-    .checkout-form h2 { font-size: 18px; font-weight: 500; margin-bottom: 16px; }
-    .checkout-form input, .checkout-form select { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 14px; }
-    .checkout-form button { background: #000000; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; }
-    .summary { width: 320px; background: #fff; border: 1px solid #eee; padding: 20px; }
-    .summary h3 { font-size: 16px; margin-bottom: 12px; }
-    .summary-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f5f5f5; }
-    .summary-total { display: flex; justify-content: space-between; font-size: 17px; font-weight: bold; color: #000000; margin-top: 12px; }
-
-    html[data-theme="dark"] .checkout-form input, html[data-theme="dark"] .checkout-form select {
-        background: #2a2b33; color: #eee; border-color: #444;
-    }
-    html[data-theme="dark"] .summary-row { border-color: #333; }
-    html[data-theme="dark"] .summary-total { color: #fff; }
-
-    @media (max-width: 700px) {
-        .checkout-wrap { flex-direction: column; margin: 12px; }
-        .checkout-form, .summary { width: 100%; }
-    }
+    .co { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 28px; align-items: start; }
+    .co h2 { font-size: 1.3rem; margin-bottom: 16px; }
+    .co-step + .co-step { margin-top: 20px; }
+    .pay-option { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border: 1.5px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+    .pay-option + .pay-option { margin-top: 10px; }
+    .pay-option:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 5%, var(--surface)); }
+    .pay-option input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--brand); }
+    .pay-option strong { display: block; }
+    .sum-item { display: grid; grid-template-columns: 56px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 10px 0; }
+    .sum-item img { width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-2); }
+    .sum-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; }
+    .sum-total { display: flex; justify-content: space-between; padding-top: 14px; margin-top: 8px; border-top: 1.5px solid var(--line); font-weight: 700; font-size: 1.25rem; }
+    .coupon { display: flex; gap: 8px; margin: 16px 0; }
+    .place { margin-top: 20px; min-height: 56px; font-size: 1.1rem; }
+    .co-summary { position: sticky; top: 140px; }
+    @media (max-width: 960px) { .co { grid-template-columns: 1fr; } .co-summary { position: static; order: -1; } }
 {% endblock %}
 {% block content %}
-<div class="checkout-wrap">
-    <div class="checkout-form">
-        <h2>{{ t.delivery_details }}</h2>
-        {% if addresses %}
-        <select id="saved-address-select" onchange="fillAddress(this)" style="margin-bottom:14px;">
-            <option value="">-- Choose a saved address --</option>
-            {% for addr in addresses %}
-            <option value="{{ forloop.counter0 }}" data-name="{{ addr.full_name }}" data-phone="{{ addr.phone }}" data-address="{{ addr.address }}" data-city="{{ addr.city }}">{{ addr.label }}: {{ addr.address }}, {{ addr.city }}</option>
-            {% endfor %}
-        </select>
-        {% endif %}
-        <form method="post">
+<div class="wrap page">
+    <div class="page-head"><div><h1>Checkout</h1><p>Review your details, then pay securely.</p></div></div>
+
+    <div class="co">
+        <form method="post" id="checkout-form">
             {% csrf_token %}
-            <input type="text" id="id_full_name" name="full_name" placeholder="{{ t.full_name }}" value="{{ request.user.username|default:'' }}" required>
-            <input type="text" id="id_address" name="address" placeholder="{{ t.street_address }}" required>
-            <input type="text" id="id_city" name="city" placeholder="{{ t.city }}" required>
-            <input type="text" id="id_phone" name="phone" placeholder="{{ t.phone_number }}" required>
-            <select name="payment_method">
-                <option value="cod">{{ t.cash_on_delivery }}</option>
-                {% if jazzcash_enabled %}
-                <option value="jazzcash">{{ t.jazzcash|default:"Pay with JazzCash" }}</option>
+            <section class="panel co-step">
+                <h2>Contact</h2>
+                <div class="form-grid">
+                    <div class="field"><label for="id_email">Email</label><input type="email" id="id_email" name="email" autocomplete="email" value="{{ form.email|default:'' }}" required><span class="hint">Order updates and receipt go here.</span></div>
+                    <div class="field"><label for="id_phone">Phone</label><input type="tel" id="id_phone" name="phone" autocomplete="tel" value="{{ form.phone|default:'' }}" placeholder="Include country code" required><span class="hint">For delivery questions only.</span></div>
+                </div>
+            </section>
+
+            <section class="panel co-step">
+                <h2>{{ t.delivery_details }}</h2>
+                {% if addresses %}
+                <div class="field" style="margin-bottom:16px;">
+                    <label for="saved-address">Use a saved address</label>
+                    <select id="saved-address" onchange="fillAddress(this)">
+                        <option value="">Choose…</option>
+                        {% for addr in addresses %}
+                        <option data-name="{{ addr.full_name }}" data-phone="{{ addr.phone }}" data-address="{{ addr.address }}" data-city="{{ addr.city }}" data-state="{{ addr.state }}" data-postal="{{ addr.postal_code }}" data-country="{{ addr.country }}" value="{{ addr.id }}">{{ addr.label }} — {{ addr.address }}, {{ addr.city }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
                 {% endif %}
-            </select>
-            <button type="submit">{{ t.place_order }}</button>
-        </form>
-    </div>
-    <div class="summary">
-        <h3>{{ t.order_summary }}</h3>
-        {% for row in items %}
-        <div class="summary-row">
-            <span>{{ row.product.name|truncatechars:28 }} x{{ row.qty }}</span>
-            <span>Rs.{{ row.subtotal }}</span>
-        </div>
-        {% endfor %}
+                <div class="form-grid">
+                    <div class="field span-2"><label for="id_full_name">{{ t.full_name }}</label><input type="text" id="id_full_name" name="full_name" autocomplete="name" value="{{ form.full_name|default:'' }}" required></div>
+                    <div class="field span-2"><label for="id_address">{{ t.street_address }}</label><input type="text" id="id_address" name="address" autocomplete="street-address" value="{{ form.address|default:'' }}" placeholder="House number, street, apartment" required></div>
+                    <div class="field"><label for="id_city">{{ t.city }}</label><input type="text" id="id_city" name="city" autocomplete="address-level2" value="{{ form.city|default:'' }}" required></div>
+                    <div class="field"><label for="id_state">State / province <span class="muted">(optional)</span></label><input type="text" id="id_state" name="state" autocomplete="address-level1" value="{{ form.state|default:'' }}"></div>
+                    <div class="field"><label for="id_postal_code">Postal / ZIP code</label><input type="text" id="id_postal_code" name="postal_code" autocomplete="postal-code" value="{{ form.postal_code|default:'' }}" required></div>
+                    <div class="field"><label for="id_country">Country</label>{% country_select selected=form.country %}</div>
+                </div>
+            </section>
 
-        <form method="post" action="{% url 'apply_coupon' %}" class="coupon-box">
-            {% csrf_token %}
-            <input type="text" name="coupon_code" placeholder="{{ t.coupon_code_placeholder }}" value="{{ coupon.code|default:'' }}">
-            <button type="submit">{{ t.apply }}</button>
+            <section class="panel co-step">
+                <h2>Payment</h2>
+                {% if payment_methods %}
+                {% if "card" in payment_methods %}
+                <label class="pay-option">
+                    <input type="radio" name="payment_method" value="card" checked>
+                    <span><strong>{{ t.card }}</strong><span class="muted">You'll enter your card on Stripe's secure page. We never see your card number.</span></span>
+                </label>
+                {% endif %}
+                {% if "cod" in payment_methods %}
+                <label class="pay-option">
+                    <input type="radio" name="payment_method" value="cod" {% if "card" not in payment_methods %}checked{% endif %}>
+                    <span><strong>{{ t.cash_on_delivery }}</strong><span class="muted">Pay the courier when your order arrives.</span></span>
+                </label>
+                {% endif %}
+                <button type="submit" class="btn btn-primary btn-block place" id="place-btn">
+                    {% if "card" in payment_methods %}Continue to payment · {{ pricing.total|money }}{% else %}{{ t.place_order }} · {{ pricing.total|money }}{% endif %}
+                </button>
+                {% else %}
+                <p class="muted">Checkout is temporarily unavailable. Please contact support{% if brand.support_email %} at <a class="link" href="mailto:{{ brand.support_email }}">{{ brand.support_email }}</a>{% endif %}.</p>
+                {% endif %}
+            </section>
         </form>
-        {% if coupon %}
-        <div class="summary-row" style="color:#27ae60;">
-            <span>{{ t.coupon }} ({{ coupon.code }})</span>
-            <span>-Rs.{{ discount_amount }}</span>
-        </div>
-        {% endif %}
 
-        <div class="summary-total">
-            <span>{{ t.total }}</span>
-            <span>Rs.{{ final_total|default:total }}</span>
-        </div>
+        <aside class="panel co-summary">
+            <h2>{{ t.order_summary }}</h2>
+            {% for row in items %}
+            <div class="sum-item">
+                <img src="{{ row.product.image_url }}" alt="">
+                <div><div style="font-weight:700;line-height:1.3;">{{ row.product.name|truncatechars:44 }}</div><div class="muted small">Qty {{ row.qty }}</div></div>
+                <span>{{ row.subtotal|money }}</span>
+            </div>
+            {% endfor %}
+
+            <form method="post" action="{% url 'apply_coupon' %}" class="coupon">
+                {% csrf_token %}
+                <label for="coupon" class="sr-only">{{ t.coupon_code_placeholder }}</label>
+                <input class="input" id="coupon" type="text" name="coupon_code" placeholder="{{ t.coupon_code_placeholder }}" value="{{ coupon.code|default:'' }}">
+                <button type="submit" class="btn btn-secondary">{{ t.apply }}</button>
+            </form>
+
+            <div class="sum-row"><span>Subtotal</span><span>{{ pricing.subtotal|money }}</span></div>
+            {% if coupon %}<div class="sum-row" style="color:var(--ok);font-weight:700;"><span>Discount ({{ coupon.code }})</span><span>−{{ pricing.discount|money }}</span></div>{% endif %}
+            <div class="sum-row"><span>Shipping</span><span>{% if pricing.shipping %}{{ pricing.shipping|money }}{% else %}Free{% endif %}</span></div>
+            {% if pricing.tax %}<div class="sum-row"><span>Tax ({{ pricing.tax_percent|floatformat:"-2" }}%)</span><span>{{ pricing.tax|money }}</span></div>{% endif %}
+            <div class="sum-total"><span>{{ t.total }}</span><span>{{ pricing.total|money }} <span class="muted small" style="font-weight:400;">{{ store_currency }}</span></span></div>
+        </aside>
     </div>
 </div>
 {% endblock %}
 {% block extra_js %}
 <script>
 function fillAddress(sel) {
-    const opt = sel.options[sel.selectedIndex];
-    if (!opt.value && opt.value !== "0") return;
-    document.getElementById('id_full_name').value = opt.dataset.name || '';
-    document.getElementById('id_phone').value = opt.dataset.phone || '';
-    document.getElementById('id_address').value = opt.dataset.address || '';
-    document.getElementById('id_city').value = opt.dataset.city || '';
+    const o = sel.options[sel.selectedIndex];
+    if (!o.value) return;
+    const map = { id_full_name: 'name', id_phone: 'phone', id_address: 'address', id_city: 'city', id_state: 'state', id_postal_code: 'postal', id_country: 'country' };
+    Object.entries(map).forEach(([id, key]) => { const el = document.getElementById(id); if (el && o.dataset[key]) el.value = o.dataset[key]; });
 }
+document.getElementById('checkout-form')?.addEventListener('submit', function () {
+    const b = document.getElementById('place-btn');
+    if (b) { b.disabled = true; b.textContent = 'Processing…'; }
+});
 </script>
 {% endblock %}

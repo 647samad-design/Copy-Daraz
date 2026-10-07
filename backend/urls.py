@@ -1,8 +1,8 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
+from django.views.static import serve
 from django.contrib.auth import views as auth_views
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib.sitemaps.views import sitemap
 from django.views.generic import TemplateView
 from bees import views
@@ -27,7 +27,6 @@ urlpatterns = [
     path('signup/', views.signup_view, name='signup'),
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
-    path('auth/google/', views.google_auth, name='google_auth'),
 
     path('password-reset/', ratelimit("password_reset", rate_limit=5, window_seconds=300,
         redirect_to="password_reset", message="Too many reset requests. Please wait a few minutes and try again.")(auth_views.PasswordResetView.as_view(
@@ -95,9 +94,19 @@ urlpatterns = [
     path('owner/dashboard/', views.owner_dashboard, name='owner_dashboard'),
     path('api/chat/messages/', views.chat_messages, name='chat_messages'),
     path('api/chat/send/', views.chat_send, name='chat_send'),
-    path('payment/jazzcash/<int:order_id>/', views.initiate_jazzcash_payment, name='initiate_jazzcash_payment'),
-    path('payment/jazzcash/return/', views.jazzcash_return, name='jazzcash_return'),
+
+    path('payment/success/', views.payment_success, name='payment_success'),
+    path('payment/cancel/<int:order_id>/', views.payment_cancel, name='payment_cancel'),
+    path('payment/resume/<int:order_id>/', views.resume_payment, name='resume_payment'),
+    path('payment/stripe/webhook/', views.stripe_webhook, name='stripe_webhook'),
+    path('staff/seller-document/<int:seller_id>/<str:field>/', views.seller_document, name='seller_document'),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Uploaded files are served by Supabase Storage in production. Without it
+# (local development, or a single-server deploy with a persistent disk),
+# Django serves the public media folder itself. Private seller documents
+# are never exposed here - staff open them via the seller_document view.
+if not settings.USE_SUPABASE_STORAGE:
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    ]

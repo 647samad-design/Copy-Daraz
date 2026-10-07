@@ -1,0 +1,26 @@
+<div class="wrap page">
+    <div class="page-head">
+        <div>
+            <h1>{{ listing_title }}</h1>
+            <p>{{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}</p>
+        </div>
+        <div class="result-bar" style="margin:0;">{% include "bees/partials/sort_bar.html" %}</div>
+    </div>
+    <div class="shop">
+        {% include "bees/partials/filters_sidebar.html" %}
+        <div>
+            {% if products %}
+            <div class="grid-products">
+                {% for product in products %}{% include "bees/partials/product_card.html" %}{% endfor %}
+            </div>
+            {% include "bees/partials/pagination.html" %}
+            {% else %}
+            <div class="panel empty">
+                <h2>{{ empty_title }}</h2>
+                <p>{{ empty_text }}</p>
+                <a href="{% url 'all_products' %}" class="btn btn-primary">Browse all products</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

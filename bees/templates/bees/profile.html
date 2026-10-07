@@ -1,107 +1,103 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}Your profile — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
-    .profile-wrap { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 40px; align-items: flex-start; }
-    .profile-card { flex: 1; background: #fff; border: 1px solid #eee; padding: 24px; }
-    .profile-card h2 { font-size: 17px; margin-bottom: 16px; }
-    .profile-card input { width: 100%; padding: 9px; margin-bottom: 12px; border: 1px solid #ddd; font-size: 13px; box-sizing: border-box; }
-    .profile-card button { background: #000000; color: #fff; border: none; padding: 10px 22px; font-size: 13px; cursor: pointer; }
-    .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
-    .stat-box { flex: 1; background: #f5f5f5; border: 1px solid #e5e5e5; padding: 14px; text-align: center; }
-    .stat-box .num { font-size: 22px; font-weight: bold; color: #000000; }
-    .stat-box .label { font-size: 11px; color: #666; margin-top: 2px; }
-    .address-card { border: 1px solid #eee; padding: 12px; margin-bottom: 10px; font-size: 13px; position: relative; }
-    .address-card .label-tag { background: #000000; color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 3px; }
-    .address-card .del-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; color: #999; cursor: pointer; font-size: 12px; }
-    .add-address-form input { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ddd; font-size: 12px; box-sizing: border-box; }
-    .add-address-form button { background: #333; color: #fff; border: none; padding: 8px 16px; font-size: 12px; cursor: pointer; }
-
-    html[data-theme="dark"] .profile-card input, html[data-theme="dark"] .add-address-form input {
-        background: #2a2b33; color: #eee; border-color: #444;
-    }
-    html[data-theme="dark"] .stat-box { background: #17181d; border-color: #333; }
-    html[data-theme="dark"] .stat-box .num { color: #fff; }
-    html[data-theme="dark"] .stat-box .label { color: #aaa; }
-    html[data-theme="dark"] .address-card { border-color: #333; }
-
-    @media (max-width: 700px) {
-        .profile-wrap { margin: 12px; gap: 14px; }
-        .profile-card { flex: 1 1 100%; }
-        .stats-row { flex-wrap: wrap; }
-        .stat-box { flex: 1 1 45%; }
-    }
+    .profile { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+    .profile h2 { font-size: 1.3rem; margin-bottom: 16px; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+    .stat strong { display: block; font-family: var(--font-display); font-size: 1.8rem; line-height: 1.1; }
+    .stat span { color: var(--muted); }
+    .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: var(--radius-sm); margin-bottom: 18px; }
+    .notice.warn { background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
+    .notice.ok { background: color-mix(in srgb, var(--ok) 12%, var(--surface)); color: var(--ok); font-weight: 700; }
+    .addr { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+    .addr:first-of-type { padding-top: 0; }
+    details.add summary { cursor: pointer; font-weight: 700; color: var(--brand); padding: 14px 0 4px; list-style: none; }
+    html[data-theme="dark"] details.add summary { color: var(--accent); }
+    .profile form .field + .field { margin-top: 14px; }
+    @media (max-width: 860px) { .profile { grid-template-columns: 1fr; } .stats { grid-template-columns: 1fr 1fr 1fr; } }
 {% endblock %}
 {% block content %}
-<div class="profile-wrap">
-    <div class="profile-card">
-        <h2>My Profile</h2>
-        <div class="stats-row">
-            <div class="stat-box"><div class="num">{{ orders_count }}</div><div class="label">Orders</div></div>
-            <div class="stat-box"><div class="num">{{ addresses.count }}</div><div class="label">Saved addresses</div></div>
-            <div class="stat-box"><div class="num">{{ profile.loyalty_points }}</div><div class="label">Loyalty points</div></div>
-        </div>
-        {% if request.user.email %}
-        {% if profile.email_verified %}
-        <div style="background:#e8f8f0;color:#1e8449;padding:8px 12px;font-size:12px;margin-bottom:14px;">&#10003; Email verified</div>
-        {% else %}
-        <div style="background:#fdeceb;color:#c0392b;padding:8px 12px;font-size:12px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
-            <span>Email not verified</span>
-            <span>
-                <a href="{% url 'resend_verification' %}" style="color:#c0392b;">Send code</a>
-                &middot;
-                <a href="{% url 'verify_email' %}" style="color:#c0392b;">Enter code</a>
-            </span>
-        </div>
-        {% endif %}
-        {% endif %}
-        <form method="post">
-            {% csrf_token %}
-            <label style="font-size:12px;color:#888;">Username</label>
-            <input type="text" value="{{ request.user.username }}" disabled style="background:#f5f5f5;">
-            <label style="font-size:12px;color:#888;">Name</label>
-            <input type="text" name="first_name" value="{{ request.user.first_name }}" placeholder="Your name">
-            <label style="font-size:12px;color:#888;">Email</label>
-            <input type="email" name="email" value="{{ request.user.email }}" placeholder="Email">
-            <label style="font-size:12px;color:#888;">Phone</label>
-            <input type="text" name="phone" value="{{ profile.phone }}" placeholder="Phone number">
-            <button type="submit">Save changes</button>
-        </form>
+<div class="wrap page">
+    <div class="page-head"><div><h1>Your profile</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    <div class="stats">
+        <a class="stat" href="{% url 'my_orders' %}" style="text-decoration:none;"><strong>{{ orders_count }}</strong><span>Orders</span></a>
+        <div class="stat"><strong>{{ addresses|length }}</strong><span>Saved addresses</span></div>
+        <div class="stat"><strong>{{ profile.loyalty_points }}</strong><span>Reward points</span></div>
     </div>
 
-    <div class="profile-card">
-        <h2>Saved addresses</h2>
-        {% for addr in addresses %}
-        <div class="address-card">
-            <span class="label-tag">{{ addr.label }}</span>
-            <form method="post" action="{% url 'delete_address' addr.id %}" class="del-btn" style="display:inline;">
+    <div class="profile">
+        <section class="panel">
+            <h2>Account details</h2>
+            {% if request.user.email %}
+            {% if profile.email_verified %}
+            <div class="notice ok">Email verified</div>
+            {% else %}
+            <div class="notice warn">
+                <span><strong>Please verify your email</strong> so you receive order updates.</span>
+                <span style="display:flex;gap:8px;">
+                    <a class="btn btn-sm btn-secondary" href="{% url 'verify_email' %}">Enter code</a>
+                    <form method="post" action="{% url 'resend_verification' %}">{% csrf_token %}<button class="btn btn-sm btn-ghost" type="submit">Send new code</button></form>
+                </span>
+            </div>
+            {% endif %}
+            {% endif %}
+            <form method="post">
                 {% csrf_token %}
-                <button type="submit">Remove</button>
+                <div class="field"><label for="p_name">Name</label><input type="text" id="p_name" name="first_name" value="{{ request.user.first_name }}" autocomplete="name"></div>
+                <div class="field"><label for="p_email">Email</label><input type="email" id="p_email" name="email" value="{{ request.user.email }}" autocomplete="email"><span class="hint">Changing it means verifying the new address.</span></div>
+                <div class="field"><label for="p_phone">Phone</label><input type="tel" id="p_phone" name="phone" value="{{ profile.phone }}" autocomplete="tel"></div>
+                <div class="field" style="flex-direction:row;gap:10px;flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary">Save changes</button>
+                    <a href="{% url 'password_reset' %}" class="btn btn-ghost">Change password</a>
+                </div>
             </form>
-            <div style="margin-top:6px;">{{ addr.full_name }} &middot; {{ addr.phone }}</div>
-            <div style="color:#666;">{{ addr.address }}, {{ addr.city }}</div>
-        </div>
-        {% empty %}
-        <p style="font-size:12px;color:#888;">No saved addresses yet.</p>
-        {% endfor %}
+        </section>
 
-        <form method="post" action="{% url 'add_address' %}" class="add-address-form" style="margin-top:16px;">
-            {% csrf_token %}
-            <input type="text" name="label" placeholder="Label (Home / Office)" required>
-            <input type="text" name="full_name" placeholder="Full name" required>
-            <input type="text" name="phone" placeholder="Phone" required>
-            <input type="text" name="address" placeholder="Street address" required>
-            <input type="text" name="city" placeholder="City" required>
-            <button type="submit">Add address</button>
-        </form>
-    </div>
+        <section class="panel">
+            <h2>Saved addresses</h2>
+            {% for addr in addresses %}
+            <div class="addr">
+                <div>
+                    <span class="badge">{{ addr.label }}</span>
+                    <div style="margin-top:8px;font-weight:700;">{{ addr.full_name }}</div>
+                    <div class="muted">{{ addr.address }}, {{ addr.city }}{% if addr.state %}, {{ addr.state }}{% endif %} {{ addr.postal_code }}<br>{{ addr.country|country_name }}{% if addr.phone %} · {{ addr.phone }}{% endif %}</div>
+                </div>
+                <form method="post" action="{% url 'delete_address' addr.id %}">{% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm" aria-label="Remove {{ addr.label }} address">Remove</button></form>
+            </div>
+            {% empty %}
+            <p class="muted">Save an address to check out in seconds.</p>
+            {% endfor %}
+            <details class="add" {% if not addresses %}open{% endif %}>
+                <summary>Add an address</summary>
+                <form method="post" action="{% url 'add_address' %}" style="margin-top:10px;">
+                    {% csrf_token %}
+                    <div class="form-grid">
+                        <div class="field"><label for="a_label">Label</label><input type="text" id="a_label" name="label" placeholder="Home, Office…" value="Home"></div>
+                        <div class="field"><label for="a_name">Full name</label><input type="text" id="a_name" name="full_name" required></div>
+                        <div class="field span-2"><label for="a_addr">Street address</label><input type="text" id="a_addr" name="address" required></div>
+                        <div class="field"><label for="a_city">City</label><input type="text" id="a_city" name="city" required></div>
+                        <div class="field"><label for="a_state">State / province</label><input type="text" id="a_state" name="state"></div>
+                        <div class="field"><label for="a_zip">Postal code</label><input type="text" id="a_zip" name="postal_code"></div>
+                        <div class="field"><label for="a_country">Country</label>{% country_select field_id="a_country" %}</div>
+                        <div class="field span-2"><label for="a_phone">Phone</label><input type="tel" id="a_phone" name="phone"></div>
+                    </div>
+                    <button type="submit" class="btn btn-secondary" style="margin-top:16px;">Save address</button>
+                </form>
+            </details>
+        </section>
 
-    <div class="profile-card" style="flex-basis:100%;">
-        <h2>Invite friends</h2>
-        <p style="font-size:13px;color:#666;margin-bottom:10px;">Share your referral link. When a friend signs up using it, you'll get a notification.</p>
-        <div style="display:flex;gap:8px;">
-            <input type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'signup' %}?ref={{ profile.referral_code }}" style="flex:1;padding:9px;border:1px solid #ddd;font-size:12px;" onclick="this.select()">
-            <button type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.value); this.textContent='Copied!'" style="background:#333;color:#fff;border:none;padding:9px 16px;font-size:12px;cursor:pointer;">Copy link</button>
-        </div>
+        <section class="panel" style="grid-column:1/-1;">
+            <h2>Invite friends, both get 10% off</h2>
+            <p class="muted" style="margin-bottom:14px;">When a friend creates an account with your link, you each receive a 10% discount code.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <label for="ref-link" class="sr-only">Your referral link</label>
+                <input class="input" id="ref-link" type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'signup' %}?ref={{ profile.referral_code }}" onclick="this.select()" style="flex:1;min-width:240px;">
+                <button type="button" class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('ref-link').value).then(() => { this.textContent = 'Link copied'; })">Copy link</button>
+            </div>
+        </section>
     </div>
 </div>
 {% endblock %}

@@ -1,227 +1,264 @@
 {% extends "bees/base.html" %}
-{% block title %}{{ product.name }} - Rs.{{ product.price }} | 19Bees{% endblock %}
-{% block meta_description %}Buy {{ product.name }} for Rs.{{ product.price }} at 19Bees.{% if product.discount_percent %} Save {{ product.discount_percent }}% off.{% endif %} {{ product.description|truncatewords:20 }}{% endblock %}
+{% load bees_extras %}
+{% block title %}{{ product.name }} — {{ brand.site_name }}{% endblock %}
+{% block meta_description %}{{ product.name }} for {{ product.price|money }} at {{ brand.site_name }}.{% if product.discount_percent %} Save {{ product.discount_percent }}%.{% endif %} {{ product.description|truncatewords:20 }}{% endblock %}
 {% block og_type %}product{% endblock %}
-{% block og_title %}{{ product.name }} - Rs.{{ product.price }} | 19Bees{% endblock %}
+{% block og_title %}{{ product.name }} — {{ product.price|money }}{% endblock %}
 {% block og_description %}{{ product.description|truncatewords:25 }}{% endblock %}
-{% block og_image %}{{ product.image_url }}{% endblock %}
-{% block twitter_title %}{{ product.name }} - Rs.{{ product.price }}{% endblock %}
-{% block twitter_description %}{{ product.description|truncatewords:20 }}{% endblock %}
-{% block twitter_image %}{{ product.image_url }}{% endblock %}
+{% block og_image_tag %}<meta property="og:image" content="{{ product.image_url }}">{% endblock %}
 {% block structured_data %}
 <script type="application/ld+json">
 {
     "@context": "https://schema.org",
     "@type": "Product",
     "name": "{{ product.name|escapejs }}",
-    "image": "{{ product.image_url }}",
+    "image": "{{ product.image_url|escapejs }}",
     "description": "{{ product.description|truncatewords:40|escapejs }}",
     "sku": "{{ product.id }}",
-    "brand": {"@type": "Brand", "name": "19Bees"},
+    "brand": {"@type": "Brand", "name": "{{ product.seller_name|escapejs }}"},
     "offers": {
         "@type": "Offer",
         "url": "{{ request.scheme }}://{{ request.get_host }}{{ request.path }}",
-        "priceCurrency": "PKR",
+        "priceCurrency": "{{ store_currency }}",
         "price": "{{ product.price }}",
         "availability": "{% if product.stock > 0 %}https://schema.org/InStock{% else %}https://schema.org/OutOfStock{% endif %}"
-    }
-    {% if product.reviews.count > 0 %}
-    ,"aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "{{ product.average_rating }}",
-        "reviewCount": "{{ product.reviews.count }}"
-    }
-    {% endif %}
+    }{% if product.rating_count %},
+    "aggregateRating": {"@type": "AggregateRating", "ratingValue": "{{ product.average_rating }}", "reviewCount": "{{ product.rating_count }}"}{% endif %}
 }
 </script>
 {% endblock %}
 {% block extra_css %}
-    .product-page { display: flex; gap: 24px; margin: 20px 40px; }
-    .product-image { flex: 0 0 400px; background: #fff; border: 1px solid #eee; padding: 16px; }
-    .product-image img { width: 100%; height: 400px; object-fit: contain; }
-    .product-info { flex: 1; background: #fff; border: 1px solid #eee; padding: 20px; }
-    .product-info h1 { font-size: 22px; font-weight: 500; margin-bottom: 12px; }
-    .price-block { margin: 16px 0; }
-    .price-block .price { color: #000000; font-size: 30px; font-weight: bold; }
-    .price-block .old-price { color: #999; font-size: 16px; text-decoration: line-through; margin-left: 10px; }
-    .price-block .discount { color: #DC2626; margin-left: 8px; font-weight: bold; }
-    .btn-row { display: flex; gap: 12px; margin-top: 20px; }
-    .btn-buy, .btn-cart { padding: 12px 30px; border: none; font-size: 15px; cursor: pointer; border-radius: 4px; font-weight: bold; }
-    .btn-buy { background: #000000; color: #fff; }
-    .btn-cart { background: #000000; color: #fff; }
-    .rating-line { color: #f5a623; margin-bottom: 10px; }
-    .desc-box { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
-    .reviews-box { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
-    .review-form { display: flex; flex-direction: column; gap: 10px; max-width: 500px; margin-bottom: 24px; }
-    .review-form input, .review-form select, .review-form textarea { padding: 8px; border: 1px solid #ddd; font-size: 14px; }
-    .review-form button { align-self: flex-start; background: #000000; color: #fff; border: none; padding: 10px 24px; cursor: pointer; }
-    .review-item { border-bottom: 1px solid #eee; padding: 14px 0; }
-    .review-item .stars { color: #f5a623; }
-    .review-item .rname { font-weight: 500; margin-right: 8px; }
-    .thumb-row { display: flex; gap: 8px; margin-top: 10px; }
-    .thumb-row img { width: 55px; height: 55px; object-fit: cover; border: 1px solid #eee; cursor: pointer; }
-    .thumb-row img.active { border-color: #000000; }
-    .seller-link { font-size: 12px; color: #666; margin-bottom: 10px; }
-    .seller-link a { color: #000000; text-decoration: none; }
-    .qna-box { margin: 20px 40px; background: #fff; border: 1px solid #eee; padding: 20px; }
-    .qna-form { display: flex; gap: 10px; margin-bottom: 18px; }
-    .qna-form input { flex: 1; padding: 9px; border: 1px solid #ddd; font-size: 13px; }
-    .qna-form button { background: #000000; color: #fff; border: none; padding: 0 18px; cursor: pointer; }
-    .qna-item { border-bottom: 1px solid #f0f0f0; padding: 10px 0; font-size: 13px; }
-    .qna-item .q { font-weight: 500; }
-    .qna-item .a { color: #666; margin-top: 4px; padding-left: 14px; border-left: 2px solid #000000; }
-
-    html[data-theme="dark"] .product-image, html[data-theme="dark"] .product-info {
-        background: #1e1f26 !important; border-color: #333 !important;
+    .crumbs { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.95rem; color: var(--muted); margin-bottom: 20px; }
+    .crumbs a { text-decoration: none; }
+    .crumbs a:hover { text-decoration: underline; color: var(--ink); }
+    .pdp { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+    .gallery-main { position: relative; aspect-ratio: 1; background: var(--surface-2); border-radius: var(--radius-lg); overflow: hidden; }
+    .gallery-main img { width: 100%; height: 100%; object-fit: cover; }
+    .thumbs { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .thumbs button { width: 76px; height: 76px; border-radius: var(--radius-sm); overflow: hidden; border: 2px solid transparent; padding: 0; cursor: pointer; background: var(--surface-2); }
+    .thumbs button.active { border-color: var(--brand); }
+    .thumbs img { width: 100%; height: 100%; object-fit: cover; }
+    .buybox { position: sticky; top: 140px; }
+    .buybox h1 { font-size: clamp(1.7rem, 2.8vw, 2.3rem); }
+    .seller-line { margin-top: 10px; color: var(--muted); }
+    .seller-line a { color: var(--ink); font-weight: 700; }
+    .rating-line { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .rating-line a { color: var(--muted); }
+    .buy-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; margin: 22px 0 6px; }
+    .buy-price .price { font-size: 2.2rem; }
+    .stock-line { font-weight: 700; margin-bottom: 22px; }
+    .stock-line.ok { color: var(--ok); }
+    .stock-line.low { color: var(--warn); }
+    .stock-line.out { color: var(--sale); }
+    .buy-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .buy-actions form, .buy-actions .btn { width: 100%; }
+    .buy-actions .btn { min-height: 54px; font-size: 1.05rem; }
+    .buy-secondary { display: flex; gap: 16px; margin-top: 14px; }
+    .buy-secondary button, .buy-secondary a { background: none; border: 0; cursor: pointer; color: var(--muted); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; padding: 4px 0; }
+    .assurances { list-style: none; margin-top: 26px; border-top: 1px solid var(--line); }
+    .assurances li { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; }
+    .assurances li span:last-child { color: var(--muted); text-align: right; }
+    .detail-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 32px; margin-top: 56px; align-items: start; }
+    .description { white-space: pre-line; font-size: 1.05rem; line-height: 1.7; max-width: 68ch; }
+    .review { padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .review:last-child { border-bottom: 0; }
+    .review-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
+    .review p { margin-top: 6px; }
+    .rating-summary { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+    .rating-summary .big { font-family: var(--font-display); font-size: 3rem; font-weight: 800; line-height: 1; }
+    .star-input { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 4px; }
+    .star-input input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .star-input label { font-size: 2rem; line-height: 1; color: var(--line); cursor: pointer; }
+    .star-input input:checked ~ label, .star-input label:hover, .star-input label:hover ~ label { color: #C98A06; }
+    .star-input input:focus-visible + label { outline: 3px solid var(--accent); border-radius: 4px; }
+    .qa { padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .qa:last-child { border-bottom: 0; }
+    .qa .answer { margin-top: 8px; padding-left: 14px; border-left: 3px solid var(--accent); }
+    @media (max-width: 900px) {
+        .pdp, .detail-grid { grid-template-columns: 1fr; gap: 28px; }
+        .buybox { position: static; }
     }
-    html[data-theme="dark"] .price-block .price { color: #fff; }
-    html[data-theme="dark"] .review-form input, html[data-theme="dark"] .review-form select,
-    html[data-theme="dark"] .review-form textarea, html[data-theme="dark"] .qna-form input {
-        background: #2a2b33; color: #eee; border-color: #444;
-    }
-    html[data-theme="dark"] .review-item, html[data-theme="dark"] .thumb-row img { border-color: #333; }
-    html[data-theme="dark"] .thumb-row img.active { border-color: #fff; }
-    html[data-theme="dark"] .seller-link a { color: #fff; }
-    html[data-theme="dark"] .seller-link, html[data-theme="dark"] .qna-item .a { color: #aaa; }
-    html[data-theme="dark"] .qna-item .a { border-left-color: #666; }
-    html[data-theme="dark"] .qna-item { border-color: #333; }
-
-    @media (max-width: 700px) {
-        .product-page { flex-direction: column; margin: 12px; gap: 14px; }
-        .product-image { flex: none; padding: 10px; }
-        .product-image img { height: 260px; }
-        .price-block .price { font-size: 24px; }
-        .thumb-row img { width: 50px; height: 50px; }
-    }
+    @media (max-width: 480px) { .buy-actions { grid-template-columns: 1fr; } }
 {% endblock %}
 {% block content %}
+<div class="wrap page">
+    <nav class="crumbs" aria-label="Breadcrumb">
+        <a href="{% url 'home' %}">Home</a><span aria-hidden="true">/</span>
+        <a href="{% url 'category_products' product.category %}">{{ product.get_category_display }}</a><span aria-hidden="true">/</span>
+        <span aria-current="page">{{ product.name|truncatechars:48 }}</span>
+    </nav>
 
-    <div class="product-page">
-        <div class="product-image" style="position:relative;">
-            <img src="{{ product.image_url }}" alt="{{ product.name }}" id="main-image">
-            {% if user.is_authenticated %}
-            <form method="post" action="{% url 'toggle_wishlist' product.id %}" style="position:absolute;top:10px;right:10px;">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{% url 'product_detail' product.id %}">
-                <button type="submit" style="background:#fff;border:1px solid #eee;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;color:{% if in_wishlist %}#000000{% else %}#ccc{% endif %};">&#9829;</button>
-            </form>
-            {% endif %}
+    {% if product.approval_status != "approved" %}
+    <div class="panel panel-tight" style="margin-bottom:20px;border-color:var(--warn);">
+        <strong>This listing is {{ product.get_approval_status_display|lower }}.</strong> Only you and store staff can see it until it's approved.
+    </div>
+    {% endif %}
+
+    <div class="pdp">
+        <div>
+            <div class="gallery-main">
+                <img src="{{ product.image_url }}" alt="{{ product.name }}" id="main-image">
+            </div>
             {% if gallery|length > 1 %}
-            <div class="thumb-row">
+            <div class="thumbs" role="group" aria-label="Product images">
                 {% for img in gallery %}
-                <img src="{{ img }}" class="{% if forloop.first %}active{% endif %}" onclick="document.getElementById('main-image').src=this.src; document.querySelectorAll('.thumb-row img').forEach(t=>t.classList.remove('active')); this.classList.add('active');">
+                <button type="button" class="{% if forloop.first %}active{% endif %}" aria-label="Show image {{ forloop.counter }}" onclick="showImage(this, '{{ img|escapejs }}')"><img src="{{ img }}" alt=""></button>
                 {% endfor %}
             </div>
             {% endif %}
         </div>
-        <div class="product-info">
+
+        <div class="buybox">
             <h1>{{ product.name }}</h1>
-            <div class="seller-link">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a></div>
-            <div class="rating-line">
-                &#9733; {{ product.average_rating }}/5 &middot; {{ product.reviews.count }} {{ t.reviews }}
-            </div>
-            <div class="price-block">
-                <span class="price">Rs.{{ product.price }}</span>
-                {% if product.old_price %}<span class="old-price">Rs.{{ product.old_price }}</span>{% endif %}
-                {% if product.discount_percent %}<span class="discount">-{{ product.discount_percent }}%</span>{% endif %}
-            </div>
-            {% if product.stock <= 0 %}
-            <div class="stock-badge out">{{ t.out_of_stock }}</div>
-            {% elif product.stock <= 5 %}
-            <div class="stock-badge low">{{ t.only_left }} {{ product.stock }} {{ t.only_left_stock }}</div>
-            {% else %}
-            <div class="stock-badge" style="color:#27ae60;">{{ t.in_stock }}</div>
+            <p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a></p>
+            {% if product.rating_count %}
+            <div class="rating-line"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span><strong>{{ product.average_rating }}</strong><a href="#reviews">{{ product.rating_count }} review{{ product.rating_count|pluralize }}</a></div>
             {% endif %}
-            <div class="btn-row">
-                {% if product.stock > 0 %}
+
+            <div class="buy-price">
+                <span class="price">{{ product.price|money }}</span>
+                {% if product.old_price %}<span class="price-was"><span class="sr-only">Was </span>{{ product.old_price|money }}</span>{% endif %}
+                {% if product.discount_percent %}<span class="badge badge-sale">Save {{ product.discount_percent }}%</span>{% endif %}
+            </div>
+            {% if product.stock <= 0 %}<p class="stock-line out">{{ t.out_of_stock }}</p>
+            {% elif product.stock <= 5 %}<p class="stock-line low">Only {{ product.stock }} left — order soon</p>
+            {% else %}<p class="stock-line ok">{{ t.in_stock }}</p>{% endif %}
+
+            {% if product.stock > 0 %}
+            <div class="buy-actions">
+                <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form">
+                    {% csrf_token %}
+                    <button class="btn btn-secondary" type="submit">{{ t.add_to_cart }}</button>
+                </form>
                 <form method="post" action="{% url 'add_to_cart' product.id %}">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{% url 'checkout' %}">
-                    <button class="btn-buy" type="submit">{{ t.buy_now }}</button>
+                    <button class="btn btn-primary" type="submit">{{ t.buy_now }}</button>
                 </form>
-                <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form" data-product-id="{{ product.id }}">
+            </div>
+            {% else %}
+            <button class="btn btn-secondary btn-block" disabled>{{ t.out_of_stock }}</button>
+            {% endif %}
+
+            <div class="buy-secondary">
+                {% if user.is_authenticated %}
+                <form method="post" action="{% url 'toggle_wishlist' product.id %}">
                     {% csrf_token %}
-                    <button class="btn-cart" type="submit">{{ t.add_to_cart }}</button>
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <button type="submit">{% if in_wishlist %}Saved to wishlist{% else %}Save to wishlist{% endif %}</button>
+                </form>
+                {% endif %}
+                <a href="{% url 'toggle_compare' product.id %}" rel="nofollow">{% if product.id in compare_ids %}Remove from compare{% else %}Add to compare{% endif %}</a>
+            </div>
+
+            <ul class="assurances">
+                <li><span>Shipping</span><span>{% if brand.free_shipping_threshold %}Free over {{ brand.free_shipping_threshold|money }}{% elif brand.shipping_flat_fee %}{{ brand.shipping_flat_fee|money }} flat rate{% else %}Free{% endif %}</span></li>
+                <li><span>Returns</span><span>14 days from delivery</span></li>
+                <li><span>Payment</span><span>{% if stripe_enabled %}Secure card checkout via Stripe{% else %}{{ t.cash_on_delivery }}{% endif %}</span></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="detail-grid">
+        <section class="panel">
+            <h2>{{ t.product_details }}</h2>
+            <div class="description" style="margin-top:14px;">{{ product.description|default:"The seller hasn't added a description yet." }}</div>
+        </section>
+
+        <section class="panel" id="questions">
+            <h2>Questions</h2>
+            {% if user.is_authenticated %}
+            <form method="post" action="{% url 'ask_question' product.id %}" style="display:flex;gap:8px;margin:14px 0 6px;">
+                {% csrf_token %}
+                <label for="question" class="sr-only">Your question</label>
+                <input class="input" id="question" type="text" name="question" placeholder="Ask the seller a question" required maxlength="1000">
+                <button type="submit" class="btn btn-secondary">Ask</button>
+            </form>
+            {% else %}
+            <p class="muted" style="margin-top:10px;"><a class="link" href="{% url 'login' %}?next={{ request.path|urlencode }}">Sign in</a> to ask the seller a question.</p>
+            {% endif %}
+            {% for q in questions %}
+            <div class="qa">
+                <strong>{{ q.question }}</strong>
+                <div class="muted small">Asked by {{ q.username }} · {{ q.created_at|date:"M j, Y" }}</div>
+                {% if q.answer %}<div class="answer">{{ q.answer }}</div>{% endif %}
+            </div>
+            {% empty %}
+            <p class="muted" style="margin-top:10px;">No questions yet.</p>
+            {% endfor %}
+        </section>
+    </div>
+
+    <section class="panel section" id="reviews">
+        <div class="section-head" style="margin-bottom:8px;"><h2>{{ t.ratings_reviews }}</h2></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:32px;">
+            <div>
+                {% if product.rating_count %}
+                <div class="rating-summary">
+                    <span class="big">{{ product.average_rating }}</span>
+                    <div><div class="stars" aria-hidden="true" style="font-size:1.3rem;">{{ product.average_rating|stars }}</div><span class="muted">Based on {{ product.rating_count }} review{{ product.rating_count|pluralize }}</span></div>
+                </div>
+                {% endif %}
+                {% if can_review %}
+                <form method="post" class="stack">
+                    {% csrf_token %}
+                    <fieldset style="border:0;">
+                        <legend class="label" style="margin-bottom:6px;">Your rating</legend>
+                        <div class="star-input">
+                            {% for n in "54321" %}
+                            <input type="radio" id="star{{ n }}" name="rating" value="{{ n }}" {% if n == "5" %}checked{% endif %}><label for="star{{ n }}" aria-label="{{ n }} out of 5 stars">★</label>
+                            {% endfor %}
+                        </div>
+                    </fieldset>
+                    <div class="field">
+                        <label for="comment">Your review</label>
+                        <textarea id="comment" name="comment" rows="4" placeholder="What did you like or dislike? How did you use it?" required maxlength="2000"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">{{ t.submit_review }}</button>
                 </form>
                 {% else %}
-                <button class="btn-cart" disabled style="opacity:0.5;cursor:not-allowed;">{{ t.out_of_stock }}</button>
+                <p class="muted"><a class="link" href="{% url 'login' %}?next={{ request.path|urlencode }}#reviews">Sign in</a> to write a review.</p>
                 {% endif %}
             </div>
+            <div>
+                {% for review in reviews %}
+                <article class="review">
+                    <div class="review-top">
+                        <span class="stars" aria-label="{{ review.rating }} out of 5">{{ review.rating|stars }}</span>
+                        <strong>{{ review.username }}</strong>
+                        {% if review.is_verified_purchase %}<span class="badge badge-ok">Verified purchase</span>{% endif %}
+                    </div>
+                    <span class="muted small">{{ review.created_at|date:"M j, Y" }}</span>
+                    <p>{{ review.comment }}</p>
+                </article>
+                {% empty %}
+                <p class="muted">{{ t.no_reviews }}</p>
+                {% endfor %}
+            </div>
         </div>
-    </div>
-
-    <div class="desc-box">
-        <h2>{{ t.product_details }}</h2>
-        <p style="margin-top:10px;">{{ product.description }}</p>
-    </div>
-
-    <div class="reviews-box">
-        <h2>{{ t.ratings_reviews }}</h2>
-        <form class="review-form" method="post">
-            {% csrf_token %}
-            <input type="text" name="username" placeholder="{{ t.your_name }}" required>
-            <select name="rating">
-                <option value="5">5 stars</option>
-                <option value="4">4 stars</option>
-                <option value="3">3 stars</option>
-                <option value="2">2 stars</option>
-                <option value="1">1 star</option>
-            </select>
-            <textarea name="comment" rows="3" placeholder="{{ t.write_review }}" required></textarea>
-            <button type="submit">{{ t.submit_review }}</button>
-        </form>
-
-        {% for review in reviews %}
-        <div class="review-item">
-            <div class="stars">{% for i in "12345" %}{% if forloop.counter <= review.rating %}&#9733;{% else %}&#9734;{% endif %}{% endfor %}</div>
-            <span class="rname">{{ review.username }}</span>
-            <p>{{ review.comment }}</p>
-        </div>
-        {% empty %}
-        <p>{{ t.no_reviews }}</p>
-        {% endfor %}
-    </div>
-
-    <div class="qna-box">
-        <h2>Questions &amp; Answers</h2>
-        <form class="qna-form" method="post" action="{% url 'ask_question' product.id %}">
-            {% csrf_token %}
-            {% if not user.is_authenticated %}
-            <input type="text" name="username" placeholder="{{ t.your_name }}" required style="max-width:150px;">
-            {% endif %}
-            <input type="text" name="question" placeholder="Ask something about this product..." required>
-            <button type="submit">Ask</button>
-        </form>
-        {% for q in questions %}
-        <div class="qna-item">
-            <div class="q">Q: {{ q.question }} <span style="color:#999;font-weight:normal;">— {{ q.username }}</span></div>
-            {% if q.answer %}<div class="a">A: {{ q.answer }}</div>{% endif %}
-        </div>
-        {% empty %}
-        <p style="font-size:13px;color:#888;">No questions yet. Be the first to ask.</p>
-        {% endfor %}
-    </div>
+    </section>
 
     {% if related_products %}
-    <div class="section">
-        <div class="section-header"><h2>Related products</h2></div>
-        <div class="product-grid">
-            {% for product in related_products %}
-            {% include "bees/partials/product_card.html" %}
-            {% endfor %}
-        </div>
-    </div>
+    <section class="section">
+        <div class="section-head"><h2>You may also like</h2></div>
+        <div class="grid-products">{% for product in related_products %}{% include "bees/partials/product_card.html" %}{% endfor %}</div>
+    </section>
     {% endif %}
 
     {% if recently_viewed %}
-    <div class="section">
-        <div class="section-header"><h2>Recently viewed</h2></div>
-        <div class="product-grid">
-            {% for product in recently_viewed %}
-            {% include "bees/partials/product_card.html" %}
-            {% endfor %}
-        </div>
-    </div>
+    <section class="section">
+        <div class="section-head"><h2>Recently viewed</h2></div>
+        <div class="grid-products">{% for product in recently_viewed %}{% include "bees/partials/product_card.html" %}{% endfor %}</div>
+    </section>
     {% endif %}
-
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+    function showImage(btn, src) {
+        document.getElementById('main-image').src = src;
+        document.querySelectorAll('.thumbs button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+</script>
 {% endblock %}

@@ -1,12 +1,12 @@
-<div class="sort-bar">
-    <form method="get">
-        {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
-        <select name="sort" onchange="this.form.submit()">
-            <option value="" {% if not current_sort %}selected{% endif %}>{{ t.sort_default }}</option>
-            <option value="price_asc" {% if current_sort == "price_asc" %}selected{% endif %}>{{ t.price_low_high }}</option>
-            <option value="price_desc" {% if current_sort == "price_desc" %}selected{% endif %}>{{ t.price_high_low }}</option>
-            <option value="newest" {% if current_sort == "newest" %}selected{% endif %}>{{ t.newest_first }}</option>
-            <option value="rating" {% if current_sort == "rating" %}selected{% endif %}>{{ t.top_rated }}</option>
-        </select>
-    </form>
-</div>
+<form method="get" class="sort-form">
+    {% for key, val in request.GET.items %}{% if key != 'sort' and key != 'page' %}<input type="hidden" name="{{ key }}" value="{{ val }}">{% endif %}{% endfor %}
+    <label for="sort-select" class="sr-only">Sort by</label>
+    <select id="sort-select" name="sort" onchange="this.form.submit()">
+        <option value="" {% if not current_sort %}selected{% endif %}>Sort: Recommended</option>
+        <option value="price_asc" {% if current_sort == "price_asc" %}selected{% endif %}>{{ t.price_low_high }}</option>
+        <option value="price_desc" {% if current_sort == "price_desc" %}selected{% endif %}>{{ t.price_high_low }}</option>
+        <option value="newest" {% if current_sort == "newest" %}selected{% endif %}>{{ t.newest_first }}</option>
+        <option value="rating" {% if current_sort == "rating" %}selected{% endif %}>{{ t.top_rated }}</option>
+    </select>
+    <noscript><button type="submit" class="btn btn-secondary btn-sm">Sort</button></noscript>
+</form>

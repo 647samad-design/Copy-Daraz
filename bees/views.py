@@ -1,14 +1,51 @@
-from django.shortcuts import render, get_object_or_404, redirect
+import logging
+import random
+import secrets
+import string
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from urllib.parse import urlencode
+
+from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.contrib import messages
-from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse, HttpResponse
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.validators import UnicodeUsernameValidator
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.core.mail import EmailMultiAlternatives
 from django.core.paginator import Paginator
+from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import Q, Sum, Avg, Count, F
+from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.shortcuts import render, get_object_or_404, redirect
+from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils.html import strip_tags
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 
+from . import payments
+from .models import (
+    Product, Review, Order, OrderItem, Wishlist, Coupon,
+    ProductImage, Profile, Address, Question, NewsletterSubscriber,
+    Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
+    OrganizationMember, ChatThread, ChatMessage,
+)
+from .ratelimit import ratelimit
+from .security import (
+    safe_next_url, redirect_back, validate_image_upload, validate_document_upload, random_upload_name,
+)
+from .templatetags.bees_extras import money
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def with_ratings(queryset):
     """Annotate a Product queryset with avg_rating/review_count in one query,
@@ -31,19 +68,40 @@ def get_seller_account_for_user(user):
     if membership:
         return membership.organization, membership.role
     return None, None
-from django.core.mail import send_mail, EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
-import random
-import string
-from .ratelimit import ratelimit
-from . import jazzcash
-from .models import (
-    Product, Review, Order, OrderItem, Wishlist, Coupon,
-    ProductImage, Profile, Address, Question, NewsletterSubscriber,
-    Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
-    OrganizationMember, ChatThread, ChatMessage,
-)
+
+
+def _brand():
+    return SiteSettings.load()
+
+
+def _store_name():
+    return _brand().site_name
+
+
+def _parse_decimal(value, field, minimum=Decimal("0"), required=True):
+    if value in (None, ""):
+        if required:
+            raise ValidationError(f"{field} is required.")
+        return None
+    try:
+        number = Decimal(str(value).strip()).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        raise ValidationError(f"{field} must be a number.")
+    if number < minimum:
+        raise ValidationError(f"{field} must be at least {minimum}.")
+    return number
+
+
+def _parse_int(value, field, minimum=0, maximum=None, default=0):
+    if value in (None, ""):
+        return default
+    try:
+        number = int(str(value).strip())
+    except ValueError:
+        raise ValidationError(f"{field} must be a whole number.")
+    if number < minimum or (maximum is not None and number > maximum):
+        raise ValidationError(f"{field} must be between {minimum} and {maximum}." if maximum is not None else f"{field} must be at least {minimum}.")
+    return number
 
 
 def _apply_sort(qs, sort):
@@ -54,7 +112,7 @@ def _apply_sort(qs, sort):
     if sort == "newest":
         return qs.order_by("-created_at")
     if sort == "rating":
-        return sorted(qs, key=lambda p: p.average_rating, reverse=True)
+        return qs.order_by(F("avg_rating").desc(nulls_last=True), "-id")
     return qs.order_by("-id")
 
 
@@ -69,13 +127,13 @@ def _apply_filters(qs, request):
 
     if min_price:
         try:
-            qs = qs.filter(price__gte=float(min_price))
-        except ValueError:
+            qs = qs.filter(price__gte=Decimal(min_price))
+        except (InvalidOperation, ValueError):
             pass
     if max_price:
         try:
-            qs = qs.filter(price__lte=float(max_price))
-        except ValueError:
+            qs = qs.filter(price__lte=Decimal(max_price))
+        except (InvalidOperation, ValueError):
             pass
     if seller:
         qs = qs.filter(seller_name=seller)
@@ -101,6 +159,7 @@ def _filter_context(request, base_qs):
         "f_in_stock": request.GET.get("in_stock", ""),
     }
 
+
 CATEGORY_IMAGE_IDS = {
     "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
     "3d-printers": 60, "pasta-tools": 61, "sim-devices": 62, "screen-protector": 63,
@@ -110,17 +169,53 @@ CATEGORY_IMAGE_IDS = {
 }
 
 
+def _can_view_unapproved(user, product):
+    if not user.is_authenticated:
+        return False
+    if user.is_staff:
+        return True
+    seller, _ = get_seller_account_for_user(user)
+    return bool(seller and product.seller_account_id == seller.id)
+
+
+def _send_html_email(subject, template, context, recipient):
+    if not recipient:
+        return
+    try:
+        context = {"brand": _brand(), **context}
+        html_body = render_to_string(template, context)
+        email = EmailMultiAlternatives(subject, strip_tags(html_body), None, [recipient])
+        email.attach_alternative(html_body, "text/html")
+        email.send(fail_silently=True)
+    except Exception:
+        logger.exception("Failed to send email '%s' to %s", subject, recipient)
+
+
+def _send_order_confirmation(request, order):
+    invoice_url = request.build_absolute_uri(reverse("invoice_pdf", args=[order.id]))
+    _send_html_email(
+        f"Your {_store_name()} order #{order.id} is confirmed",
+        "bees/emails/order_confirmation.html",
+        {"order": order, "invoice_url": invoice_url},
+        order.contact_email,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Catalogue
+# ---------------------------------------------------------------------------
+
 def home(request):
     query = request.GET.get("q", "").strip()
     if query:
-        return redirect(f"/search/?q={query}")
-    flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:8]
-    just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:16]
+        return redirect(f"{reverse('search_products')}?{urlencode({'q': query})}")
+    flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:10]
+    just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:15]
     categories = [
         {
             "slug": slug,
             "label": label,
-            "image": f"https://picsum.photos/id/{CATEGORY_IMAGE_IDS.get(slug, 10)}/200/150",
+            "image": f"https://picsum.photos/id/{CATEGORY_IMAGE_IDS.get(slug, 10)}/300/220",
         }
         for slug, label in Product.CATEGORY_CHOICES
     ]
@@ -134,28 +229,18 @@ def home(request):
 def product_detail(request, pk):
     product = get_object_or_404(Product, pk=pk)
 
-    if product.approval_status != "approved":
-        is_owner_seller = (
-            product.seller_account and request.user.is_authenticated
-            and product.seller_account.user_id == request.user.id
-        )
-        if not (is_owner_seller or request.user.is_staff):
-            from django.http import Http404
-            raise Http404("This product is not available.")
+    if product.approval_status != "approved" and not _can_view_unapproved(request.user, product):
+        raise Http404("This product is not available.")
 
     if request.method == "POST":
-        Review.objects.create(
-            product=product,
-            username=request.POST.get("username") or "Anonymous",
-            rating=int(request.POST.get("rating", 5)),
-            comment=request.POST.get("comment", ""),
-        )
-        return redirect("product_detail", pk=pk)
+        return _submit_review(request, product)
 
     reviews = product.reviews.all()
     in_wishlist = False
+    can_review = False
     if request.user.is_authenticated:
         in_wishlist = Wishlist.objects.filter(user=request.user, product=product).exists()
+        can_review = True
 
     gallery = [product.image_url] + list(product.extra_images.values_list("image_url", flat=True))
     related_products = with_ratings(Product.objects.filter(category=product.category, approval_status="approved").exclude(pk=product.pk))[:6]
@@ -166,12 +251,13 @@ def product_detail(request, pk):
     recent_ids.insert(0, product.id)
     request.session["recently_viewed"] = recent_ids[:10]
     request.session.modified = True
-    recently_viewed = with_ratings(Product.objects.filter(id__in=recent_ids[1:7]))
+    recently_viewed = with_ratings(Product.objects.filter(id__in=recent_ids[1:7], approval_status="approved"))
 
     return render(request, "bees/product_detail.html", {
         "product": product,
         "reviews": reviews,
         "in_wishlist": in_wishlist,
+        "can_review": can_review,
         "gallery": gallery,
         "related_products": related_products,
         "questions": questions,
@@ -179,63 +265,123 @@ def product_detail(request, pk):
     })
 
 
-def category_products(request, category):
-    base_qs = Product.objects.filter(category=category, approval_status="approved")
-    products = with_ratings(base_qs)
-    products = _apply_filters(products, request)
+def _submit_review(request, product):
+    """One review per signed-in customer per product; a second submission
+    updates the first. Marked 'verified purchase' if they bought it."""
+    if not request.user.is_authenticated:
+        messages.error(request, "Please sign in to write a review.")
+        return redirect(f"{reverse('login')}?{urlencode({'next': reverse('product_detail', args=[product.pk])})}")
+    try:
+        rating = _parse_int(request.POST.get("rating"), "Rating", minimum=1, maximum=5, default=5)
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0])
+        return redirect("product_detail", pk=product.pk)
+    comment = request.POST.get("comment", "").strip()[:2000]
+    if not comment:
+        messages.error(request, "Please write a few words about the product.")
+        return redirect("product_detail", pk=product.pk)
+    verified = OrderItem.objects.filter(
+        order__user=request.user, product=product, order__status="delivered",
+    ).exists()
+    Review.objects.update_or_create(
+        product=product, user=request.user,
+        defaults={
+            "username": request.user.get_full_name() or request.user.username,
+            "rating": rating,
+            "comment": comment,
+            "is_verified_purchase": verified,
+        },
+    )
+    messages.success(request, "Thanks - your review has been posted.")
+    return redirect("product_detail", pk=product.pk)
+
+
+def _listing(request, base_qs, per_page):
+    products = _apply_filters(with_ratings(base_qs), request)
     sort = request.GET.get("sort", "")
     products = _apply_sort(products, sort)
-    paginator = Paginator(products, 12)
-    page_obj = paginator.get_page(request.GET.get("page"))
-    label = dict(Product.CATEGORY_CHOICES).get(category, category)
-    context = {
-        "products": page_obj,
-        "page_obj": page_obj,
-        "category": category,
-        "category_label": label,
-        "current_sort": sort,
-    }
+    page_obj = Paginator(products, per_page).get_page(request.GET.get("page"))
+    context = {"products": page_obj, "page_obj": page_obj, "current_sort": sort}
     context.update(_filter_context(request, base_qs))
+    return context
+
+
+def category_products(request, category):
+    labels = dict(Product.CATEGORY_CHOICES)
+    if category not in labels:
+        raise Http404("Unknown category.")
+    context = _listing(request, Product.objects.filter(category=category, approval_status="approved"), 12)
+    context.update({"category": category, "category_label": labels[category]})
     return render(request, "bees/category.html", context)
 
 
 def search_products(request):
-    query = request.GET.get("q", "").strip()
+    query = request.GET.get("q", "").strip()[:150]
     if query:
-        log, _ = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
-        SearchLog.objects.filter(pk=log.pk).update(count=log.count + 1)
-    base_qs = Product.objects.filter(name__icontains=query, approval_status="approved") if query else Product.objects.none()
-    results = with_ratings(base_qs)
-    results = _apply_filters(results, request)
-    sort = request.GET.get("sort", "")
-    results = _apply_sort(results, sort)
-    paginator = Paginator(results, 12)
-    page_obj = paginator.get_page(request.GET.get("page"))
-    context = {
-        "products": page_obj,
-        "page_obj": page_obj,
-        "query": query,
-        "current_sort": sort,
-    }
-    context.update(_filter_context(request, base_qs))
+        log, created = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
+        if not created:
+            SearchLog.objects.filter(pk=log.pk).update(count=F("count") + 1)
+    base_qs = (
+        Product.objects.filter(Q(name__icontains=query) | Q(description__icontains=query), approval_status="approved")
+        if query else Product.objects.none()
+    )
+    context = _listing(request, base_qs, 12)
+    context["query"] = query
     return render(request, "bees/search.html", context)
 
 
 def all_products(request):
-    base_qs = Product.objects.filter(approval_status="approved")
-    products = with_ratings(base_qs)
-    products = _apply_filters(products, request)
-    sort = request.GET.get("sort", "")
-    products = _apply_sort(products, sort)
-    paginator = Paginator(products, 16)
-    page_obj = paginator.get_page(request.GET.get("page"))
-    context = {
-        "products": page_obj,
-        "page_obj": page_obj,
-        "current_sort": sort,
-    }
-    context.update(_filter_context(request, base_qs))
+    context = _listing(request, Product.objects.filter(approval_status="approved"), 16)
     return render(request, "bees/all_products.html", context)
+
+
+def product_quick_view(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if product.approval_status != "approved" and not _can_view_unapproved(request.user, product):
+        raise Http404("This product is not available.")
+    return render(request, "bees/partials/quick_view.html", {"product": product})
+
+
+def search_suggest(request):
+    q = request.GET.get("q", "").strip()
+    if not q or len(q) < 2:
+        return JsonResponse({"results": []})
+    names = list(Product.objects.filter(name__icontains=q, approval_status="approved").values_list("name", flat=True)[:6])
+    return JsonResponse({"results": names})
+
+
+def store_page(request, seller_name):
+    products = with_ratings(Product.objects.filter(seller_name=seller_name, approval_status="approved"))
+    seller_account = SellerAccount.objects.filter(
+        Q(business_name=seller_name) | Q(organization_name=seller_name),
+        status="approved",
+    ).first()
+    return render(request, "bees/store.html", {
+        "seller_name": seller_name,
+        "products": products,
+        "seller_account": seller_account,
+    })
+
+
+@ratelimit("ask_question", rate_limit=10, window_seconds=600, redirect_to="home")
+def ask_question(request, pk):
+    product = get_object_or_404(Product, pk=pk, approval_status="approved")
+    if request.method == "POST":
+        if not request.user.is_authenticated:
+            messages.error(request, "Please sign in to ask a question.")
+            return redirect(f"{reverse('login')}?{urlencode({'next': reverse('product_detail', args=[pk])})}")
+        text = request.POST.get("question", "").strip()[:1000]
+        if text:
+            Question.objects.create(product=product, username=request.user.username, question=text)
+            messages.success(request, "Your question has been posted. The seller will answer soon.")
+    return redirect("product_detail", pk=pk)
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
+_username_validator = UnicodeUsernameValidator()
 
 
 @ratelimit("signup", rate_limit=5, window_seconds=300, redirect_to="signup",
@@ -244,128 +390,157 @@ def signup_view(request):
     if request.user.is_authenticated:
         return redirect("home")
 
+    form = {}
     if request.method == "POST":
+        form = request.POST
         username = request.POST.get("username", "").strip()
-        email = request.POST.get("email", "").strip()
+        email = request.POST.get("email", "").strip().lower()
         password = request.POST.get("password", "")
         confirm = request.POST.get("confirm_password", "")
         user_type = request.POST.get("user_type", "buyer")
+        if user_type not in ("buyer", "individual", "organization"):
+            user_type = "buyer"
 
-        if not username or not password:
-            messages.error(request, "Username and password are required.")
-        elif password != confirm:
-            messages.error(request, "Passwords do not match.")
-        elif User.objects.filter(username=username).exists():
-            messages.error(request, "That username is already taken.")
-        elif user_type in ("individual", "organization") and not request.POST.get("phone", "").strip():
-            messages.error(request, "Phone number is required for seller accounts.")
+        error = None
+        try:
+            if not username or not password or not email:
+                raise ValidationError("Username, email and password are required.")
+            _username_validator(username)
+            if "@" in username:
+                raise ValidationError("Usernames can't contain '@'. Use letters, numbers and . _ - only.")
+            validate_email(email)
+            if password != confirm:
+                raise ValidationError("Passwords do not match.")
+            if User.objects.filter(username__iexact=username).exists():
+                raise ValidationError("That username is already taken.")
+            if User.objects.filter(email__iexact=email).exists():
+                raise ValidationError("An account with that email already exists. Try signing in or resetting your password.")
+            if user_type in ("individual", "organization") and not request.POST.get("phone", "").strip():
+                raise ValidationError("Phone number is required for seller accounts.")
+            validate_password(password, User(username=username, email=email))
+            for field in ("business_certificate", "id_document"):
+                validate_document_upload(request.FILES.get(field))
+            for field in ("store_logo", "store_banner"):
+                validate_image_upload(request.FILES.get(field))
+        except ValidationError as exc:
+            error = " ".join(exc.messages)
+
+        if error:
+            messages.error(request, error)
         else:
-            user = User.objects.create_user(username=username, email=email, password=password)
-            code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-            ref = request.GET.get("ref") or request.POST.get("ref", "")
-            profile = Profile.objects.create(user=user, referral_code=code, referred_by=ref)
-            if ref:
-                referrer_profile = Profile.objects.filter(referral_code=ref).first()
-                if referrer_profile:
-                    referrer_coupon_code = "REF-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-                    new_user_coupon_code = "WELCOME-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-                    Coupon.objects.create(code=referrer_coupon_code, percent_off=10)
-                    Coupon.objects.create(code=new_user_coupon_code, percent_off=10)
-                    Notification.objects.create(
-                        user=referrer_profile.user,
-                        message=f"{username} joined using your referral link! Here's a 10% off code for you: {referrer_coupon_code}",
-                        link="/profile/",
-                    )
-                    Notification.objects.create(
+            with transaction.atomic():
+                user = User.objects.create_user(username=username, email=email, password=password)
+                code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+                ref = (request.GET.get("ref") or request.POST.get("ref", ""))[:12]
+                Profile.objects.create(user=user, referral_code=code, referred_by=ref)
+                if ref:
+                    _reward_referral(ref, user)
+
+                if user_type in ("individual", "organization"):
+                    SellerAccount.objects.create(
                         user=user,
-                        message=f"Welcome! Here's a 10% off code for your first order: {new_user_coupon_code}",
-                        link="/cart/",
+                        account_type=user_type,
+                        full_name=request.POST.get("full_name", "")[:150],
+                        business_name=request.POST.get("business_name", "")[:150],
+                        organization_name=request.POST.get("organization_name", "")[:150],
+                        phone=request.POST.get("phone", "")[:30],
+                        cnic=request.POST.get("cnic", "")[:30],
+                        business_address=request.POST.get("business_address", "")[:255],
+                        city=request.POST.get("city", "")[:100],
+                        country=request.POST.get("country", "")[:100],
+                        store_description=request.POST.get("store_description", ""),
+                        product_categories=request.POST.get("product_categories", "")[:255],
+                        brand_info=request.POST.get("brand_info", ""),
+                        tax_info=request.POST.get("tax_info", "")[:100],
+                        bank_details=request.POST.get("bank_details", "")[:255],
+                        business_certificate=request.FILES.get("business_certificate"),
+                        id_document=request.FILES.get("id_document"),
+                        store_logo=request.FILES.get("store_logo"),
+                        store_banner=request.FILES.get("store_banner"),
                     )
+                    AuditLog.objects.create(user=user, action=f"Submitted {user_type} seller application")
+                AuditLog.objects.create(user=user, action="Account created")
 
-            if user_type in ("individual", "organization"):
-                SellerAccount.objects.create(
-                    user=user,
-                    account_type=user_type,
-                    full_name=request.POST.get("full_name", ""),
-                    business_name=request.POST.get("business_name", ""),
-                    organization_name=request.POST.get("organization_name", ""),
-                    phone=request.POST.get("phone", ""),
-                    cnic=request.POST.get("cnic", ""),
-                    business_address=request.POST.get("business_address", ""),
-                    city=request.POST.get("city", ""),
-                    country=request.POST.get("country", "Pakistan"),
-                    store_description=request.POST.get("store_description", ""),
-                    product_categories=request.POST.get("product_categories", ""),
-                    brand_info=request.POST.get("brand_info", ""),
-                    tax_info=request.POST.get("tax_info", ""),
-                    bank_details=request.POST.get("bank_details", ""),
-                    business_certificate=request.FILES.get("business_certificate"),
-                    id_document=request.FILES.get("id_document"),
-                    store_logo=request.FILES.get("store_logo"),
-                    store_banner=request.FILES.get("store_banner"),
-                )
-                AuditLog.objects.create(user=user, action=f"Submitted {user_type} seller application")
-
-            auth_login(request, user)
-            if email:
-                _send_verification_email(request, user)
-            AuditLog.objects.create(user=user, action="Account created")
+            auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            _send_verification_email(request, user)
 
             if user_type in ("individual", "organization"):
                 messages.success(request, "Account created! Your seller application is pending review.")
                 return redirect("seller_dashboard")
 
-            messages.success(request, "Account created. Welcome to 19Bees.")
+            messages.success(request, f"Welcome to {_store_name()}! We've emailed you a code to verify your address.")
             return redirect("home")
 
     return render(request, "bees/signup.html", {
-        "google_client_id": settings.GOOGLE_CLIENT_ID,
         "ref_code": request.GET.get("ref", ""),
         "categories": Product.CATEGORY_CHOICES,
+        "form": form,
     })
 
 
-def _send_verification_email(request, user):
-    import random
-    from django.core.cache import cache
+def _reward_referral(ref, new_user):
+    referrer_profile = Profile.objects.filter(referral_code=ref).select_related("user").first()
+    if not referrer_profile:
+        return
+    referrer_coupon_code = "REF-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    new_user_coupon_code = "WELCOME-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    Coupon.objects.create(code=referrer_coupon_code, percent_off=10)
+    Coupon.objects.create(code=new_user_coupon_code, percent_off=10)
+    Notification.objects.create(
+        user=referrer_profile.user,
+        message=f"{new_user.username} joined using your referral link! Here's 10% off for you: {referrer_coupon_code}",
+        link="/profile/",
+    )
+    Notification.objects.create(
+        user=new_user,
+        message=f"Welcome! Here's 10% off your first order: {new_user_coupon_code}",
+        link="/cart/",
+    )
 
-    code = f"{random.randint(0, 999999):06d}"
+
+def _send_verification_email(request, user):
+    if not user.email:
+        return
+    code = f"{secrets.randbelow(1_000_000):06d}"
     cache.set(f"email_verify_code:{user.id}", code, timeout=900)  # valid for 15 minutes
-    try:
-        html_body = render_to_string("bees/emails/verify_email.html", {"user": user, "code": code})
-        email = EmailMultiAlternatives(
-            "Your 19Bees verification code",
-            strip_tags(html_body),
-            None,
-            [user.email],
-        )
-        email.attach_alternative(html_body, "text/html")
-        email.send(fail_silently=True)
-    except Exception:
-        pass
+    cache.delete(f"email_verify_attempts:{user.id}")
+    _send_html_email(
+        f"Your {_store_name()} verification code",
+        "bees/emails/verify_email.html",
+        {"user": user, "code": code},
+        user.email,
+    )
+
+
+MAX_VERIFY_ATTEMPTS = 5
 
 
 @login_required
 def verify_email_code(request):
-    from django.core.cache import cache
-
-    if request.user.profile.email_verified:
+    profile, _ = Profile.objects.get_or_create(user=request.user, defaults={"referral_code": secrets.token_hex(4).upper()})
+    if profile.email_verified:
         messages.info(request, "Your email is already verified.")
         return redirect("profile")
 
     if request.method == "POST":
+        attempts_key = f"email_verify_attempts:{request.user.id}"
         entered = request.POST.get("code", "").strip()
         stored = cache.get(f"email_verify_code:{request.user.id}")
+        attempts = cache.get(attempts_key, 0)
         if not stored:
             messages.error(request, "That code has expired. Please request a new one.")
-        elif entered == stored:
-            profile, _ = Profile.objects.get_or_create(user=request.user)
+        elif attempts >= MAX_VERIFY_ATTEMPTS:
+            cache.delete(f"email_verify_code:{request.user.id}")
+            messages.error(request, "Too many incorrect attempts. Please request a new code.")
+        elif secrets.compare_digest(entered, stored):
             profile.email_verified = True
             profile.save(update_fields=["email_verified"])
             cache.delete(f"email_verify_code:{request.user.id}")
+            cache.delete(attempts_key)
             messages.success(request, "Your email has been verified.")
             return redirect("profile")
         else:
+            cache.set(attempts_key, attempts + 1, timeout=900)
             messages.error(request, "That code isn't right. Please check your email and try again.")
 
     return render(request, "bees/verify_email_code.html")
@@ -373,100 +548,142 @@ def verify_email_code(request):
 
 @login_required
 @ratelimit("resend_verification", rate_limit=3, window_seconds=300, redirect_to="profile",
-           message="Please wait a few minutes before requesting another code.", methods=("GET", "POST"))
+           message="Please wait a few minutes before requesting another code.")
 def resend_verification(request):
+    if request.method != "POST":
+        return redirect("verify_email")
     _send_verification_email(request, request.user)
-    messages.success(request, "A verification code has been sent to your email.")
-    return redirect("profile")
+    messages.success(request, "A new verification code has been sent to your email.")
+    return redirect("verify_email")
 
 
 @ratelimit("login", rate_limit=8, window_seconds=300, redirect_to="login",
-           message="Too many login attempts from this connection. Please wait a few minutes and try again.")
+           message="Too many sign-in attempts from this connection. Please wait a few minutes and try again.")
 def login_view(request):
-    next_url = request.POST.get("next") or request.GET.get("next") or "home"
+    next_url = safe_next_url(request, request.POST.get("next") or request.GET.get("next"), reverse("home"))
     if request.user.is_authenticated:
         return redirect(next_url)
 
     if request.method == "POST":
-        username = request.POST.get("username", "").strip()
+        identifier = request.POST.get("username", "").strip()
         password = request.POST.get("password", "")
+        username = identifier
+        if "@" in identifier:
+            matches = list(User.objects.filter(email__iexact=identifier).values_list("username", flat=True)[:2])
+            if len(matches) == 1:
+                username = matches[0]
         user = authenticate(request, username=username, password=password)
         if user is not None:
             auth_login(request, user)
             return redirect(next_url)
-        messages.error(request, "Incorrect username or password.")
+        messages.error(request, "Incorrect username/email or password.")
 
-    return render(request, "bees/login.html", {
-        "google_client_id": settings.GOOGLE_CLIENT_ID,
-        "next": next_url,
-    })
+    return render(request, "bees/login.html", {"next": next_url})
 
 
 def logout_view(request):
-    auth_logout(request)
+    if request.method == "POST":
+        auth_logout(request)
+        messages.info(request, "You've been signed out.")
     return redirect("home")
 
 
-@csrf_exempt
-def google_auth(request):
-    """
-    Receives the Google Identity Services credential from the frontend.
-    The <div id="g_id_onload" data-login_uri="..."> flow makes Google's
-    library submit a real browser POST here and then expects an HTTP
-    redirect back — NOT a JSON body — otherwise the user sees raw JSON
-    text on screen instead of being logged in. Requires GOOGLE_CLIENT_ID
-    to be configured.
-    """
-    if request.method != "POST":
-        return JsonResponse({"error": "POST required"}, status=405)
+@login_required
+def profile_view(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user, defaults={"referral_code": secrets.token_hex(4).upper()})
+    if request.method == "POST":
+        new_email = request.POST.get("email", "").strip().lower()
+        try:
+            if new_email:
+                validate_email(new_email)
+                if User.objects.filter(email__iexact=new_email).exclude(pk=request.user.pk).exists():
+                    raise ValidationError("That email is already used by another account.")
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return redirect("profile")
+        email_changed = new_email != (request.user.email or "").lower()
+        request.user.first_name = request.POST.get("first_name", "")[:150]
+        request.user.email = new_email
+        request.user.save(update_fields=["first_name", "email"])
+        profile.phone = request.POST.get("phone", "")[:30]
+        if email_changed:
+            profile.email_verified = False
+        profile.save()
+        if email_changed and new_email:
+            _send_verification_email(request, request.user)
+            messages.success(request, "Profile updated. We've sent a code to verify your new email.")
+        else:
+            messages.success(request, "Profile updated.")
+        return redirect("profile")
+    addresses = Address.objects.filter(user=request.user)
+    orders_count = Order.objects.filter(user=request.user).count()
+    return render(request, "bees/profile.html", {
+        "profile": profile,
+        "addresses": addresses,
+        "orders_count": orders_count,
+    })
 
-    next_url = request.POST.get("next") or request.GET.get("next") or "home"
 
-    if not settings.GOOGLE_CLIENT_ID:
-        messages.error(request, "Google sign-in is not configured on this server.")
-        return redirect("login")
+ADDRESS_FIELDS = ("full_name", "phone", "address", "city", "state", "postal_code", "country")
 
-    token = request.POST.get("credential")
-    if not token:
-        messages.error(request, "Google sign-in failed: missing credential.")
-        return redirect("login")
 
-    try:
-        from google.oauth2 import id_token
-        from google.auth.transport import requests as google_requests
+@login_required
+@require_POST
+def add_address(request):
+    data = {f: request.POST.get(f, "").strip() for f in ADDRESS_FIELDS}
+    data["country"] = data["country"].upper()[:2]
+    if not all(data[f] for f in ("full_name", "address", "city", "country")):
+        messages.error(request, "Please fill in name, street address, city and country.")
+        return redirect("profile")
+    Address.objects.create(user=request.user, label=request.POST.get("label", "Home")[:30] or "Home", **data)
+    messages.success(request, "Address saved.")
+    return redirect("profile")
 
-        idinfo = id_token.verify_oauth2_token(
-            token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
-        )
-    except Exception:
-        messages.error(request, "Google sign-in failed: invalid token.")
-        return redirect("login")
 
-    email = idinfo.get("email")
-    name = idinfo.get("name", email.split("@")[0] if email else "google_user")
+@login_required
+@require_POST
+def delete_address(request, pk):
+    Address.objects.filter(pk=pk, user=request.user).delete()
+    messages.success(request, "Address removed.")
+    return redirect("profile")
 
-    if not email:
-        messages.error(request, "Your Google account has no email on file.")
-        return redirect("login")
 
-    user, created = User.objects.get_or_create(
-        username=email,
-        defaults={"email": email, "first_name": name},
-    )
-    auth_login(request, user)
-    return redirect(next_url)
+@login_required
+def notifications_list(request):
+    notifications = request.user.notifications.all()[:30]
+    request.user.notifications.filter(is_read=False).update(is_read=True)
+    return render(request, "bees/notifications.html", {"notifications": notifications})
 
+
+def set_language(request, lang_code):
+    from .translations import TRANSLATIONS
+    if lang_code in TRANSLATIONS:
+        request.session["site_lang"] = lang_code
+    return redirect_back(request, "home")
+
+
+# ---------------------------------------------------------------------------
+# Cart
+# ---------------------------------------------------------------------------
 
 def _get_cart_items(request):
-    """Reads the session cart {product_id: qty} and returns (items, total, count)."""
+    """Reads the session cart {product_id: qty} and returns (items, total, count).
+    Unavailable products and invalid quantities are dropped."""
     cart = request.session.get("cart", {})
+    ids = [pid for pid in cart if str(pid).isdigit()]
+    products = Product.objects.in_bulk([int(pid) for pid in ids])
     items = []
-    total = 0
+    total = Decimal("0")
     count = 0
     for pid, qty in cart.items():
+        product = products.get(int(pid)) if str(pid).isdigit() else None
+        if not product or product.approval_status != "approved":
+            continue
         try:
-            product = Product.objects.get(pk=pid)
-        except Product.DoesNotExist:
+            qty = int(qty)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0:
             continue
         subtotal = product.price * qty
         total += subtotal
@@ -488,18 +705,22 @@ def _is_ajax(request):
 
 
 def add_to_cart(request, pk):
-    product = get_object_or_404(Product, pk=pk)
+    product = get_object_or_404(Product, pk=pk, approval_status="approved")
 
     if product.stock <= 0:
         msg = f"{product.name} is out of stock."
         if _is_ajax(request):
             return JsonResponse({"ok": False, "error": msg}, status=400)
         messages.error(request, msg)
-        return redirect(request.POST.get("next") or request.GET.get("next") or "cart")
+        return redirect_back(request, "cart")
 
     cart = request.session.get("cart", {})
     key = str(pk)
-    qty = int(request.POST.get("quantity", 1)) if request.method == "POST" else 1
+    try:
+        qty = int(request.POST.get("quantity", 1)) if request.method == "POST" else 1
+    except (TypeError, ValueError):
+        qty = 1
+    qty = max(1, min(qty, 99))
     new_qty = cart.get(key, 0) + qty
     warning = None
     if new_qty > product.stock:
@@ -509,14 +730,12 @@ def add_to_cart(request, pk):
     request.session["cart"] = cart
     request.session.modified = True
 
-    cart_total_count = sum(cart.values())
-
     if _is_ajax(request):
         return JsonResponse({
             "ok": True,
             "message": f"{product.name} added to cart.",
             "warning": warning,
-            "cart_count": cart_total_count,
+            "cart_count": sum(cart.values()),
             "product_id": product.id,
             "product_qty": new_qty,
         })
@@ -524,10 +743,10 @@ def add_to_cart(request, pk):
     if warning:
         messages.warning(request, warning)
     messages.success(request, f"{product.name} added to cart.")
-    next_url = request.POST.get("next") or request.GET.get("next") or "cart"
-    return redirect(next_url)
+    return redirect_back(request, "cart")
 
 
+@require_POST
 def update_cart_item(request, pk):
     cart = request.session.get("cart", {})
     key = str(pk)
@@ -557,10 +776,12 @@ def update_cart_item(request, pk):
             "warning": warning,
             "cart_count": count,
             "cart_total": str(total),
+            "cart_total_display": money(total),
             "removed": row is None,
             "product_id": pk,
             "product_qty": row["qty"] if row else 0,
             "product_subtotal": str(row["subtotal"]) if row else "0",
+            "product_subtotal_display": money(row["subtotal"]) if row else money(0),
         })
     return redirect("cart")
 
@@ -574,128 +795,317 @@ def cart_view(request):
     })
 
 
+@require_POST
+def cart_bulk_remove(request):
+    cart = request.session.get("cart", {})
+    for pid in request.POST.getlist("selected"):
+        cart.pop(pid, None)
+    request.session["cart"] = cart
+    request.session.modified = True
+    messages.success(request, "Selected items removed from cart.")
+    return redirect("cart")
+
+
+def toggle_compare(request, pk):
+    compare = request.session.get("compare", [])
+    if pk in compare:
+        compare.remove(pk)
+    else:
+        if len(compare) >= 4:
+            compare.pop(0)
+        compare.append(pk)
+    request.session["compare"] = compare
+    request.session.modified = True
+    return redirect_back(request, "home")
+
+
+def compare_page(request):
+    compare_ids = request.session.get("compare", [])
+    products = with_ratings(Product.objects.filter(id__in=compare_ids, approval_status="approved"))
+    return render(request, "bees/compare.html", {"products": products})
+
+
+@login_required
+def toggle_wishlist(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if request.method == "POST":
+        item, created = Wishlist.objects.get_or_create(user=request.user, product=product)
+        if not created:
+            item.delete()
+            messages.info(request, f"Removed {product.name} from your wishlist.")
+        else:
+            messages.success(request, f"Added {product.name} to your wishlist.")
+    return redirect_back(request, "home")
+
+
+@login_required
+def wishlist_view(request):
+    items = Wishlist.objects.filter(user=request.user).select_related("product")
+    return render(request, "bees/wishlist.html", {"items": items})
+
+
+# ---------------------------------------------------------------------------
+# Checkout & orders
+# ---------------------------------------------------------------------------
+
+def _payment_methods():
+    methods = []
+    if payments.is_configured():
+        methods.append("card")
+    if _brand().allow_cash_on_delivery:
+        methods.append("cod")
+    return methods
+
+
+def _price_cart(subtotal, coupon=None):
+    """Returns the full price breakdown for a cart subtotal."""
+    brand = _brand()
+    discount = Decimal("0")
+    if coupon:
+        discount = (subtotal * Decimal(coupon.percent_off) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    discounted = max(subtotal - discount, Decimal("0"))
+    shipping = brand.shipping_for(subtotal) if subtotal else Decimal("0")
+    tax = (discounted * Decimal(brand.tax_percent or 0) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {
+        "subtotal": subtotal,
+        "discount": discount,
+        "shipping": shipping,
+        "tax": tax,
+        "total": discounted + shipping + tax,
+        "tax_percent": brand.tax_percent,
+    }
+
+
+def _session_coupon(request, subtotal):
+    code = request.session.get("coupon_code", "")
+    if not code:
+        return None, None
+    coupon = Coupon.objects.filter(code__iexact=code).first()
+    if not coupon:
+        return None, "That coupon code no longer exists."
+    is_valid, error = coupon.is_valid_for(request.user, subtotal)
+    return (coupon, None) if is_valid else (None, error)
+
+
+CHECKOUT_REQUIRED = ("full_name", "email", "phone", "address", "city", "postal_code", "country")
+
+
+class CheckoutError(Exception):
+    pass
+
+
 @login_required
 @ratelimit("checkout", rate_limit=10, window_seconds=300, redirect_to="cart",
            message="Too many checkout attempts. Please wait a few minutes and try again.")
 def checkout_view(request):
-    items, total, count = _get_cart_items(request)
+    items, subtotal, count = _get_cart_items(request)
     if not items:
         messages.error(request, "Your cart is empty.")
         return redirect("cart")
 
-    coupon = None
-    discount_amount = 0
-    coupon_code = request.session.get("coupon_code", "")
-    if coupon_code:
-        candidate = Coupon.objects.filter(code__iexact=coupon_code).first()
-        if candidate:
-            is_valid, error = candidate.is_valid_for(request.user, total)
-            if is_valid:
-                coupon = candidate
-                discount_amount = round(total * coupon.percent_off / 100, 2)
-            elif request.method == "POST":
-                messages.error(request, error)
-                return redirect("cart")
+    coupon, coupon_error = _session_coupon(request, subtotal)
+    pricing = _price_cart(subtotal, coupon)
+    methods = _payment_methods()
 
     if request.method == "POST":
-        if request.POST.get("payment_method") == "jazzcash" and not jazzcash.is_configured():
-            messages.error(request, "Online payment isn't set up yet - please choose Cash on Delivery.")
+        if coupon_error:
+            request.session["coupon_code"] = ""
+            messages.error(request, coupon_error)
+            return redirect("checkout")
+        payment_method = request.POST.get("payment_method") or (methods[0] if methods else "")
+        if payment_method not in methods:
+            messages.error(request, "Please choose an available payment method.")
             return redirect("checkout")
 
-        for item in items:
-            if item["qty"] > item["product"].stock:
-                messages.error(request, f"Not enough stock for {item['product'].name}.")
-                return redirect("cart")
+        data = {f: request.POST.get(f, "").strip() for f in CHECKOUT_REQUIRED + ("state",)}
+        data["country"] = data["country"].upper()[:2]
+        missing = [f.replace("_", " ") for f in CHECKOUT_REQUIRED if not data[f]]
+        try:
+            if missing:
+                raise ValidationError(f"Please fill in: {', '.join(missing)}.")
+            validate_email(data["email"])
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods, data))
 
-        payment_method = request.POST.get("payment_method", "cod")
-        order = Order.objects.create(
-            user=request.user,
-            guest_email="",
-            full_name=request.POST.get("full_name", request.user.username),
-            address=request.POST.get("address", ""),
-            city=request.POST.get("city", ""),
-            phone=request.POST.get("phone", ""),
-            payment_method=payment_method,
-            payment_status="pending" if payment_method == "jazzcash" else "not_applicable",
-            coupon_code=coupon.code if coupon else "",
-            discount_amount=discount_amount,
-        )
-        for item in items:
-            OrderItem.objects.create(
-                order=order,
-                product=item["product"],
-                product_name=item["product"].name,
-                price=item["product"].price,
-                quantity=item["qty"],
-            )
-            item["product"].stock = max(item["product"].stock - item["qty"], 0)
-            item["product"].save(update_fields=["stock"])
+        try:
+            order = _place_order(request, items, data, payment_method)
+        except CheckoutError as exc:
+            messages.error(request, str(exc))
+            return redirect("cart")
+
         request.session["cart"] = {}
         request.session["coupon_code"] = ""
         request.session.modified = True
 
-        recipient = order.user.email if order.user and order.user.email else order.guest_email
-        if recipient and order.payment_status != "pending":
+        if payment_method == "card" and order.total_cents > 0:
             try:
-                scheme = "https" if request.is_secure() else "http"
-                invoice_url = f"{scheme}://{request.get_host()}/order/{order.id}/invoice/"
-                html_body = render_to_string("bees/emails/order_confirmation.html", {
-                    "order": order,
-                    "invoice_url": invoice_url,
-                })
-                email = EmailMultiAlternatives(
-                    f"Your 19Bees order #{order.id} is confirmed",
-                    strip_tags(html_body),
-                    None,
-                    [recipient],
-                )
-                email.attach_alternative(html_body, "text/html")
-                email.send(fail_silently=True)
-            except Exception:
-                pass
+                return redirect(payments.create_checkout_session(request, order))
+            except payments.PaymentError as exc:
+                payments.release_unpaid_order(order.id)
+                _restore_cart_from_order(request, order)
+                messages.error(request, str(exc))
+                return redirect("cart")
 
-        if order.user:
-            Notification.objects.create(user=order.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
+        if payment_method == "card":  # fully discounted order, nothing to charge
+            order.payment_status = "paid"
+            order.status = "confirmed"
+            order.save(update_fields=["payment_status", "status"])
 
-        if payment_method == "jazzcash":
-            return redirect("initiate_jazzcash_payment", order_id=order.id)
+        _send_order_confirmation(request, order)
+        Notification.objects.create(user=request.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
         return redirect("order_success", order_id=order.id)
 
-    return render(request, "bees/checkout.html", {
+    return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods))
+
+
+def _checkout_context(request, items, pricing, coupon, methods, form=None):
+    if form is None:
+        form = {"email": request.user.email, "full_name": request.user.get_full_name()}
+    return {
         "items": items,
-        "total": total,
-        "discount_amount": discount_amount,
-        "final_total": max(total - discount_amount, 0),
+        "pricing": pricing,
+        "total": pricing["subtotal"],
+        "discount_amount": pricing["discount"],
+        "final_total": pricing["total"],
         "coupon": coupon,
-        "addresses": Address.objects.filter(user=request.user) if request.user.is_authenticated else [],
-        "jazzcash_enabled": jazzcash.is_configured(),
-    })
+        "addresses": Address.objects.filter(user=request.user),
+        "payment_methods": methods,
+        "form": form,
+    }
 
 
+def _place_order(request, items, data, payment_method):
+    """Creates the order atomically: locks the product rows so two buyers
+    can't both take the last unit, re-checks stock and the coupon inside
+    the transaction, then decrements stock."""
+    with transaction.atomic():
+        product_ids = sorted(item["product"].id for item in items)
+        locked = {p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids).order_by("id")}
+
+        subtotal = Decimal("0")
+        lines = []
+        for item in items:
+            product = locked.get(item["product"].id)
+            if not product or product.approval_status != "approved":
+                raise CheckoutError(f"{item['product'].name} is no longer available.")
+            if item["qty"] > product.stock:
+                raise CheckoutError(f"Sorry, only {product.stock} of {product.name} left in stock. Please update your cart.")
+            subtotal += product.price * item["qty"]
+            lines.append((product, item["qty"]))
+
+        coupon = None
+        code = request.session.get("coupon_code", "")
+        if code:
+            coupon = Coupon.objects.select_for_update().filter(code__iexact=code).first()
+            if coupon:
+                is_valid, error = coupon.is_valid_for(request.user, subtotal)
+                if not is_valid:
+                    raise CheckoutError(error)
+
+        pricing = _price_cart(subtotal, coupon)
+        is_card = payment_method == "card"
+        order = Order.objects.create(
+            user=request.user,
+            email=data["email"],
+            full_name=data["full_name"][:150],
+            address=data["address"][:255],
+            city=data["city"][:100],
+            state=data.get("state", "")[:100],
+            postal_code=data["postal_code"][:20],
+            country=data["country"],
+            phone=data["phone"][:30],
+            payment_method=payment_method,
+            payment_status="pending" if is_card else "not_applicable",
+            currency=settings.STORE_CURRENCY,
+            coupon_code=coupon.code if coupon else "",
+            discount_amount=pricing["discount"],
+            shipping_amount=pricing["shipping"],
+            tax_amount=pricing["tax"],
+        )
+        for product, qty in lines:
+            OrderItem.objects.create(
+                order=order, product=product, product_name=product.name, price=product.price, quantity=qty,
+            )
+            product.stock -= qty
+            product.save(update_fields=["stock"])  # save() sends low-stock alerts
+    return order
+
+
+def _restore_cart_from_order(request, order):
+    cart = request.session.get("cart", {})
+    for item in order.items.all():
+        if item.product_id:
+            cart[str(item.product_id)] = cart.get(str(item.product_id), 0) + item.quantity
+    request.session["cart"] = cart
+    request.session.modified = True
+
+
+@require_POST
 def apply_coupon(request):
-    code = request.POST.get("coupon_code", "").strip()
+    code = request.POST.get("coupon_code", "").strip()[:30]
     request.session["coupon_code"] = code
     request.session.modified = True
     if code:
         coupon = Coupon.objects.filter(code__iexact=code).first()
         if not coupon:
-            messages.error(request, "Invalid coupon code.")
+            request.session["coupon_code"] = ""
+            messages.error(request, "That coupon code isn't valid.")
         else:
             _, total, _ = _get_cart_items(request)
             is_valid, error = coupon.is_valid_for(request.user, total)
             if not is_valid:
+                request.session["coupon_code"] = ""
                 messages.error(request, error)
             else:
                 messages.success(request, f"Coupon applied: {coupon.percent_off}% off.")
     return redirect("checkout")
 
 
+def _get_order_for_viewer(request, order_id):
+    """Orders are visible to their owner and to staff only."""
+    if not request.user.is_authenticated:
+        raise Http404
+    if request.user.is_staff:
+        return get_object_or_404(Order, pk=order_id)
+    return get_object_or_404(Order, pk=order_id, user=request.user)
+
+
+@login_required
 def order_success(request, order_id):
-    if request.user.is_authenticated:
-        order = get_object_or_404(Order, pk=order_id, user=request.user)
-    else:
-        order = get_object_or_404(Order, pk=order_id, user__isnull=True)
+    order = _get_order_for_viewer(request, order_id)
     return render(request, "bees/order_success.html", {"order": order})
+
+
+@login_required
+def my_orders(request):
+    orders = Order.objects.filter(user=request.user).prefetch_related(
+        "items", "items__product", "items__return_requests"
+    ).order_by("-created_at")
+    return render(request, "bees/my_orders.html", {"orders": orders})
+
+
+@login_required
+@require_POST
+def cancel_order(request, pk):
+    with transaction.atomic():
+        order = get_object_or_404(Order.objects.select_for_update(), pk=pk, user=request.user)
+        if not order.is_cancellable:
+            messages.error(request, "This order can no longer be cancelled.")
+            return redirect("my_orders")
+        if order.payment_status == "paid":
+            if not payments.refund_order(order):
+                messages.error(request, "We couldn't process the refund automatically. Please contact support and we'll sort it out.")
+                return redirect("my_orders")
+            order.payment_status = "refunded"
+        order.status = "cancelled"
+        order.save(update_fields=["status", "payment_status"])
+        payments.restock(order)
+    if order.payment_status == "refunded":
+        messages.success(request, f"Order #{order.id} has been cancelled and a full refund issued to your card.")
+    else:
+        messages.success(request, f"Order #{order.id} has been cancelled.")
+    return redirect("my_orders")
 
 
 @login_required
@@ -709,8 +1119,10 @@ def request_return(request, item_id):
         return redirect("my_orders")
 
     if request.method == "POST":
-        reason = request.POST.get("reason", "").strip()
+        reason = request.POST.get("reason", "").strip()[:2000]
         refund_method = request.POST.get("refund_method", "original_payment")
+        if refund_method not in dict(ReturnRequest.REFUND_METHOD_CHOICES):
+            refund_method = "original_payment"
         if not reason:
             messages.error(request, "Please describe the reason for your return.")
         else:
@@ -729,7 +1141,7 @@ def buy_again(request, order_id):
     cart = request.session.get("cart", {})
     added, skipped = 0, 0
     for item in order.items.select_related("product"):
-        if not item.product or item.product.stock <= 0:
+        if not item.product or item.product.stock <= 0 or item.product.approval_status != "approved":
             skipped += 1
             continue
         key = str(item.product.id)
@@ -745,240 +1157,88 @@ def buy_again(request, order_id):
 
 
 @login_required
-def my_orders(request):
-    orders = Order.objects.filter(user=request.user).prefetch_related(
-        "items", "items__product", "items__return_requests"
-    ).order_by("-created_at")
-    return render(request, "bees/my_orders.html", {"orders": orders})
-
-
-@login_required
-def cancel_order(request, pk):
-    order = get_object_or_404(Order, pk=pk, user=request.user)
-    if request.method == "POST" and order.is_cancellable:
-        order.status = "cancelled"
-        order.save(update_fields=["status"])
-        for item in order.items.select_related("product"):
-            if item.product:
-                item.product.stock += item.quantity
-                item.product.save(update_fields=["stock"])
-        messages.success(request, f"Order #{order.id} has been cancelled.")
-    else:
-        messages.error(request, "This order can no longer be cancelled.")
-    return redirect("my_orders")
-
-
-def set_language(request, lang_code):
-    from .translations import TRANSLATIONS
-    if lang_code in TRANSLATIONS:
-        request.session["site_lang"] = lang_code
-    next_url = request.META.get("HTTP_REFERER", "/")
-    return redirect(next_url)
-
-
-def help_support(request):
-    faqs = [
-        ("How do I place an order?", "Add products to your cart, go to Cart, click 'Proceed to Checkout', fill in your delivery details and confirm."),
-        ("What payment methods are available?", "Cash on delivery, credit/debit card, and 19Bees wallet."),
-        ("How can I track my order?", "Go to 'My orders' from the top menu after logging in to see all your past orders and their status."),
-        ("Can I return a product?", "Yes — go to your order in 'My orders' and request a return within 7-14 days of delivery. Our team will review and follow up."),
-        ("How do I change the site language?", "Use the 'Change language' option in the top bar to switch between English, Urdu, and Roman Urdu."),
-        ("I forgot my password, what do I do?", "Click 'Forgot password?' on the login page and follow the link sent to your email to set a new password."),
-    ]
-    return render(request, "bees/help.html", {"faqs": faqs})
-
-
-def sell_on_bees(request):
-    return render(request, "bees/static_page.html", {
-        "page_title": "Sell on 19Bees",
-        "sections": [
-            ("Reach more buyers", "Register your shop and list your products in front of shoppers browsing every category on 19Bees — from electronics to fashion to groceries."),
-            ("Two account types", "Individual sellers pay a 10% platform commission. Organizations / registered businesses pay 20%, with rates that improve as your sales grow."),
-            ("Simple onboarding", "Apply below, get approved, and start listing products from your own seller dashboard — track sales, commission, and earnings in one place."),
-        ],
-        "cta_url": "/become-seller/",
-        "cta_label": "Apply to become a seller",
-    })
-
-
-def about_us(request):
-    return render(request, "bees/static_page.html", {
-        "page_title": "About 19Bees",
-        "sections": [
-            ("Who we are", "19Bees is an online marketplace connecting buyers with individual sellers and businesses across every category — skincare, electronics, fashion, groceries, and more."),
-            ("Our mission", "We're building a trusted, easy-to-use platform where anyone can shop with confidence and where sellers of any size can grow their business."),
-        ],
-    })
-
-
-def terms_page(request):
-    return render(request, "bees/static_page.html", {
-        "page_title": "Terms and Conditions",
-        "sections": [
-            ("Using 19Bees", "By creating an account or placing an order on 19Bees, you agree to these terms. Please use the platform responsibly and in accordance with applicable laws."),
-            ("Accounts", "You're responsible for keeping your account credentials secure. Seller accounts are subject to review and approval before going live."),
-            ("Orders and payments", "Orders are confirmed once payment or cash-on-delivery details are submitted. Pricing and availability may change without notice."),
-        ],
-    })
-
-
-def privacy_page(request):
-    return render(request, "bees/static_page.html", {
-        "page_title": "Privacy Policy",
-        "sections": [
-            ("What we collect", "We collect the information you provide when creating an account, placing an order, or applying to sell — such as your name, email, address, and payment details."),
-            ("How we use it", "Your information is used to process orders, provide support, and improve your experience on 19Bees. We do not sell your personal data to third parties."),
-        ],
-    })
-
-
-@login_required
-def toggle_wishlist(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    item, created = Wishlist.objects.get_or_create(user=request.user, product=product)
-    if not created:
-        item.delete()
-        messages.info(request, f"Removed {product.name} from wishlist.")
-    else:
-        messages.success(request, f"Added {product.name} to wishlist.")
-    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or "home"
-    return redirect(next_url)
-
-
-@login_required
-def wishlist_view(request):
-    items = Wishlist.objects.filter(user=request.user).select_related("product")
-    return render(request, "bees/wishlist.html", {"items": items})
-
-
-@login_required
-def profile_view(request):
-    profile, _ = Profile.objects.get_or_create(user=request.user)
-    if request.method == "POST":
-        request.user.first_name = request.POST.get("first_name", "")
-        request.user.email = request.POST.get("email", "")
-        request.user.save()
-        profile.phone = request.POST.get("phone", "")
-        profile.save()
-        messages.success(request, "Profile updated.")
-        return redirect("profile")
-    addresses = Address.objects.filter(user=request.user)
-    orders_count = Order.objects.filter(user=request.user).count()
-    return render(request, "bees/profile.html", {
-        "profile": profile,
-        "addresses": addresses,
-        "orders_count": orders_count,
-    })
-
-
-@login_required
-def add_address(request):
-    if request.method == "POST":
-        Address.objects.create(
-            user=request.user,
-            label=request.POST.get("label", "Home"),
-            full_name=request.POST.get("full_name", ""),
-            phone=request.POST.get("phone", ""),
-            address=request.POST.get("address", ""),
-            city=request.POST.get("city", ""),
-        )
-        messages.success(request, "Address saved.")
-    return redirect("profile")
-
-
-@login_required
-def delete_address(request, pk):
-    Address.objects.filter(pk=pk, user=request.user).delete()
-    return redirect("profile")
-
-
-def store_page(request, seller_name):
-    products = with_ratings(Product.objects.filter(seller_name=seller_name, approval_status="approved"))
-    seller_account = SellerAccount.objects.filter(
-        Q(business_name=seller_name) | Q(organization_name=seller_name),
-        status="approved",
-    ).first()
-    return render(request, "bees/store.html", {
-        "seller_name": seller_name,
-        "products": products,
-        "seller_account": seller_account,
-    })
-
-
-def newsletter_subscribe(request):
-    if request.method == "POST":
-        email = request.POST.get("email", "").strip()
-        if email:
-            NewsletterSubscriber.objects.get_or_create(email=email)
-            messages.success(request, "Thanks for subscribing!")
-    return redirect(request.META.get("HTTP_REFERER", "home"))
-
-
-def ask_question(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    if request.method == "POST":
-        Question.objects.create(
-            product=product,
-            username=request.POST.get("username") or (request.user.username if request.user.is_authenticated else "Anonymous"),
-            question=request.POST.get("question", ""),
-        )
-        messages.success(request, "Your question has been posted.")
-    return redirect("product_detail", pk=pk)
-
-
 def invoice_pdf(request, order_id):
-    if request.user.is_authenticated:
-        order = get_object_or_404(Order, pk=order_id, user=request.user)
-    else:
-        order = get_object_or_404(Order, pk=order_id, user__isnull=True)
+    order = _get_order_for_viewer(request, order_id)
 
+    from io import BytesIO
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
-    from io import BytesIO
 
+    brand = _brand()
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
 
-    p.setFillColorRGB(0.97, 0.34, 0.02)
-    p.rect(0, height - 60, width, 60, fill=1, stroke=0)
+    def hex_to_rgb(value, fallback=(0.07, 0.09, 0.15)):
+        try:
+            value = value.lstrip("#")
+            return tuple(int(value[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        except Exception:
+            return fallback
+
+    p.setFillColorRGB(*hex_to_rgb(brand.primary_color))
+    p.rect(0, height - 64, width, 64, fill=1, stroke=0)
     p.setFillColorRGB(1, 1, 1)
     p.setFont("Helvetica-Bold", 20)
-    p.drawString(40, height - 40, "19Bees")
+    p.drawString(40, height - 42, brand.site_name[:40])
+    p.setFont("Helvetica", 10)
+    p.drawRightString(width - 40, height - 40, "INVOICE")
 
     p.setFillColorRGB(0, 0, 0)
     p.setFont("Helvetica-Bold", 14)
-    p.drawString(40, height - 90, f"Invoice - Order #{order.id}")
+    p.drawString(40, height - 96, f"Order #{order.id}")
     p.setFont("Helvetica", 10)
-    p.drawString(40, height - 110, f"Date: {order.created_at.strftime('%d %b %Y')}")
-    p.drawString(40, height - 125, f"Status: {order.get_status_display()}")
-    p.drawString(40, height - 145, f"Deliver to: {order.full_name}, {order.address}, {order.city}")
-    p.drawString(40, height - 160, f"Phone: {order.phone}")
+    lines = [
+        f"Date: {order.created_at.strftime('%d %b %Y')}",
+        f"Status: {order.get_status_display()}   Payment: {order.get_payment_status_display()}",
+        f"Bill to: {order.full_name}",
+        f"{order.address}, {order.city} {order.state} {order.postal_code} {order.country}".strip(),
+        f"Phone: {order.phone}   Email: {order.contact_email}",
+    ]
+    y = height - 116
+    for line in lines:
+        p.drawString(40, y, line[:110])
+        y -= 15
 
-    y = height - 200
+    y -= 20
     p.setFont("Helvetica-Bold", 10)
     p.drawString(40, y, "Item")
     p.drawString(320, y, "Qty")
     p.drawString(370, y, "Price")
-    p.drawString(450, y, "Subtotal")
+    p.drawString(460, y, "Subtotal")
     y -= 16
     p.setFont("Helvetica", 10)
     for item in order.items.all():
         p.drawString(40, y, item.product_name[:45])
         p.drawString(320, y, str(item.quantity))
-        p.drawString(370, y, f"Rs.{item.price}")
-        p.drawString(450, y, f"Rs.{item.subtotal}")
+        p.drawString(370, y, money(item.price))
+        p.drawString(460, y, money(item.subtotal))
         y -= 16
-        if y < 80:
+        if y < 120:
             p.showPage()
             y = height - 60
 
-    y -= 10
+    y -= 6
     p.line(40, y, width - 40, y)
-    y -= 20
+    y -= 18
+    summary = [("Subtotal", order.subtotal)]
+    if order.discount_amount:
+        summary.append(("Discount", -order.discount_amount))
+    summary.append(("Shipping", order.shipping_amount))
+    if order.tax_amount:
+        summary.append(("Tax", order.tax_amount))
+    for label, value in summary:
+        p.drawString(370, y, f"{label}:")
+        p.drawString(460, y, money(value))
+        y -= 15
     p.setFont("Helvetica-Bold", 12)
-    p.drawString(370, y, "Total:")
-    p.drawString(450, y, f"Rs.{order.total}")
+    p.drawString(370, y - 4, "Total:")
+    p.drawString(460, y - 4, money(order.total))
+
+    if brand.support_email or brand.company_address:
+        p.setFont("Helvetica", 8)
+        p.setFillColorRGB(0.4, 0.4, 0.4)
+        p.drawString(40, 40, " · ".join(filter(None, [brand.company_address, brand.support_email]))[:140])
 
     p.showPage()
     p.save()
@@ -988,51 +1248,183 @@ def invoice_pdf(request, order_id):
     return response
 
 
+# ---------------------------------------------------------------------------
+# Stripe payments
+# ---------------------------------------------------------------------------
+
 @login_required
-def notifications_list(request):
-    notifications = request.user.notifications.all()[:30]
-    request.user.notifications.filter(is_read=False).update(is_read=True)
-    return render(request, "bees/notifications.html", {"notifications": notifications})
-
-
-def toggle_compare(request, pk):
-    compare = request.session.get("compare", [])
-    if pk in compare:
-        compare.remove(pk)
+def payment_success(request):
+    session_id = request.GET.get("session_id", "")
+    session = payments.retrieve_session(session_id) if session_id and payments.is_configured() else None
+    if not session:
+        messages.info(request, "We're confirming your payment. You'll see it in My orders shortly.")
+        return redirect("my_orders")
+    order_id = (session.get("metadata") or {}).get("order_id")
+    order = Order.objects.filter(pk=order_id, user=request.user).first() if order_id else None
+    if not order:
+        raise Http404
+    order, newly_paid = payments.mark_order_paid(order.id, session)
+    if newly_paid:
+        _send_order_confirmation(request, order)
+        Notification.objects.create(user=order.user, message=f"Payment received for order #{order.id}.", link="/my-orders/")
+    if order.payment_status == "paid":
+        messages.success(request, "Payment received - thank you!")
     else:
-        if len(compare) >= 4:
-            compare.pop(0)
-        compare.append(pk)
-    request.session["compare"] = compare
-    request.session.modified = True
-    return redirect(request.META.get("HTTP_REFERER", "home"))
+        messages.info(request, "Your payment is processing. We'll email you as soon as it's confirmed.")
+    return redirect("order_success", order_id=order.id)
 
 
-def compare_page(request):
-    compare_ids = request.session.get("compare", [])
-    products = with_ratings(Product.objects.filter(id__in=compare_ids))
-    return render(request, "bees/compare.html", {"products": products})
+@login_required
+def payment_cancel(request, order_id):
+    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    if order.payment_status == "pending" and order.stripe_session_id and payments.is_configured():
+        session = payments.retrieve_session(order.stripe_session_id)
+        if session and session.get("payment_status") == "paid":
+            return redirect(f"{reverse('payment_success')}?session_id={order.stripe_session_id}")
+        try:
+            payments._stripe().checkout.Session.expire(order.stripe_session_id)
+        except Exception:
+            pass
+    if order.payment_status == "pending":
+        payments.release_unpaid_order(order.id, reason="failed")
+        _restore_cart_from_order(request, order)
+        messages.info(request, "Payment cancelled - nothing was charged. Your items are back in your cart.")
+        return redirect("cart")
+    return redirect("my_orders")
 
 
-def cart_bulk_remove(request):
-    if request.method == "POST":
-        cart = request.session.get("cart", {})
-        selected = request.POST.getlist("selected")
-        for pid in selected:
-            cart.pop(pid, None)
-        request.session["cart"] = cart
-        request.session.modified = True
-        messages.success(request, "Selected items removed from cart.")
-    return redirect("cart")
+@login_required
+def resume_payment(request, order_id):
+    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    if order.payment_status != "pending" or not order.stripe_session_id:
+        return redirect("my_orders")
+    session = payments.retrieve_session(order.stripe_session_id)
+    if session and session.get("status") == "open" and session.get("url"):
+        return redirect(session["url"])
+    if session and session.get("payment_status") == "paid":
+        return redirect(f"{reverse('payment_success')}?session_id={order.stripe_session_id}")
+    messages.error(request, "That payment link has expired. Please place the order again.")
+    return redirect("my_orders")
 
 
-def search_suggest(request):
-    q = request.GET.get("q", "").strip()
-    if not q or len(q) < 2:
-        return JsonResponse({"results": []})
-    names = list(Product.objects.filter(name__icontains=q, approval_status="approved").values_list("name", flat=True)[:6])
-    return JsonResponse({"results": names})
+@csrf_exempt
+@require_POST
+def stripe_webhook(request):
+    """Stripe calls this for payment events. Signature-verified, idempotent."""
+    if not (payments.is_configured() and payments.webhook_configured()):
+        return HttpResponse(status=503)
+    try:
+        event = payments.parse_webhook(request.body, request.META.get("HTTP_STRIPE_SIGNATURE", ""))
+    except ValueError:
+        return HttpResponse(status=400)
 
+    event_type = event.get("type", "")
+    session = (event.get("data") or {}).get("object") or {}
+    order_id = (session.get("metadata") or {}).get("order_id")
+    if not order_id:
+        return HttpResponse(status=200)
+
+    if event_type in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+        order, newly_paid = payments.mark_order_paid(order_id, session)
+        if order and newly_paid:
+            _send_order_confirmation(request, order)
+            if order.user:
+                Notification.objects.create(user=order.user, message=f"Payment received for order #{order.id}.", link="/my-orders/")
+    elif event_type in ("checkout.session.expired", "checkout.session.async_payment_failed"):
+        order = Order.objects.filter(pk=order_id).first()
+        if order and order.stripe_session_id == session.get("id"):
+            payments.release_unpaid_order(order.id, reason="failed")
+    return HttpResponse(status=200)
+
+
+# ---------------------------------------------------------------------------
+# Content pages
+# ---------------------------------------------------------------------------
+
+def help_support(request):
+    name = _store_name()
+    brand = _brand()
+    pay = "secure card payments (Visa, Mastercard, American Express, Apple Pay and Google Pay)"
+    if brand.allow_cash_on_delivery:
+        pay += " and cash on delivery where available"
+    faqs = [
+        ("How do I place an order?", "Add products to your cart, open your cart and choose 'Checkout'. Enter your shipping details, pick a payment method and confirm."),
+        ("Which payment methods do you accept?", f"We accept {pay}. Card payments are processed by Stripe - we never see or store your card number."),
+        ("How can I track my order?", "Sign in and open 'My orders' to see every order, its status and tracking details once it ships."),
+        ("Can I return a product?", "Yes. Open the order in 'My orders' and choose 'Request return' within 14 days of delivery. Our team reviews requests within 1-2 business days."),
+        ("Can I cancel an order?", "You can cancel from 'My orders' until it ships. Paid orders are refunded to your card automatically."),
+        ("I forgot my password - what now?", "Choose 'Forgot password?' on the sign-in page and we'll email you a secure reset link."),
+    ]
+    return render(request, "bees/help.html", {"faqs": faqs, "store_name": name})
+
+
+def sell_on_bees(request):
+    name = _store_name()
+    return render(request, "bees/static_page.html", {
+        "page_title": f"Sell on {name}",
+        "sections": [
+            ("Reach more customers", f"Open your shop on {name} and put your products in front of shoppers browsing every category."),
+            ("Simple, transparent fees", "Individual sellers pay a 10% commission per sale and registered businesses 20%. Your rate drops automatically as your sales grow."),
+            ("Everything in one dashboard", "Get approved, list products, fulfil orders, invite your team and track earnings from your seller dashboard."),
+        ],
+        "cta_url": reverse("become_seller"),
+        "cta_label": "Apply to become a seller",
+    })
+
+
+def about_us(request):
+    name = _store_name()
+    return render(request, "bees/static_page.html", {
+        "page_title": f"About {name}",
+        "sections": [
+            ("Who we are", f"{name} is an online marketplace connecting customers with trusted brands and independent sellers across beauty, electronics, fashion, home and more."),
+            ("Our promise", "Carefully reviewed sellers, secure checkout, honest reviews from verified buyers, and support that actually answers."),
+        ],
+    })
+
+
+def terms_page(request):
+    name = _store_name()
+    return render(request, "bees/static_page.html", {
+        "page_title": "Terms of Service",
+        "sections": [
+            (f"Using {name}", f"By creating an account or placing an order on {name}, you agree to these terms. Please use the platform responsibly and in line with applicable laws."),
+            ("Accounts", "You're responsible for keeping your account credentials secure. Seller accounts are reviewed and approved before going live."),
+            ("Orders and payments", "An order is confirmed once payment is received (or, for cash on delivery, once it's placed). Prices and availability may change without notice. Card payments are processed securely by Stripe."),
+            ("Returns and refunds", "Eligible items can be returned within 14 days of delivery. Approved refunds go back to the original payment method."),
+        ],
+    })
+
+
+def privacy_page(request):
+    name = _store_name()
+    return render(request, "bees/static_page.html", {
+        "page_title": "Privacy Policy",
+        "sections": [
+            ("What we collect", "Information you give us when you create an account, place an order or apply to sell - such as your name, email, shipping address and phone number. Card details are entered directly with Stripe and never reach our servers."),
+            ("How we use it", f"To process and deliver orders, provide support, prevent fraud and improve {name}. We never sell your personal data."),
+            ("Your rights", "You can view and update your details from your profile at any time, or contact us to request a copy or deletion of your data."),
+        ],
+    })
+
+
+@require_POST
+@ratelimit("newsletter", rate_limit=5, window_seconds=600, redirect_to="home")
+def newsletter_subscribe(request):
+    email = request.POST.get("email", "").strip().lower()
+    try:
+        validate_email(email)
+    except ValidationError:
+        messages.error(request, "Please enter a valid email address.")
+        return redirect_back(request, "home")
+    NewsletterSubscriber.objects.get_or_create(email=email)
+    messages.success(request, "Thanks for subscribing!")
+    return redirect_back(request, "home")
+
+
+# ---------------------------------------------------------------------------
+# Sellers
+# ---------------------------------------------------------------------------
 
 @login_required
 def become_seller(request):
@@ -1042,11 +1434,14 @@ def become_seller(request):
 
     if request.method == "POST":
         account_type = request.POST.get("account_type", "individual")
-        seller = SellerAccount.objects.create(
+        if account_type not in dict(SellerAccount.ACCOUNT_TYPE_CHOICES):
+            account_type = "individual"
+        SellerAccount.objects.create(
             user=request.user,
             account_type=account_type,
-            business_name=request.POST.get("business_name", ""),
-            phone=request.POST.get("phone", ""),
+            business_name=request.POST.get("business_name", "")[:150],
+            phone=request.POST.get("phone", "")[:30],
+            country=request.POST.get("country", "")[:100],
         )
         messages.success(request, "Your seller application has been submitted. We'll review it shortly.")
         return redirect("seller_dashboard")
@@ -1072,7 +1467,6 @@ def update_fulfillment_status(request, item_id):
 def seller_dashboard(request):
     seller, role = get_seller_account_for_user(request.user)
     if not seller:
-        from django.http import Http404
         raise Http404("No seller account found for this user.")
     products = Product.objects.filter(seller_account=seller)
 
@@ -1080,7 +1474,7 @@ def seller_dashboard(request):
         "order", "product"
     ).order_by("-order__created_at")
     order_items = list(order_items_qs)
-    total_sales = sum(i.subtotal for i in order_items)
+    total_sales = sum((i.subtotal for i in order_items), Decimal("0"))
     commission_owed = round(total_sales * seller.commission_rate / 100, 2)
     net_earnings = total_sales - commission_owed
 
@@ -1122,29 +1516,58 @@ def seller_dashboard(request):
     })
 
 
+def _approved_seller_or_404(user):
+    seller, role = get_seller_account_for_user(user)
+    if not seller or seller.status != "approved":
+        raise Http404("No approved seller account found for this user.")
+    return seller, role
+
+
+def _product_fields_from_post(request):
+    """Validates the seller product form. Returns a dict of clean values."""
+    name = request.POST.get("name", "").strip()[:255]
+    if not name:
+        raise ValidationError("Product name is required.")
+    category = request.POST.get("category", "")
+    if category not in dict(Product.CATEGORY_CHOICES):
+        raise ValidationError("Please choose a valid category.")
+    price = _parse_decimal(request.POST.get("price"), "Price", minimum=Decimal("0.01"))
+    old_price = _parse_decimal(request.POST.get("old_price"), "Original price", required=False)
+    if old_price is not None and old_price <= price:
+        old_price = None
+    discount = _parse_int(request.POST.get("discount_percent"), "Discount", minimum=0, maximum=95)
+    stock = _parse_int(request.POST.get("stock"), "Stock", minimum=0, maximum=1_000_000)
+    image_url = request.POST.get("image_url", "").strip()[:500]
+    if image_url and not image_url.startswith("https://"):
+        raise ValidationError("Image URL must start with https://")
+    uploaded = request.FILES.get("image_file")
+    if uploaded:
+        validate_image_upload(uploaded)
+        from django.core.files.storage import default_storage
+        path = default_storage.save(random_upload_name("products", uploaded), uploaded)
+        image_url = default_storage.url(path)
+    return {
+        "name": name, "category": category, "price": price, "old_price": old_price,
+        "discount_percent": discount, "stock": stock, "image_url": image_url,
+        "description": request.POST.get("description", "").strip()[:10000],
+    }
+
+
 @login_required
 def seller_add_product(request):
-    seller, role = get_seller_account_for_user(request.user)
-    if not seller or seller.status != "approved":
-        from django.http import Http404
-        raise Http404("No approved seller account found for this user.")
+    seller, role = _approved_seller_or_404(request.user)
     if request.method == "POST":
-        image_url = request.POST.get("image_url", "").strip()
-        uploaded = request.FILES.get("image_file")
-        if uploaded:
-            from django.core.files.storage import default_storage
-            path = default_storage.save(f"products/{uploaded.name}", uploaded)
-            image_url = default_storage.url(path)
-
+        try:
+            fields = _product_fields_from_post(request)
+            if not fields["image_url"]:
+                raise ValidationError("Please add a product image (upload a file or paste an https:// link).")
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return render(request, "bees/seller_add_product.html", {
+                "categories": Product.CATEGORY_CHOICES, "form": request.POST,
+            })
         Product.objects.create(
-            name=request.POST.get("name"),
-            image_url=image_url,
-            price=request.POST.get("price"),
-            old_price=request.POST.get("old_price") or None,
-            discount_percent=request.POST.get("discount_percent") or 0,
-            category=request.POST.get("category"),
-            stock=request.POST.get("stock") or 0,
-            description=request.POST.get("description", ""),
+            **fields,
             seller_account=seller,
             seller_name=seller.display_name,
             approval_status="pending",
@@ -1156,7 +1579,50 @@ def seller_add_product(request):
     })
 
 
+# Changing any of these sends the product back for moderation; price and
+# stock updates go live immediately.
+REVIEWED_FIELDS = ("name", "category", "image_url", "description")
+
+
 @login_required
+def seller_edit_product(request, pk):
+    seller, role = _approved_seller_or_404(request.user)
+    product = get_object_or_404(Product, pk=pk, seller_account=seller)
+    if request.method == "POST":
+        try:
+            fields = _product_fields_from_post(request)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return redirect("seller_edit_product", pk=pk)
+        if not fields["image_url"]:
+            fields["image_url"] = product.image_url
+        needs_review = any(getattr(product, f) != fields[f] for f in REVIEWED_FIELDS)
+        for key, value in fields.items():
+            setattr(product, key, value)
+        if needs_review and product.approval_status != "pending":
+            product.approval_status = "pending"
+            messages.success(request, "Product updated. Because the listing details changed, it will go live again after a quick review.")
+        else:
+            messages.success(request, "Product updated.")
+        product.save()
+        return redirect("seller_dashboard")
+    return render(request, "bees/seller_add_product.html", {
+        "categories": Product.CATEGORY_CHOICES,
+        "product": product,
+    })
+
+
+@login_required
+@require_POST
+def seller_delete_product(request, pk):
+    seller, role = _approved_seller_or_404(request.user)
+    Product.objects.filter(pk=pk, seller_account=seller).delete()
+    messages.success(request, "Product removed from your store.")
+    return redirect("seller_dashboard")
+
+
+@login_required
+@require_POST
 def add_team_member(request):
     seller, role = get_seller_account_for_user(request.user)
     if not seller or role != "owner":
@@ -1165,28 +1631,30 @@ def add_team_member(request):
     if seller.account_type != "organization":
         messages.error(request, "Team members are only available for organization accounts.")
         return redirect("seller_dashboard")
-    if request.method == "POST":
-        identifier = request.POST.get("username_or_email", "").strip()
-        member_role = request.POST.get("role", "staff")
-        user = User.objects.filter(Q(username=identifier) | Q(email=identifier)).first()
-        if not user:
-            messages.error(request, f"No user found with username/email '{identifier}'. They need to sign up on 19Bees first.")
-        elif user == seller.user:
-            messages.error(request, "That's already the account owner.")
-        elif OrganizationMember.objects.filter(organization=seller, user=user).exists():
-            messages.error(request, f"{user.username} is already on the team.")
-        else:
-            OrganizationMember.objects.create(organization=seller, user=user, role=member_role)
-            Notification.objects.create(
-                user=user,
-                message=f"You've been added to {seller.display_name}'s team on 19Bees. You can now help manage their products and orders.",
-                link="/seller/dashboard/",
-            )
-            messages.success(request, f"{user.username} added to the team.")
+    identifier = request.POST.get("username_or_email", "").strip()
+    member_role = request.POST.get("role", "staff")
+    if member_role not in dict(OrganizationMember.ROLE_CHOICES):
+        member_role = "staff"
+    user = User.objects.filter(Q(username__iexact=identifier) | Q(email__iexact=identifier)).first() if identifier else None
+    if not user:
+        messages.error(request, f"No user found with username/email '{identifier}'. They need to create an account first.")
+    elif user == seller.user:
+        messages.error(request, "That's already the account owner.")
+    elif OrganizationMember.objects.filter(organization=seller, user=user).exists():
+        messages.error(request, f"{user.username} is already on the team.")
+    else:
+        OrganizationMember.objects.create(organization=seller, user=user, role=member_role)
+        Notification.objects.create(
+            user=user,
+            message=f"You've been added to {seller.display_name}'s team. You can now help manage their products and orders.",
+            link="/seller/dashboard/",
+        )
+        messages.success(request, f"{user.username} added to the team.")
     return redirect("seller_dashboard")
 
 
 @login_required
+@require_POST
 def remove_team_member(request, member_id):
     seller, role = get_seller_account_for_user(request.user)
     if not seller or role != "owner":
@@ -1198,52 +1666,34 @@ def remove_team_member(request, member_id):
     return redirect("seller_dashboard")
 
 
-@login_required
-def seller_edit_product(request, pk):
-    seller, role = get_seller_account_for_user(request.user)
-    if not seller or seller.status != "approved":
-        from django.http import Http404
-        raise Http404("No approved seller account found for this user.")
-    product = get_object_or_404(Product, pk=pk, seller_account=seller)
-    if request.method == "POST":
-        product.name = request.POST.get("name")
-        product.image_url = request.POST.get("image_url")
-        product.price = request.POST.get("price")
-        product.old_price = request.POST.get("old_price") or None
-        product.discount_percent = request.POST.get("discount_percent") or 0
-        product.category = request.POST.get("category")
-        product.stock = request.POST.get("stock") or 0
-        product.description = request.POST.get("description", "")
-        product.save()
-        messages.success(request, "Product updated.")
-        return redirect("seller_dashboard")
-    return render(request, "bees/seller_add_product.html", {
-        "categories": Product.CATEGORY_CHOICES,
-        "product": product,
-    })
-
-
-@login_required
-def seller_delete_product(request, pk):
-    seller = get_object_or_404(SellerAccount, user=request.user, status="approved")
-    Product.objects.filter(pk=pk, seller_account=seller).delete()
-    messages.success(request, "Product removed from your store.")
-    return redirect("seller_dashboard")
-
-
-def product_quick_view(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    return render(request, "bees/partials/quick_view.html", {"product": product})
-
+# ---------------------------------------------------------------------------
+# Staff
+# ---------------------------------------------------------------------------
 
 def _is_owner(user):
     return user.is_authenticated and user.is_staff
 
 
 @login_required
+def seller_document(request, seller_id, field):
+    """Staff-only access to private seller verification documents."""
+    if not request.user.is_staff:
+        return HttpResponseForbidden("Staff access only.")
+    if field not in ("business_certificate", "id_document"):
+        raise Http404
+    seller = get_object_or_404(SellerAccount, pk=seller_id)
+    file = getattr(seller, field)
+    if not file:
+        raise Http404
+    if getattr(settings, "USE_SUPABASE_STORAGE", False):
+        return redirect(file.url)  # short-lived signed URL
+    from django.http import FileResponse
+    return FileResponse(file.open("rb"), as_attachment=False, filename=file.name.rsplit("/", 1)[-1])
+
+
+@login_required
 def owner_dashboard(request):
     if not _is_owner(request.user):
-        from django.http import HttpResponseForbidden
         return HttpResponseForbidden("Staff access only.")
 
     total_customers = User.objects.filter(seller_account__isnull=True).count()
@@ -1258,35 +1708,35 @@ def owner_dashboard(request):
 
     today = timezone.localdate()
     start_date = today - timedelta(days=6)
-    non_cancelled = Order.objects.exclude(status="cancelled")
+    non_cancelled = Order.objects.exclude(status="cancelled").exclude(payment_status__in=["pending", "failed"])
 
-    # Two lightweight aggregate queries (instead of looping every order's
-    # .total property, which used to run a query per order): one sums
-    # item subtotals grouped by day, the other sums discounts grouped by
-    # day. Combined in Python below - avoids double-counting discount_amount
-    # that a single joined query would cause.
+    # Item subtotals and order-level amounts (discount/shipping/tax) are
+    # aggregated separately to avoid double-counting order-level fields
+    # across joined item rows.
     subtotal_by_day = {
         row["day"]: row["subtotal"] or 0
         for row in non_cancelled.filter(created_at__date__gte=start_date)
         .annotate(day=TruncDate("created_at")).values("day")
         .annotate(subtotal=Sum(F("items__price") * F("items__quantity")))
     }
-    discount_by_day = {
-        row["day"]: row["discount"] or 0
+    adjust_by_day = {
+        row["day"]: (row["extra"] or 0) - (row["discount"] or 0)
         for row in non_cancelled.filter(created_at__date__gte=start_date)
         .annotate(day=TruncDate("created_at")).values("day")
-        .annotate(discount=Sum("discount_amount"))
+        .annotate(discount=Sum("discount_amount"), extra=Sum(F("shipping_amount") + F("tax_amount")))
     }
-    total_agg = non_cancelled.aggregate(
-        subtotal=Sum(F("items__price") * F("items__quantity")),
+    total_agg = non_cancelled.aggregate(subtotal=Sum(F("items__price") * F("items__quantity")))
+    order_level = non_cancelled.aggregate(
+        discount=Sum("discount_amount"), extra=Sum(F("shipping_amount") + F("tax_amount")),
     )
-    total_discount = non_cancelled.aggregate(discount=Sum("discount_amount"))["discount"] or 0
-    total_revenue = max((total_agg["subtotal"] or 0) - total_discount, 0)
+    total_revenue = max(
+        (total_agg["subtotal"] or 0) - (order_level["discount"] or 0) + (order_level["extra"] or 0), 0
+    )
 
     daily_revenue = []
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
-        day_total = max(float(subtotal_by_day.get(day, 0)) - float(discount_by_day.get(day, 0)), 0)
+        day_total = max(float(subtotal_by_day.get(day, 0)) + float(adjust_by_day.get(day, 0)), 0)
         daily_revenue.append({"label": day.strftime("%a"), "date": day.strftime("%d %b"), "amount": day_total})
     max_daily = max([d["amount"] for d in daily_revenue] or [1]) or 1
     for d in daily_revenue:
@@ -1348,6 +1798,10 @@ def owner_dashboard(request):
     })
 
 
+# ---------------------------------------------------------------------------
+# Support chat
+# ---------------------------------------------------------------------------
+
 def _get_or_create_chat_thread(request):
     if request.user.is_authenticated:
         thread, _ = ChatThread.objects.get_or_create(user=request.user)
@@ -1371,13 +1825,14 @@ def chat_messages(request):
     return JsonResponse({"messages": data})
 
 
+@ratelimit("chat_send", rate_limit=20, window_seconds=300)
 def chat_send(request):
     """Saves a real message from the visitor and stores a simple support
     auto-reply, so the thread is a genuine record staff can review/reply
-    to from the admin panel (bees > chat messages)."""
+    to from the admin panel (Chat threads)."""
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
-    text = request.POST.get("message", "").strip()
+    text = request.POST.get("message", "").strip()[:2000]
     if not text:
         return JsonResponse({"error": "Empty message"}, status=400)
 
@@ -1385,77 +1840,12 @@ def chat_send(request):
     ChatMessage.objects.create(thread=thread, sender="user", message=text)
 
     auto_reply = "Thanks for your message! Our support team typically replies within a few hours."
-    if any(w in text.lower() for w in ["order", "track", "delivery", "shipped"]):
-        auto_reply = "For order status, check My Orders in your account, or share your order number here and our team will follow up."
+    if any(w in text.lower() for w in ["order", "track", "delivery", "shipped", "shipping"]):
+        auto_reply = "For order status, check My orders in your account, or share your order number here and our team will follow up."
     elif any(w in text.lower() for w in ["refund", "return"]):
-        auto_reply = "You can request a return from My Orders. Our team reviews return requests within 24-48 hours."
+        auto_reply = "You can request a return from My orders. Our team reviews return requests within 1-2 business days."
 
     reply = ChatMessage.objects.create(thread=thread, sender="support", message=auto_reply)
     return JsonResponse({
         "reply": {"sender": reply.sender, "message": reply.message, "created_at": reply.created_at.strftime("%H:%M")},
     })
-
-
-@login_required
-def initiate_jazzcash_payment(request, order_id):
-    """Shows an auto-submitting form that POSTs the signed payment request
-    to JazzCash's hosted checkout page, where the customer enters their
-    mobile account details. JazzCash then redirects back to
-    jazzcash_return below with the result."""
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
-    if not jazzcash.is_configured():
-        messages.error(request, "Online payment isn't available right now.")
-        return redirect("my_orders")
-    if order.payment_status == "paid":
-        return redirect("order_success", order_id=order.id)
-
-    scheme = "https" if request.is_secure() else "http"
-    return_url = f"{scheme}://{request.get_host()}/payment/jazzcash/return/"
-    params, txn_ref = jazzcash.build_payment_request(order, return_url)
-    order.jazzcash_txn_ref = txn_ref
-    order.save(update_fields=["jazzcash_txn_ref"])
-
-    return render(request, "bees/jazzcash_redirect.html", {
-        "checkout_url": jazzcash.checkout_url(),
-        "params": params,
-    })
-
-
-@csrf_exempt
-def jazzcash_return(request):
-    """JazzCash POSTs the transaction result here after the customer pays
-    (or cancels) on their hosted page. We verify the signature, match the
-    txn ref back to our order, and update payment_status accordingly."""
-    data = request.POST.dict()
-    txn_ref = data.get("pp_TxnRefNo", "")
-    order = Order.objects.filter(jazzcash_txn_ref=txn_ref).first()
-
-    if not order or not jazzcash.verify_response(data):
-        messages.error(request, "We couldn't verify that payment. Please contact support if you were charged.")
-        return redirect("my_orders")
-
-    if jazzcash.is_success_response(data):
-        order.payment_status = "paid"
-        order.save(update_fields=["payment_status"])
-        recipient = order.user.email if order.user and order.user.email else order.guest_email
-        if recipient:
-            try:
-                scheme = "https" if request.is_secure() else "http"
-                invoice_url = f"{scheme}://{request.get_host()}/order/{order.id}/invoice/"
-                html_body = render_to_string("bees/emails/order_confirmation.html", {
-                    "order": order, "invoice_url": invoice_url,
-                })
-                email = EmailMultiAlternatives(
-                    f"Your 19Bees order #{order.id} is confirmed", strip_tags(html_body), None, [recipient],
-                )
-                email.attach_alternative(html_body, "text/html")
-                email.send(fail_silently=True)
-            except Exception:
-                pass
-        messages.success(request, "Payment received - thank you!")
-        return redirect("order_success", order_id=order.id)
-
-    order.payment_status = "failed"
-    order.save(update_fields=["payment_status"])
-    messages.error(request, "Payment failed or was cancelled. You can try again from My Orders.")
-    return redirect("my_orders")

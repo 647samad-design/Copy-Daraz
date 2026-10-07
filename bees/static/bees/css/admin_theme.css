@@ -1,85 +1,85 @@
-/* 19Bees admin — premium black + gold theme, matching the storefront's
+/* Store admin theme — matches the storefront default palette (spruce + marigold).
    navbar/footer identity. Scoped separately for light mode (default) and
    Django's own built-in dark mode (the moon icon, which sets
    html[data-theme="dark"]), so text never goes invisible either way. */
 
 :root, html[data-theme="light"] {
-    --primary: #0b0b0d;
-    --secondary: #0b0b0d;
-    --accent: #c9a24b;
+    --primary: #0E3B43;
+    --secondary: #0E3B43;
+    --accent: #F2B33D;
     --primary-fg: #fff;
 
     --header-color: #fff;
-    --header-branding-color: #e8cf8a;
-    --header-bg: #0b0b0d;
+    --header-branding-color: #FFE2A8;
+    --header-bg: #0E3B43;
     --header-link-color: #fff;
 
     --breadcrumbs-fg: #e5e5e5;
     --breadcrumbs-link-fg: #fff;
-    --breadcrumbs-bg: #17181c;
+    --breadcrumbs-bg: #0A2C32;
 
-    --link-fg: #8a6d1f;
-    --link-hover-color: #c9a24b;
-    --link-selected-fg: #8a6d1f;
+    --link-fg: #8A5A00;
+    --link-hover-color: #F2B33D;
+    --link-selected-fg: #8A5A00;
 
-    --selected-bg: #fbf4e2;
-    --selected-row: #fdf9ee;
+    --selected-bg: #FFF3DA;
+    --selected-row: #FFF8EA;
 
-    --button-bg: #0b0b0d;
+    --button-bg: #0E3B43;
     --button-fg: #fff;
-    --button-hover-bg: #c9a24b;
-    --default-button-bg: #0b0b0d;
-    --default-button-hover-bg: #c9a24b;
+    --button-hover-bg: #F2B33D;
+    --default-button-bg: #0E3B43;
+    --default-button-hover-bg: #F2B33D;
     --close-button-bg: #666;
     --close-button-hover-bg: #333;
     --delete-button-bg: #ba2121;
     --delete-button-hover-bg: #a41515;
 
-    --object-tools-bg: #0b0b0d;
-    --object-tools-hover-bg: #c9a24b;
+    --object-tools-bg: #0E3B43;
+    --object-tools-hover-bg: #F2B33D;
 }
 
 html[data-theme="dark"] {
-    --primary: #e8cf8a;
-    --secondary: #e8cf8a;
-    --accent: #e8cf8a;
-    --primary-fg: #0b0b0d;
+    --primary: #FFE2A8;
+    --secondary: #FFE2A8;
+    --accent: #FFE2A8;
+    --primary-fg: #0E3B43;
 
     --header-color: #fff;
-    --header-branding-color: #e8cf8a;
-    --header-bg: #0b0b0d;
+    --header-branding-color: #FFE2A8;
+    --header-bg: #0E3B43;
     --header-link-color: #fff;
 
     --breadcrumbs-fg: #ccc;
     --breadcrumbs-link-fg: #fff;
-    --breadcrumbs-bg: #0b0b0d;
+    --breadcrumbs-bg: #0E3B43;
 
-    --link-fg: #d9bb6a;
-    --link-hover-color: #e8cf8a;
-    --link-selected-fg: #d9bb6a;
+    --link-fg: #F5C460;
+    --link-hover-color: #FFE2A8;
+    --link-selected-fg: #F5C460;
 
     --selected-bg: #2a2717;
-    --selected-row: #1e1c12;
+    --selected-row: #14333A;
 
     --button-bg: #2a2b33;
     --button-fg: #eee;
-    --button-hover-bg: #c9a24b;
-    --default-button-bg: #c9a24b;
-    --default-button-hover-bg: #e8cf8a;
+    --button-hover-bg: #F2B33D;
+    --default-button-bg: #F2B33D;
+    --default-button-hover-bg: #FFE2A8;
     --close-button-bg: #555;
     --close-button-hover-bg: #333;
     --delete-button-bg: #b23b3b;
     --delete-button-hover-bg: #c94747;
 
     --object-tools-bg: #2a2b33;
-    --object-tools-hover-bg: #c9a24b;
+    --object-tools-hover-bg: #F2B33D;
 }
 
 /* ---------- Header & branding ---------- */
-#header { background: var(--header-bg); color: var(--header-color); border-bottom: 1px solid #c9a24b; }
+#header { background: var(--header-bg); color: var(--header-color); border-bottom: 1px solid #F2B33D; }
 #branding h1, #branding h1 a:link, #branding h1 a:visited { color: var(--header-branding-color); font-weight: 600; letter-spacing: 0.3px; }
 #user-tools a { border-bottom: 1px solid transparent; }
-#user-tools a:hover { border-bottom-color: #c9a24b; color: #e8cf8a; }
+#user-tools a:hover { border-bottom-color: #F2B33D; color: #FFE2A8; }
 
 /* ---------- Breadcrumbs ---------- */
 div.breadcrumbs { background: var(--breadcrumbs-bg); color: var(--breadcrumbs-fg); }
@@ -87,10 +87,10 @@ div.breadcrumbs a { color: var(--breadcrumbs-link-fg); }
 
 /* ---------- Module headers (dashboard app groups, fieldset legends) ---------- */
 .module h2, .module caption, .inline-group h2 {
-    background: #0b0b0d; color: #fff; border-left: 3px solid #c9a24b;
+    background: #0E3B43; color: #fff; border-left: 3px solid #F2B33D;
 }
 html[data-theme="dark"] .module h2, html[data-theme="dark"] .module caption, html[data-theme="dark"] .inline-group h2 {
-    background: #17181c; color: #fff; border-left: 3px solid #c9a24b;
+    background: #0A2C32; color: #fff; border-left: 3px solid #F2B33D;
 }
 
 /* ---------- Links & buttons ---------- */
@@ -99,27 +99,27 @@ a:hover { color: var(--link-hover-color); }
 .button, input[type=submit], input[type=button], .submit-row input, a.button {
     background: var(--button-bg); color: var(--button-fg); border-radius: 4px; transition: background 0.15s ease;
 }
-.button:hover, input[type=submit]:hover, input[type=button]:hover { background: var(--button-hover-bg); color: #0b0b0d; }
+.button:hover, input[type=submit]:hover, input[type=button]:hover { background: var(--button-hover-bg); color: #0E3B43; }
 .button.default, input[type=submit].default, .submit-row input.default {
-    background: #c9a24b; color: #0b0b0d; font-weight: 600;
+    background: #F2B33D; color: #0E3B43; font-weight: 600;
 }
-.button.default:hover, input[type=submit].default:hover { background: #e8cf8a; }
+.button.default:hover, input[type=submit].default:hover { background: #FFE2A8; }
 .object-tools a.addlink { background: var(--object-tools-bg); }
-.object-tools a.addlink:hover { background: var(--object-tools-hover-bg); color: #0b0b0d; }
+.object-tools a.addlink:hover { background: var(--object-tools-hover-bg); color: #0E3B43; }
 
 /* ---------- Tables (changelist) ---------- */
-.selector-chosen h2 { background: #0b0b0d; color: #fff; }
-html[data-theme="dark"] .selector-chosen h2 { background: #17181c; }
-table thead th { background: #0b0b0d; color: #e8cf8a; font-weight: 600; }
-html[data-theme="dark"] table thead th { background: #17181c; color: #e8cf8a; }
+.selector-chosen h2 { background: #0E3B43; color: #fff; }
+html[data-theme="dark"] .selector-chosen h2 { background: #0A2C32; }
+table thead th { background: #0E3B43; color: #FFE2A8; font-weight: 600; }
+html[data-theme="dark"] table thead th { background: #0A2C32; color: #FFE2A8; }
 #changelist-filter { border-left: 1px solid #eee; }
 html[data-theme="dark"] #changelist-filter, html[data-theme="dark"] .module {
     background: #121216; border-color: #2a2b33;
 }
 html, body { overflow-y: auto !important; height: auto !important; }
-#changelist-filter h2 { background: #0b0b0d; color: #e8cf8a; }
-#result_list tbody tr:hover { background: #fdf9ee; }
-html[data-theme="dark"] #result_list tbody tr:hover { background: #1e1c12; }
+#changelist-filter h2 { background: #0E3B43; color: #FFE2A8; }
+#result_list tbody tr:hover { background: #FFF8EA; }
+html[data-theme="dark"] #result_list tbody tr:hover { background: #14333A; }
 
 /* ---------- Dashboard app list cards ---------- */
 .app-bees, .app-auth {
@@ -129,20 +129,20 @@ html[data-theme="dark"] .app-bees, html[data-theme="dark"] .app-auth { border-co
 
 /* ---------- Login page ---------- */
 .login #header { border-bottom: none; }
-.login .submit-row input { background: #c9a24b; color: #0b0b0d; font-weight: 600; }
-.login .submit-row input:hover { background: #e8cf8a; }
+.login .submit-row input { background: #F2B33D; color: #0E3B43; font-weight: 600; }
+.login .submit-row input:hover { background: #FFE2A8; }
 
 /* ---------- Custom dashboard summary cards (see admin/index.html) ---------- */
 .bees-admin-summary {
     display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 24px;
 }
 .bees-admin-card {
-    background: #0b0b0d; color: #fff; border-radius: 6px; padding: 18px 20px; border-left: 3px solid #c9a24b;
+    background: #0E3B43; color: #fff; border-radius: 6px; padding: 18px 20px; border-left: 3px solid #F2B33D;
     text-decoration: none; display: block; transition: transform 0.15s ease;
     flex: 1 1 160px; min-width: 150px; box-sizing: border-box;
 }
 .bees-admin-card:hover { transform: translateY(-2px); color: #fff; }
-.bees-admin-card .num { font-size: 26px; font-weight: 700; color: #e8cf8a; }
+.bees-admin-card .num { font-size: 26px; font-weight: 700; color: #FFE2A8; }
 .bees-admin-card .label { font-size: 12px; color: #bbb; margin-top: 4px; letter-spacing: 0.2px; }
 .dashboard #content { width: min(600px, 100%); }
 .bees-admin-welcome { font-size: 13px; color: #666; margin-bottom: 18px; }

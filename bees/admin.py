@@ -24,9 +24,44 @@ def export_as_csv(modeladmin, request, queryset, field_names):
         writer.writerow(row)
     return response
 
-admin.site.site_header = "19Bees Administration"
-admin.site.site_title = "19Bees Admin"
-admin.site.index_title = "Store Management"
+from django.urls import reverse
+from django.utils.html import format_html
+
+from . import payments
+from .templatetags.bees_extras import money
+
+admin.site.index_title = "Store management"
+_original_each_context = admin.site.each_context
+
+
+def _branded_each_context(request):
+    """Admin header/title follow the white-label store name."""
+    context = _original_each_context(request)
+    try:
+        name = SiteSettings.load().site_name
+    except Exception:
+        name = "Store"
+    context["site_header"] = f"{name} Administration"
+    context["site_title"] = f"{name} Admin"
+    return context
+
+
+admin.site.each_context = _branded_each_context
+
+
+def cancel_order_with_side_effects(order, request=None):
+    """Cancels an order, refunding card payments and returning stock.
+    Returns an error string, or None on success."""
+    if order.status == "cancelled":
+        return None
+    if order.payment_status == "paid":
+        if not payments.refund_order(order):
+            return f"Order #{order.id}: Stripe refund failed - refund it from the Stripe dashboard, then cancel again."
+        order.payment_status = "refunded"
+    order.status = "cancelled"
+    order.save(update_fields=["status", "payment_status"])
+    payments.restock(order)
+    return None
 
 
 class ReviewInline(admin.TabularInline):
@@ -106,8 +141,8 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin):
-    list_display = ("username", "product", "rating", "created_at")
-    list_filter = ("rating",)
+    list_display = ("username", "product", "rating", "is_verified_purchase", "created_at")
+    list_filter = ("rating", "is_verified_purchase")
     search_fields = ("username", "product__name", "comment")
     date_hierarchy = "created_at"
 
@@ -121,15 +156,34 @@ class OrderItemInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "full_name", "city", "phone", "payment_method", "payment_status", "status", "tracking_number", "total", "created_at")
-    list_filter = ("status", "payment_method", "payment_status", "created_at")
-    search_fields = ("id", "full_name", "user__username", "phone", "city", "tracking_number", "jazzcash_txn_ref")
-    list_editable = ("status",)
-    fields = (
-        "user", "guest_email", "full_name", "address", "city", "phone",
-        "payment_method", "payment_status", "jazzcash_txn_ref", "status", "tracking_number", "courier_name", "estimated_delivery",
-        "coupon_code", "discount_amount",
+    list_display = ("id", "user", "full_name", "country", "payment_method", "payment_status", "status", "tracking_number", "total_display", "created_at")
+    list_filter = ("status", "payment_method", "payment_status", "country", "created_at")
+    search_fields = ("id", "full_name", "email", "user__username", "phone", "city", "tracking_number", "stripe_session_id", "stripe_payment_intent")
+    fieldsets = (
+        ("Customer", {"fields": ("user", "email", "full_name", "phone")}),
+        ("Shipping address", {"fields": ("address", "city", "state", "postal_code", "country")}),
+        ("Fulfilment", {"fields": ("status", "tracking_number", "courier_name", "estimated_delivery")}),
+        ("Payment", {"fields": (
+            "payment_method", "payment_status", "currency", "stripe_link",
+            "coupon_code", "discount_amount", "shipping_amount", "tax_amount", "total_display",
+        )}),
     )
+    readonly_fields = ("payment_method", "payment_status", "currency", "stripe_link", "total_display",
+                       "coupon_code", "discount_amount", "shipping_amount", "tax_amount")
+
+    def total_display(self, obj):
+        return money(obj.total)
+    total_display.short_description = "Total"
+
+    def stripe_link(self, obj):
+        if not obj.stripe_payment_intent:
+            return obj.stripe_session_id or "-"
+        mode = "test/" if str(getattr(payments.settings, "STRIPE_SECRET_KEY", "")).startswith("sk_test") else ""
+        return format_html(
+            '<a href="https://dashboard.stripe.com/{}payments/{}" target="_blank" rel="noopener">View in Stripe</a>',
+            mode, obj.stripe_payment_intent,
+        )
+    stripe_link.short_description = "Stripe payment"
     date_hierarchy = "created_at"
 
     def get_queryset(self, request):
@@ -140,7 +194,7 @@ class OrderAdmin(admin.ModelAdmin):
 
     def export_orders_csv(self, request, queryset):
         return export_as_csv(self, request, queryset, [
-            "id", "user", "full_name", "city", "phone", "payment_method", "status", "total", "created_at",
+            "id", "user", "email", "full_name", "city", "country", "phone", "payment_method", "payment_status", "status", "total", "created_at",
         ])
     export_orders_csv.short_description = "Export selected orders to CSV"
 
@@ -148,6 +202,13 @@ class OrderAdmin(admin.ModelAdmin):
         old_status = None
         if change:
             old_status = Order.objects.filter(pk=obj.pk).values_list("status", flat=True).first()
+        if change and obj.status == "cancelled" and old_status and old_status != "cancelled":
+            obj.status = old_status
+            error = cancel_order_with_side_effects(obj, request)
+            if error:
+                self.message_user(request, error, level="error")
+                return
+            obj.refresh_from_db()
         super().save_model(request, obj, form, change)
         if change and old_status and old_status != obj.status:
             AuditLog.objects.create(
@@ -168,8 +229,17 @@ class OrderAdmin(admin.ModelAdmin):
     mark_delivered.short_description = "Mark selected orders as Delivered"
 
     def mark_cancelled(self, request, queryset):
-        self._bulk_status(request, queryset, "cancelled")
-    mark_cancelled.short_description = "Mark selected orders as Cancelled"
+        cancelled = 0
+        for order in queryset.exclude(status="cancelled"):
+            old_status = order.status
+            error = cancel_order_with_side_effects(order, request)
+            if error:
+                self.message_user(request, error, level="error")
+                continue
+            AuditLog.objects.create(user=request.user, action=f"Cancelled order #{order.id} (was {old_status})")
+            cancelled += 1
+        self.message_user(request, f"{cancelled} order(s) cancelled. Stock was returned and card payments refunded.")
+    mark_cancelled.short_description = "Cancel selected orders (refund + restock)"
 
     def _bulk_status(self, request, queryset, new_status):
         for order in queryset:
@@ -179,7 +249,9 @@ class OrderAdmin(admin.ModelAdmin):
                     user=request.user,
                     action=f"Changed order #{order.id} status from {old_status} to {new_status}",
                 )
-        queryset.update(status=new_status)
+        for order in queryset.exclude(status="cancelled"):
+            order.status = new_status
+            order.save(update_fields=["status"])  # save() notifies the customer
 
 
 @admin.register(Wishlist)
@@ -212,7 +284,7 @@ class ProfileAdmin(admin.ModelAdmin):
 
 @admin.register(Address)
 class AddressAdmin(admin.ModelAdmin):
-    list_display = ("user", "label", "city", "phone")
+    list_display = ("user", "label", "city", "country", "phone")
     search_fields = ("user__username", "city", "phone")
 
 
@@ -293,6 +365,7 @@ class SellerAccountAdmin(admin.ModelAdmin):
     readonly_fields = (
         "created_at", "products_sold_count", "total_sales_display",
         "commission_owed_display", "net_earnings_display", "amount_owed_display",
+        "verification_documents",
     )
     date_hierarchy = "created_at"
     actions = ["approve_sellers", "reject_sellers", "suspend_sellers", "mark_fully_paid_out", "export_sellers_csv"]
@@ -332,8 +405,19 @@ class SellerAccountAdmin(admin.ModelAdmin):
             "business_address", "city", "country", "store_description",
             "product_categories", "brand_info", "tax_info", "bank_details",
         )}),
-        ("Documents", {"fields": ("business_certificate", "id_document", "store_logo", "store_banner")}),
+        ("Documents", {"fields": ("verification_documents", "store_logo", "store_banner")}),
     )
+
+    def verification_documents(self, obj):
+        links = []
+        for field, label in (("business_certificate", "Business certificate"), ("id_document", "ID document")):
+            if getattr(obj, field):
+                url = reverse("seller_document", args=[obj.pk, field])
+                links.append(format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, label))
+        if not links:
+            return "No documents uploaded"
+        return format_html(" &nbsp;|&nbsp; ".join(["{}"] * len(links)), *links)
+    verification_documents.short_description = "Private documents (staff only)"
 
     def products_sold_count(self, obj):
         from django.db.models import Sum
@@ -342,22 +426,22 @@ class SellerAccountAdmin(admin.ModelAdmin):
     products_sold_count.short_description = "Units sold"
 
     def total_sales_display(self, obj):
-        return f"Rs.{obj.lifetime_sales:.2f}"
+        return money(obj.lifetime_sales)
     total_sales_display.short_description = "Total sales"
 
     def commission_owed_display(self, obj):
         sales = float(obj.lifetime_sales)
         rate = obj.effective_commission_rate
         owed = sales * rate / 100
-        return f"Rs.{owed:.2f} ({rate:g}%)"
+        return f"{money(owed)} ({rate:g}%)"
     commission_owed_display.short_description = "Commission owed"
 
     def net_earnings_display(self, obj):
-        return f"Rs.{obj.net_earnings:.2f}"
+        return money(obj.net_earnings)
     net_earnings_display.short_description = "Seller's net earnings (after commission)"
 
     def amount_owed_display(self, obj):
-        return f"Rs.{obj.amount_owed:.2f}"
+        return money(obj.amount_owed)
     amount_owed_display.short_description = "Still owed to seller"
 
     def mark_fully_paid_out(self, request, queryset):
@@ -367,7 +451,7 @@ class SellerAccountAdmin(admin.ModelAdmin):
             seller.save(update_fields=["total_paid_out"])
             AuditLog.objects.create(
                 user=request.user,
-                action=f"Recorded full payout of Rs.{seller.net_earnings:.2f} to seller #{seller.id} ({seller.display_name})",
+                action=f"Recorded full payout of {money(seller.net_earnings)} to seller #{seller.id} ({seller.display_name})",
             )
             count += 1
         self.message_user(request, f"Marked {count} seller(s) as fully paid out.")
@@ -440,8 +524,21 @@ class SellerReviewAdmin(admin.ModelAdmin):
 
 @admin.register(SiteSettings)
 class SiteSettingsAdmin(admin.ModelAdmin):
-    list_display = ("site_name", "tax_percent", "banner_active", "banner_text")
-    fields = ("site_name", "tax_percent", "banner_active", "banner_text", "banner_link")
+    list_display = ("site_name", "tax_percent", "shipping_flat_fee", "banner_active")
+    fieldsets = (
+        ("Brand (white-label)", {
+            "description": "Change the store name, logo and colours here - no code changes needed.",
+            "fields": ("site_name", "tagline", "logo_url", "logo_file", "favicon_url", "primary_color", "accent_color"),
+        }),
+        ("Homepage hero", {"fields": ("hero_title", "hero_subtitle", "hero_image_url")}),
+        ("Contact & social", {"fields": (
+            "support_email", "support_phone", "company_address",
+            "facebook_url", "instagram_url", "twitter_url", "youtube_url",
+        )}),
+        ("Checkout", {"fields": ("tax_percent", "shipping_flat_fee", "free_shipping_threshold", "allow_cash_on_delivery")}),
+        ("Announcement bar", {"fields": ("banner_active", "banner_text", "banner_link")}),
+        ("Advanced", {"fields": ("show_language_menu",)}),
+    )
 
     def has_add_permission(self, request):
         return not SiteSettings.objects.exists()

@@ -1,24 +1,12 @@
 {% extends "bees/base.html" %}
-{% block title %}Search results for "{{ query }}" - 19Bees{% endblock %}
-{% block meta_description %}Search results for "{{ query }}" at 19Bees. Shop skincare, electronics, fashion, groceries and more.{% endblock %}
+{% block title %}Results for “{{ query }}” — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, follow{% endblock %}
 {% block content %}
-    <div class="section">
-        <div class="section-header">
-            <h2>{{ t.search_results_for }} "{{ query }}"</h2>
-        </div>
-        <div class="shop-layout">
-            {% include "bees/partials/filters_sidebar.html" %}
-            <div class="shop-main">
-                <div class="product-grid">
-                    {% for product in products %}
-                    {% include "bees/partials/product_card.html" %}
-                    {% empty %}
-                    <p>{{ t.no_search_results }}</p>
-                    {% endfor %}
-                </div>
-                {% include "bees/partials/pagination.html" %}
-            </div>
-        </div>
-    </div>
+{% if query %}
+{% with title="Results for “"|add:query|add:"”" %}
+{% include "bees/partials/listing.html" with listing_title=title empty_title="No matches found" empty_text="Check the spelling or try a shorter, more general search term." %}
+{% endwith %}
+{% else %}
+{% include "bees/partials/listing.html" with listing_title="Search" empty_title="What are you looking for?" empty_text="Type a product name, brand or category in the search bar above." %}
+{% endif %}
 {% endblock %}

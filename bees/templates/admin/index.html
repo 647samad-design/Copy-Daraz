@@ -3,16 +3,16 @@
 
 {% block content %}
 <p class="bees-admin-welcome">
-    {% trans "Welcome" %}, {{ request.user.get_full_name|default:request.user.username }}. Yahan aap products,
-    orders, sellers aur customers manage kar sakte hain. Neeche har cheez ka quick summary hai — number pe click
-    karke seedha us list mein pahunch jayenge.
+    {% trans "Welcome" %}, {{ request.user.get_full_name|default:request.user.username }}. Manage products, orders,
+    sellers and customers here. Select a number below to jump straight to that list. Store name, logo, colours,
+    shipping and tax live under <a href="{% url 'admin:bees_sitesettings_changelist' %}">Site settings</a>.
 </p>
 
 {% if bees_stats %}
 <div class="bees-admin-summary">
     <a class="bees-admin-card" href="{% url 'admin:bees_order_changelist' %}?created_at__day={% now 'j' %}&created_at__month={% now 'n' %}&created_at__year={% now 'Y' %}">
         <div class="num">{{ bees_stats.orders_today }}</div>
-        <div class="label">Aaj ke orders</div>
+        <div class="label">Orders today</div>
     </a>
     <a class="bees-admin-card" href="{% url 'admin:bees_order_changelist' %}">
         <div class="num">{{ bees_stats.total_orders }}</div>

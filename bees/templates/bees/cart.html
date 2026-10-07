@@ -1,171 +1,127 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
+{% block title %}{{ t.your_cart }} — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block extra_css %}
-    .cart-wrap { margin: 20px 40px; background: #fff; border: 1px solid #eee; }
-    .cart-header { padding: 16px 20px; border-bottom: 1px solid #eee; font-size: 18px; font-weight: 500; }
-    .bulk-bar { padding: 10px 20px; background: #f9f9f9; display: flex; align-items: center; gap: 14px; font-size: 12px; border-bottom: 1px solid #eee; }
-    .bulk-bar button { background: #c0392b; color: #fff; border: none; padding: 6px 14px; cursor: pointer; font-size: 12px; }
-    .cart-row { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
-    .cart-row img { width: 70px; height: 70px; object-fit: cover; border: 1px solid #eee; }
-    .cart-row .info { flex: 1; }
-    .cart-row .name { font-size: 14px; margin-bottom: 4px; }
-    .cart-row .price { color: #000000; font-weight: bold; }
-    .qty-controls { display: flex; align-items: center; gap: 8px; }
-    .qty-controls button { width: 26px; height: 26px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
-    .qty-controls form { display: inline; }
-    .subtotal { width: 100px; text-align: right; font-weight: bold; }
-    .remove-btn { color: #999; background: none; border: none; cursor: pointer; font-size: 13px; text-decoration: underline; }
-    .cart-summary { display: flex; justify-content: flex-end; padding: 20px; gap: 20px; align-items: center; }
-    .cart-summary .total { font-size: 20px; font-weight: bold; color: #000000; }
-    .checkout-btn { background: #000000; color: #fff; border: none; padding: 12px 30px; font-size: 15px; cursor: pointer; text-decoration: none; }
-
-    html[data-theme="dark"] .cart-header, html[data-theme="dark"] .bulk-bar, html[data-theme="dark"] .cart-row {
-        border-color: #333;
-    }
-    html[data-theme="dark"] .bulk-bar { background: #17181d; }
-    html[data-theme="dark"] .cart-row img { border-color: #333; }
-    html[data-theme="dark"] .cart-row .price, html[data-theme="dark"] .cart-summary .total { color: #fff; }
-    html[data-theme="dark"] .qty-controls button { background: #2a2b33; border-color: #444; color: #eee; }
-    html[data-theme="dark"] .subtotal { color: #eee; }
-    html[data-theme="dark"] #empty-cart-msg a { color: #fff; }
-
-    @media (max-width: 700px) {
-        .cart-wrap { margin: 12px; }
-        .cart-row { flex-wrap: wrap; gap: 10px; padding: 14px; }
-        .cart-row img { width: 56px; height: 56px; }
-        .cart-row .info { flex: 1 1 auto; min-width: 120px; }
-        .qty-controls { order: 3; }
-        .subtotal { order: 4; width: auto; margin-left: auto; }
-        .remove-btn { order: 5; }
-        .cart-summary { flex-wrap: wrap; justify-content: space-between; padding: 16px; }
-        .bulk-bar { flex-wrap: wrap; }
+    .cart-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+    .line { display: grid; grid-template-columns: auto 96px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .line:last-child { border-bottom: 0; }
+    .line img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius); background: var(--surface-2); }
+    .line-name { font-weight: 700; text-decoration: none; }
+    .line-name:hover { text-decoration: underline; }
+    .line-tools { display: flex; align-items: center; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+    .qty { display: inline-flex; align-items: center; border: 1.5px solid var(--line); border-radius: var(--radius-sm); }
+    .qty button { width: 40px; height: 40px; border: 0; background: none; cursor: pointer; font-size: 1.2rem; font-weight: 700; }
+    .qty button:hover { background: var(--surface-2); }
+    .qty .qty-value { min-width: 34px; text-align: center; font-weight: 700; }
+    .text-btn { background: none; border: 0; padding: 4px 0; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font-weight: 700; }
+    .text-btn:hover { color: var(--sale); }
+    .line-total { font-weight: 700; font-size: 1.1rem; text-align: right; }
+    .bulk { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .summary-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; }
+    .summary-total { display: flex; justify-content: space-between; padding-top: 14px; margin-top: 8px; border-top: 1.5px solid var(--line); font-weight: 700; font-size: 1.2rem; }
+    .summary .btn { margin-top: 18px; min-height: 54px; }
+    .summary-note { margin-top: 14px; font-size: 0.9rem; color: var(--muted); text-align: center; }
+    @media (max-width: 900px) { .cart-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) {
+        .line { grid-template-columns: auto 72px minmax(0, 1fr); }
+        .line img { width: 72px; height: 72px; }
+        .line-total { grid-column: 3; text-align: left; }
     }
 {% endblock %}
 {% block content %}
-<div class="cart-wrap">
-    <div class="cart-header">{{ t.your_cart }} ({{ count }} item{{ count|pluralize }})</div>
+<div class="wrap page">
+    <div class="page-head">
+        <div>
+            <h1>{{ t.your_cart }}</h1>
+            <p id="cart-count-text">{{ count }} item{{ count|pluralize }}</p>
+        </div>
+        {% if items %}<a href="{% url 'all_products' %}" class="link">{{ t.continue_shopping }}</a>{% endif %}
+    </div>
 
     {% if items %}
-    <div class="bulk-bar">
-        <label><input type="checkbox" id="select-all" onclick="document.querySelectorAll('.item-check').forEach(c=>c.checked=this.checked)"> Select all</label>
-        <button type="button" onclick="bulkRemove()">Remove selected</button>
-    </div>
-    {% endif %}
+    <div class="cart-layout">
+        <section class="panel">
+            <div class="bulk">
+                <label class="check"><input type="checkbox" id="select-all"> Select all</label>
+                <button type="button" class="text-btn" onclick="bulkRemove()">Remove selected</button>
+            </div>
+            {% for row in items %}
+            <div class="line cart-row" data-product-id="{{ row.product.id }}">
+                <input type="checkbox" class="item-check check" value="{{ row.product.id }}" aria-label="Select {{ row.product.name }}" style="width:20px;height:20px;accent-color:var(--brand);">
+                <img src="{{ row.product.image_url }}" alt="" loading="lazy">
+                <div>
+                    <a class="line-name" href="{% url 'product_detail' row.product.id %}">{{ row.product.name }}</a>
+                    <div class="muted small">{{ row.product.price|money }} each · {{ row.product.seller_name }}</div>
+                    <div class="line-tools">
+                        <div class="qty">
+                            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="decrease"><button type="submit" aria-label="Decrease quantity">−</button></form>
+                            <span class="qty-value" aria-live="polite">{{ row.qty }}</span>
+                            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="increase"><button type="submit" aria-label="Increase quantity">+</button></form>
+                        </div>
+                        <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="remove"><button class="text-btn" type="submit">{{ t.remove }}</button></form>
+                    </div>
+                </div>
+                <div class="line-total row-subtotal">{{ row.subtotal|money }}</div>
+            </div>
+            {% endfor %}
+        </section>
 
-    {% for row in items %}
-    <div class="cart-row" data-product-id="{{ row.product.id }}">
-        <input type="checkbox" class="item-check" value="{{ row.product.id }}">
-        <img src="{{ row.product.image_url }}" alt="{{ row.product.name }}" loading="lazy">
-        <div class="info">
-            <div class="name">{{ row.product.name }}</div>
-            <div class="price">Rs.{{ row.product.price }}</div>
-        </div>
-        <div class="qty-controls">
-            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="decrease">
-                <button type="submit">-</button>
-            </form>
-            <span class="qty-value">{{ row.qty }}</span>
-            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="increase">
-                <button type="submit">+</button>
-            </form>
-        </div>
-        <div class="subtotal">Rs.<span class="row-subtotal">{{ row.subtotal }}</span></div>
-        <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="remove">
-            <button class="remove-btn" type="submit">{{ t.remove }}</button>
-        </form>
+        <aside class="panel summary">
+            <h2 style="font-size:1.3rem;margin-bottom:12px;">{{ t.order_summary }}</h2>
+            <div class="summary-row"><span>Subtotal</span><span id="cart-total-value">{{ total|money }}</span></div>
+            <div class="summary-row muted"><span>Shipping &amp; tax</span><span>Calculated at checkout</span></div>
+            <a class="btn btn-primary btn-block" href="{% url 'checkout' %}">{{ t.checkout }}</a>
+            <p class="summary-note">{% if stripe_enabled %}Secure payment with card, Apple Pay or Google Pay{% else %}Secure checkout{% endif %}</p>
+        </aside>
     </div>
-    {% empty %}
-    <div style="padding:30px;text-align:center;color:#888;" id="empty-cart-msg">
-        {{ t.empty_cart }} <a href="{% url 'home' %}" style="color:#000000;">{{ t.continue_shopping }}</a>
-    </div>
-    {% endfor %}
-
-    {% if items %}
-    <div class="cart-summary">
-        <span>{{ t.total }}: <span class="total" id="cart-total-value">Rs.{{ total }}</span></span>
-        <a class="checkout-btn" href="{% url 'checkout' %}">{{ t.checkout }}</a>
+    {% else %}
+    <div class="panel empty">
+        <h2>{{ t.empty_cart }}</h2>
+        <p>Items you add will appear here.</p>
+        <a href="{% url 'all_products' %}" class="btn btn-primary">Start shopping</a>
     </div>
     {% endif %}
 </div>
 {% endblock %}
 {% block extra_js %}
 <script>
+document.getElementById('select-all')?.addEventListener('change', function () {
+    document.querySelectorAll('.item-check').forEach(c => c.checked = this.checked);
+});
 function bulkRemove() {
-    const checked = Array.from(document.querySelectorAll('.item-check:checked')).map(c => c.value);
-    if (!checked.length) { alert('Select at least one item.'); return; }
+    const ids = Array.from(document.querySelectorAll('.item-check:checked')).map(c => c.value);
+    if (!ids.length) { showToast('Select at least one item first.', 'warning'); return; }
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = "{% url 'cart_bulk_remove' %}";
-    const csrf = document.createElement('input');
-    csrf.type = 'hidden'; csrf.name = 'csrfmiddlewaretoken'; csrf.value = '{{ csrf_token }}';
-    form.appendChild(csrf);
-    checked.forEach(id => {
-        const inp = document.createElement('input');
-        inp.type = 'hidden'; inp.name = 'selected'; inp.value = id;
-        form.appendChild(inp);
-    });
+    form.innerHTML = '<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">';
+    ids.forEach(id => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'selected'; i.value = id; form.appendChild(i); });
     document.body.appendChild(form);
     form.submit();
 }
-
-// Cart +/-/remove buttons update quantities and totals in place, no page reload.
-(function () {
-    document.addEventListener('submit', function (e) {
-        const form = e.target.closest('.ajax-cart-update-form');
-        if (!form) return;
-        e.preventDefault();
-        const row = form.closest('.cart-row');
-
-        fetch(form.action, {
-            method: 'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-            body: new FormData(form),
+document.addEventListener('submit', function (e) {
+    const form = e.target.closest('.ajax-cart-update-form');
+    if (!form) return;
+    e.preventDefault();
+    const row = form.closest('.cart-row');
+    fetch(form.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: new FormData(form) })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok) return;
+            if (data.warning) showToast(data.warning, 'warning');
+            if (data.removed) {
+                row.remove();
+                if (!document.querySelectorAll('.cart-row').length) { window.location.reload(); return; }
+            } else {
+                row.querySelector('.qty-value').textContent = data.product_qty;
+                row.querySelector('.row-subtotal').textContent = data.product_subtotal_display;
+            }
+            document.getElementById('cart-total-value').textContent = data.cart_total_display;
+            document.getElementById('cart-count-text').textContent = data.cart_count + (data.cart_count === 1 ? ' item' : ' items');
+            updateCartBadge(data.cart_count);
         })
-            .then(r => r.json())
-            .then(data => {
-                if (!data.ok) return;
-
-                if (data.removed) {
-                    row.remove();
-                    const remaining = document.querySelectorAll('.cart-row').length;
-                    if (remaining === 0) {
-                        window.location.reload();
-                        return;
-                    }
-                } else {
-                    row.querySelector('.qty-value').textContent = data.product_qty;
-                    row.querySelector('.row-subtotal').textContent = data.product_subtotal;
-                }
-
-                const totalEl = document.getElementById('cart-total-value');
-                if (totalEl) totalEl.textContent = 'Rs.' + data.cart_total;
-
-                document.querySelectorAll('.cart-link').forEach(function (link) {
-                    let badge = link.querySelector('.cart-badge');
-                    if (data.cart_count > 0) {
-                        if (!badge) {
-                            badge = document.createElement('span');
-                            badge.className = 'cart-badge';
-                            link.appendChild(badge);
-                        }
-                        badge.textContent = data.cart_count;
-                    } else if (badge) {
-                        badge.remove();
-                    }
-                });
-
-                const header = document.querySelector('.cart-header');
-                if (header) {
-                    header.textContent = header.textContent.replace(/\(\d+ items?\)/, '(' + data.cart_count + (data.cart_count === 1 ? ' item)' : ' items)'));
-                }
-            });
-    });
-})();
+        .catch(() => form.submit());
+});
 </script>
 {% endblock %}

@@ -27,7 +27,7 @@ from django.views.decorators.http import require_POST
 from . import payments
 from .models import (
     AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
-    Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, SiteSettings,
+    Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
 )
 from .templatetags.bees_extras import money
 from .security import safe_next_url
@@ -326,11 +326,12 @@ def products_bulk(request):
 
 @staff_required
 def product_form(request, pk=None):
-    from .views import _product_fields_from_post
+    from .views import _product_fields_from_post, parse_variant_rows, apply_variant_rows, variant_rows_for_form
     product = get_object_or_404(Product, pk=pk) if pk else None
     if request.method == "POST":
         try:
             fields = _product_fields_from_post(request)
+            variant_rows = parse_variant_rows(request)
             if not fields["image_url"]:
                 if product:
                     fields["image_url"] = product.image_url
@@ -340,7 +341,7 @@ def product_form(request, pk=None):
             messages.error(request, " ".join(exc.messages))
             return _render(request, "product_form.html", {
                 "section": "products", "product": product, "form": request.POST, "categories": Product.CATEGORY_CHOICES,
-                "approval_choices": Product.APPROVAL_CHOICES,
+                "approval_choices": Product.APPROVAL_CHOICES, "variant_rows": variant_rows_for_form(request, product),
             })
         approval = request.POST.get("approval_status", "approved")
         if approval not in dict(Product.APPROVAL_CHOICES):
@@ -353,7 +354,9 @@ def product_form(request, pk=None):
         product.seller_name = (request.POST.get("seller_name", "").strip() or product.seller_name or "Official Store")[:100]
         product.is_flash_sale = bool(request.POST.get("is_flash_sale"))
         product.approval_status = approval
-        product.save()
+        with transaction.atomic():
+            product.save()
+            apply_variant_rows(product, variant_rows)
         extra = [u.strip() for u in request.POST.get("extra_images", "").splitlines() if u.strip().startswith("https://")]
         product.extra_images.all().delete()
         ProductImage.objects.bulk_create([ProductImage(product=product, image_url=u[:500]) for u in extra[:8]])
@@ -367,6 +370,7 @@ def product_form(request, pk=None):
         "section": "products", "product": product, "categories": Product.CATEGORY_CHOICES,
         "approval_choices": Product.APPROVAL_CHOICES,
         "extra_images": "\n".join(product.extra_images.values_list("image_url", flat=True)) if product else "",
+        "variant_rows": variant_rows_for_form(request, product),
     })
 
 
@@ -521,6 +525,76 @@ def coupons(request):
 
 
 # ---------------------------------------------------------------------------
+# Shipping zones
+# ---------------------------------------------------------------------------
+
+EU = "AT, BE, BG, HR, CY, CZ, DK, EE, FI, FR, DE, GR, HU, IE, IT, LV, LT, LU, MT, NL, PL, PT, RO, SK, SI, ES, SE"
+
+
+class ShippingZoneForm(forms.ModelForm):
+    class Meta:
+        model = ShippingZone
+        fields = ["name", "countries", "fee", "free_over", "delivery_days", "active"]
+        widgets = {"countries": forms.Textarea(attrs={"rows": 3, "placeholder": "US, CA  — or * for all other countries"})}
+
+    def clean_countries(self):
+        from .countries import COUNTRIES
+        raw = self.cleaned_data["countries"].strip()
+        if raw == "*":
+            return raw
+        valid = {code for code, _ in COUNTRIES}
+        codes = [c.strip().upper() for c in raw.replace("\n", ",").split(",") if c.strip()]
+        bad = [c for c in codes if c not in valid]
+        if not codes:
+            raise ValidationError("Add at least one country code, or * for every other country.")
+        if bad:
+            raise ValidationError(f"Unknown country code(s): {', '.join(bad)}. Use two-letter codes like US, GB, DE.")
+        return ", ".join(dict.fromkeys(codes))
+
+
+@staff_required
+def shipping(request):
+    zone = get_object_or_404(ShippingZone, pk=request.GET["edit"]) if request.GET.get("edit") else None
+    form = ShippingZoneForm(request.POST or None, instance=zone, initial=None if zone else {"active": True})
+    if request.method == "POST":
+        action = request.POST.get("action", "save")
+        if action == "delete":
+            z = get_object_or_404(ShippingZone, pk=request.POST.get("id"))
+            _log(request, f"Deleted shipping zone {z.name}")
+            z.delete()
+            messages.success(request, "Shipping zone deleted.")
+            return redirect("manage_shipping")
+        if action == "starter":
+            if not ShippingZone.objects.exists():
+                ShippingZone.objects.bulk_create([
+                    ShippingZone(name="United States", countries="US", fee=Decimal("5.00"), free_over=Decimal("50"), delivery_days=5),
+                    ShippingZone(name="Europe", countries=EU + ", GB, CH, NO", fee=Decimal("12.00"), free_over=Decimal("100"), delivery_days=8),
+                    ShippingZone(name="Rest of world", countries="*", fee=Decimal("20.00"), delivery_days=12),
+                ])
+                from .shipping import clear_cache
+                clear_cache()
+                messages.success(request, "Starter zones added. Adjust the fees to match your courier.")
+            return redirect("manage_shipping")
+        if form.is_valid():
+            z = form.save()
+            _log(request, f"Saved shipping zone {z.name}")
+            messages.success(request, f"Shipping zone '{z.name}' saved.")
+            return redirect("manage_shipping")
+        messages.error(request, "Please fix the details below.")
+    zones = list(ShippingZone.objects.all())
+    claimed = {}
+    for z in zones:
+        for code in z.country_codes:
+            claimed.setdefault(code, []).append(z.name)
+    duplicates = {c: n for c, n in claimed.items() if len(n) > 1}
+    return _render(request, "shipping.html", {
+        "section": "shipping", "zones": zones, "form": form, "editing": zone,
+        "has_rest": any(z.is_rest_of_world and z.active for z in zones), "duplicates": duplicates,
+        "brand": SiteSettings.load(),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Reviews & questions
 # ---------------------------------------------------------------------------
 
@@ -608,8 +682,7 @@ def returns(request):
                 rr.credit_refund_amount = plan["credit"]
                 rr.status = "refunded"
                 rr.save()
-                if rr.order_item.product_id:
-                    Product.objects.filter(pk=rr.order_item.product_id).update(stock=F("stock") + rr.order_item.quantity)
+                payments.restock_item(rr.order_item, rr.order_item.quantity)
             parts = []
             if plan["card"]:
                 parts.append(f"{money(plan['card'])} sent back to the card")
@@ -698,6 +771,7 @@ class SiteSettingsForm(forms.ModelForm):
         ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "return_days", "allow_cash_on_delivery"]),
         ("Contact & social", "Shown in the footer, emails and help page.",
          ["support_email", "support_phone", "company_address", "facebook_url", "instagram_url", "twitter_url", "youtube_url"]),
+        ("Security", "Protects the admin even if a staff password is stolen.", ["require_staff_2fa"]),
         ("Language", "", ["show_language_menu"]),
     ]
 

@@ -1,0 +1,15 @@
+{% extends "bees/base.html" %}
+{% block title %}Enter your code — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block content %}
+<div class="wrap"><div class="auth-shell"><div class="panel">
+    <h1>Two-step sign-in</h1>
+    <p class="lede">Open your authenticator app and enter the 6-digit code for {{ brand.site_name }}.</p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="field"><label for="id_code">Code</label><input type="text" id="id_code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required autofocus style="font-size:1.4rem;letter-spacing:.3em;text-align:center;"></div>
+        <div class="field"><button type="submit" class="btn btn-primary btn-block">Sign in</button></div>
+    </form>
+    <p class="muted small" style="margin-top:12px;">Lost your phone? Enter one of your backup codes (like <code>a1b2-c3d4</code>) instead.</p>
+</div><p class="auth-foot"><a class="link" href="{% url 'login' %}">Start again</a></p></div></div>
+{% endblock %}

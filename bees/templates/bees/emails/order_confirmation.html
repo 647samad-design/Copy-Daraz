@@ -25,5 +25,6 @@
     </table>
     <p style="margin:0 0 4px;font-weight:bold;">Shipping to</p>
     <p style="margin:0 0 24px;color:#56606B;">{{ order.full_name }}<br>{{ order.address }}<br>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}<br>{{ order.country|country_name }}</p>
-    <a href="{{ invoice_url }}" style="display:inline-block;background:{{ b.primary_color }};color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;">Download invoice</a>
+    <a href="{{ track_url }}" style="display:inline-block;background:{{ b.primary_color }};color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;margin:0 8px 8px 0;">Track your order</a>
+    <a href="{{ invoice_url }}" style="display:inline-block;background:#F4F6F7;color:#141A1F;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;">Download invoice</a>
 {% endblock %}

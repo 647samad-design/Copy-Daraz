@@ -47,19 +47,20 @@
                 <button type="button" class="text-btn" onclick="bulkRemove()">Remove selected</button>
             </div>
             {% for row in items %}
-            <div class="line cart-row" data-product-id="{{ row.product.id }}">
-                <input type="checkbox" class="item-check check" value="{{ row.product.id }}" aria-label="Select {{ row.product.name }}" style="width:20px;height:20px;accent-color:var(--brand);">
+            <div class="line cart-row" data-key="{{ row.key }}">
+                <input type="checkbox" class="item-check check" value="{{ row.key }}" aria-label="Select {{ row.product.name }}" style="width:20px;height:20px;accent-color:var(--brand);">
                 <img src="{{ row.product.image_url }}" alt="" loading="lazy">
                 <div>
                     <a class="line-name" href="{% url 'product_detail' row.product.id %}">{{ row.product.name }}</a>
-                    <div class="muted small">{{ row.product.price|money }} each · {{ row.product.seller_name }}</div>
+                    {% if row.label %}<div class="small" style="font-weight:700;">{{ row.label }}</div>{% endif %}
+                    <div class="muted small">{{ row.unit_price|money }} each · {{ row.product.seller_name }}{% if row.qty > row.stock %} · <span style="color:var(--sale);">only {{ row.stock }} left</span>{% endif %}</div>
                     <div class="line-tools">
                         <div class="qty">
-                            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="decrease"><button type="submit" aria-label="Decrease quantity">−</button></form>
+                            <form method="post" action="{% url 'update_cart_item' row.key %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="decrease"><button type="submit" aria-label="Decrease quantity">−</button></form>
                             <span class="qty-value" aria-live="polite">{{ row.qty }}</span>
-                            <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="increase"><button type="submit" aria-label="Increase quantity">+</button></form>
+                            <form method="post" action="{% url 'update_cart_item' row.key %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="increase"><button type="submit" aria-label="Increase quantity">+</button></form>
                         </div>
-                        <form method="post" action="{% url 'update_cart_item' row.product.id %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="remove"><button class="text-btn" type="submit">{{ t.remove }}</button></form>
+                        <form method="post" action="{% url 'update_cart_item' row.key %}" class="ajax-cart-update-form">{% csrf_token %}<input type="hidden" name="action" value="remove"><button class="text-btn" type="submit">{{ t.remove }}</button></form>
                     </div>
                 </div>
                 <div class="line-total row-subtotal">{{ row.subtotal|money }}</div>

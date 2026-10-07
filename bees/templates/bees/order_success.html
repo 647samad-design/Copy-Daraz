@@ -26,6 +26,13 @@
             {% if order.estimated_delivery %}<p style="margin-top:6px;">Estimated delivery: <strong>{{ order.estimated_delivery|date:"l, M j" }}</strong>. We'll email you when it's confirmed, shipped and delivered.</p>{% endif %}
             {% endif %}
 
+            {% if order.is_guest and not user.is_authenticated %}
+            <div style="margin-top:16px;padding:14px 16px;border-radius:var(--radius);background:var(--surface-2);">
+                <strong>Save your details for next time?</strong>
+                <p class="muted small" style="margin-top:4px;">Create an account with {{ order.contact_email }} and verify it; this order will appear in My orders and you can request returns online.</p>
+                <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="{% url 'signup' %}">Create an account</a>
+            </div>
+            {% endif %}
             <hr class="divider">
             {% for item in order.items.all %}
             <div class="row"><span>{{ item.product_name }} × {{ item.quantity }}</span><span>{{ item.subtotal|money }}</span></div>
@@ -45,8 +52,8 @@
                 {% if stripe_enabled and order.payment_method == "cod" and order.payment_status == "not_applicable" and order.is_cancellable and order.total_cents %}
                 <form method="post" action="{% url 'pay_online' order.id %}">{% csrf_token %}<button type="submit" class="btn btn-accent">Pay {{ order.total|money }} online now</button></form>
                 {% endif %}
-                {% if order.status != "cancelled" %}<a class="btn btn-primary" href="{% url 'my_orders' %}">Track this order</a>{% endif %}
-                <a class="btn btn-secondary" href="{% url 'invoice_pdf' order.id %}">Download invoice</a>
+                {% if order.status != "cancelled" %}<a class="btn btn-primary" href="{% if order.is_guest %}{{ order.tracking_path }}{% else %}{% url 'my_orders' %}{% endif %}">Track this order</a>{% endif %}
+                <a class="btn btn-secondary" href="{% url 'invoice_pdf' order.id %}{% if order.is_guest %}?t={{ order.access_token }}{% endif %}">Download invoice</a>
                 <a class="btn btn-ghost" href="{% url 'all_products' %}">{{ t.continue_shopping }}</a>
             </div>
         </div>

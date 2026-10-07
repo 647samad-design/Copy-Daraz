@@ -24,9 +24,11 @@
             <span class="price">{{ product.price|money }}</span>
             {% if product.old_price %}<span class="price-was"><span class="sr-only">Was </span>{{ product.old_price|money }}</span>{% endif %}
         </div>
-        {% if product.stock > 0 and product.stock <= 5 %}<span class="pcard-stock low">Only {{ product.stock }} left</span>{% endif %}
+        {% if product.stock > 0 and product.stock <= 5 and not product.has_variants %}<span class="pcard-stock low">Only {{ product.stock }} left</span>{% endif %}
         <div class="pcard-actions">
-            {% if product.stock > 0 %}
+            {% if product.stock > 0 and product.has_variants %}
+            <a href="{% url 'product_detail' product.id %}" class="btn btn-secondary btn-sm btn-block">Choose options</a>
+            {% elif product.stock > 0 %}
             <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-secondary btn-sm btn-block">{{ t.add_to_cart }}</button>

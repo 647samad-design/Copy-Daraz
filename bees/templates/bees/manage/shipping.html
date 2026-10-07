@@ -1,0 +1,74 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Shipping{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Shipping</h1><p>Shipping fees by destination country. Customers see the fee as soon as they pick their country at checkout.</p></div></div>
+{% if not zones %}
+<section class="panel" style="margin-bottom:16px;">
+    <p>No zones yet, so every order uses the flat fee from Settings ({% if brand.shipping_flat_fee %}{{ brand.shipping_flat_fee|money }}{% else %}free{% endif %}) and you deliver to every country.</p>
+    <form method="post" style="margin-top:10px;">{% csrf_token %}<input type="hidden" name="action" value="starter"><button class="btn btn-secondary btn-sm">Add starter zones (US · Europe · Rest of world)</button></form>
+</section>
+{% elif not has_rest %}
+<section class="panel" style="margin-bottom:16px;"><p><strong>Only the countries listed below can order.</strong> Add a zone with <code>*</code> as its countries to deliver everywhere else too.</p></section>
+{% endif %}
+{% if duplicates %}
+<section class="panel" style="margin-bottom:16px;"><p class="small">Listed in more than one zone (the first zone alphabetically is used):
+{% for code, names in duplicates.items %}<strong>{{ code }}</strong> ({{ names|join:", " }}){% if not forloop.last %}, {% endif %}{% endfor %}</p></section>
+{% endif %}
+<div class="two-col">
+    <section class="panel" style="padding:8px 20px;">
+        <div class="table-scroll">
+            <table class="table" style="min-width:480px;">
+                <thead><tr><th>Zone</th><th>Countries</th><th class="num">Fee</th><th>Free over</th><th>Delivery</th></tr></thead>
+                <tbody>
+                {% for z in zones %}
+                <tr>
+                    <td><strong>{{ z.name }}</strong>{% if not z.active %} <span class="pill">Paused</span>{% endif %}
+                        <div style="display:flex;gap:2px;margin-top:4px;">
+                            <a class="btn btn-ghost btn-sm" href="?edit={{ z.id }}">Edit</a>
+                            <form method="post" class="del-form">{% csrf_token %}<input type="hidden" name="id" value="{{ z.id }}"><button class="btn btn-ghost btn-sm" name="action" value="delete" style="color:var(--sale);">Delete</button></form>
+                        </div>
+                    </td>
+                    <td class="small">{% if z.is_rest_of_world %}All other countries{% else %}{{ z.countries|truncatechars:60 }}{% endif %}</td>
+                    <td class="num">{% if z.fee %}{{ z.fee|money }}{% else %}Free{% endif %}</td>
+                    <td>{% if z.free_over is not None %}{{ z.free_over|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                    <td>{% if z.delivery_days %}{{ z.delivery_days }} days{% else %}<span class="muted">Default</span>{% endif %}</td>
+
+                </tr>
+                {% empty %}<tr class="empty-row"><td colspan="5">No shipping zones yet.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <section class="panel">
+        <h2>{% if editing %}Edit {{ editing.name }}{% else %}New zone{% endif %}</h2>
+        <form method="post" class="stack-sm">
+            {% csrf_token %}<input type="hidden" name="action" value="save">
+            {% for field in form %}
+            {% if field.name == "active" %}
+            <label class="check"><input type="checkbox" name="active" {% if field.value %}checked{% endif %}> Active</label>
+            {% else %}
+            <div class="field">
+                <label for="{{ field.id_for_label }}">{% if field.name == "fee" %}Shipping fee{% elif field.name == "free_over" %}Free shipping over <span class="muted">(optional)</span>{% elif field.name == "delivery_days" %}Delivery time, business days <span class="muted">(optional)</span>{% elif field.name == "countries" %}Countries{% else %}Name{% endif %}</label>
+                {{ field }}
+                {% if field.name == "countries" %}<span class="hint">Two-letter codes separated by commas, e.g. <code>US, CA</code>. Use <code>*</code> for every other country.</span>{% endif %}
+                {% for e in field.errors %}<span class="hint" style="color:var(--sale);">{{ e }}</span>{% endfor %}
+            </div>
+            {% endif %}
+            {% endfor %}
+            <button type="submit" class="btn btn-primary btn-block">{% if editing %}Save zone{% else %}Add zone{% endif %}</button>
+            {% if editing %}<a class="btn btn-ghost btn-block" href="{% url 'manage_shipping' %}">Cancel</a>{% endif %}
+        </form>
+    </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+document.querySelectorAll('.del-form').forEach(function (f) {
+    f.addEventListener('submit', function (e) {
+        var b = f.querySelector('button');
+        if (!b.dataset.armed) { e.preventDefault(); b.dataset.armed = '1'; b.textContent = 'Confirm delete'; }
+    });
+});
+</script>
+{% endblock %}

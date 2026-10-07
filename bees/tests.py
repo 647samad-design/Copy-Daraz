@@ -28,6 +28,10 @@ class TestCase(DjangoTestCase):
         from unittest import mock as _mock
         self._stripe_customer = _mock.patch("stripe.Customer.create", return_value=_mock.MagicMock(id="cus_test"))
         self._stripe_customer.start()
+        # Older admin tests use staff without an authenticator app; the
+        # two-step tests switch this back on.
+        from .models import SiteSettings as _SS
+        _SS.objects.update_or_create(pk=1, defaults={"require_staff_2fa": False})
 
     def _post_teardown(self):
         self._stripe_customer.stop()
@@ -282,10 +286,9 @@ class CartAndCheckoutTests(TestCase):
         )
         self.assertEqual(self.client.session["cart"][str(self.product.id)], self.product.stock)
 
-    def test_checkout_requires_login(self):
+    def test_empty_checkout_goes_back_to_cart(self):
         response = self.client.get(reverse("checkout"))
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/login/", response.url)
+        self.assertRedirects(response, reverse("cart"))
 
     def test_cancel_order_only_works_for_own_pending_order(self):
         other_user = User.objects.create_user("someone_else", "oe@example.com", "pass12345")
@@ -799,9 +802,11 @@ class SecurityTests(TestCase):
 
     def test_invoice_of_guest_order_not_public(self):
         order = Order.objects.create(user=None, full_name="Guest", address="x", city="y", phone="1")
-        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 302)
+        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id]) + "?t=wrong").status_code, 404)
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(reverse("invoice_pdf", args=[order.id])).status_code, 404)
+        self.assertEqual(Client().get(reverse("invoice_pdf", args=[order.id]) + f"?t={order.access_token}").status_code, 200)
 
     def test_email_code_locks_after_too_many_attempts(self):
         from django.core.cache import cache
@@ -904,7 +909,7 @@ class WhiteLabelTests(TestCase):
 # ---------------------------------------------------------------------------
 from django.core import mail
 
-from .models import ChatMessage, ChatThread, Profile, Question, ReturnRequest
+from .models import ChatMessage, ChatThread, Profile, ProductVariant, Question, ReturnRequest
 
 
 class ManageAccessTests(TestCase):
@@ -1827,7 +1832,7 @@ class AccountSettingsTests(TestCase):
         self.assertTrue(User.objects.get(pk=self.user.pk).is_active)
         Order.objects.filter(pk=open_order.pk).update(status="delivered")
         Address.objects.create(user=self.user, full_name="A", phone="1", address="x", city="y", country="US")
-        Profile.objects.create(user=self.user, referral_code="AC1", stripe_customer_id="cus_1")
+        Profile.objects.update_or_create(user=self.user, defaults={"referral_code": "AC1", "stripe_customer_id": "cus_1"})
         with mock.patch("stripe.Customer.delete") as delete:
             self.client.post(reverse("delete_account"), {"password": "Old-pass-123"})
         delete.assert_called_once_with("cus_1")
@@ -1863,3 +1868,415 @@ class AccountSettingsTests(TestCase):
         self.client.post(reverse("seller_store_settings"), {"store_name": "Hijack"})
         org.refresh_from_db()
         self.assertEqual(org.business_name, "Org")
+
+
+class ShippingZoneTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("ship", "ship@example.com", "pass12345")
+        self.product = make_product(price=Decimal("20.00"), stock=10)
+        self.client.force_login(self.user)
+
+    def _checkout(self, country):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        return self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "country": country, "payment_method": "cod"}, follow=True)
+
+    def test_flat_fee_without_zones(self):
+        SiteSettings.objects.update_or_create(pk=1, defaults={"shipping_flat_fee": Decimal("7")})
+        cache.clear()
+        self._checkout("DE")
+        self.assertEqual(Order.objects.get().shipping_amount, Decimal("7"))
+
+    def test_fee_by_country_and_unsupported_country(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="US", countries="US", fee=Decimal("5"), free_over=Decimal("50"), delivery_days=3)
+        rest = ShippingZone.objects.create(name="World", countries="*", fee=Decimal("20"), delivery_days=12)
+        self._checkout("US")
+        us = Order.objects.get()
+        self.assertEqual(us.shipping_amount, Decimal("5"))
+        from .order_emails import add_business_days
+        from django.utils import timezone
+        self.assertEqual(us.estimated_delivery, add_business_days(timezone.localdate(), 3))
+        self._checkout("DE")
+        self.assertEqual(Order.objects.latest("id").shipping_amount, Decimal("20"))
+        rest.delete()
+        r = self._checkout("DE")
+        self.assertContains(r, "don&#x27;t deliver to Germany")
+        self.assertEqual(Order.objects.count(), 2)
+
+    def test_free_over_threshold(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="US", countries="US", fee=Decimal("5"), free_over=Decimal("50"))
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 3})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "country": "US", "payment_method": "cod"})
+        self.assertEqual(Order.objects.get().shipping_amount, 0)
+
+    def test_checkout_page_has_shipping_table(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="US", countries="US, CA", fee=Decimal("5"))
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        page = self.client.get(reverse("checkout"))
+        self.assertContains(page, '"CA": {"fee": "5.00"')
+        self.assertContains(page, "Choose a country")
+
+    def test_admin_manages_zones(self):
+        from .models import ShippingZone
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(staff)
+        r = self.client.post(reverse("manage_shipping"), {"action": "save", "name": "Bad", "countries": "US, XX", "fee": "5"})
+        self.assertContains(r, "Unknown country code(s): XX")
+        self.client.post(reverse("manage_shipping"), {"action": "save", "name": "North America", "countries": "us,ca, us", "fee": "6", "active": "on"})
+        self.assertEqual(ShippingZone.objects.get().countries, "US, CA")
+        ShippingZone.objects.all().delete()
+        self.client.post(reverse("manage_shipping"), {"action": "starter"})
+        self.assertEqual(ShippingZone.objects.count(), 3)
+        self.assertEqual(self.client.get(reverse("manage_shipping")).status_code, 200)
+
+
+class VariantTests(TestCase):
+    def setUp(self):
+        self.seller_user = User.objects.create_user("vs", "vs@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=self.seller_user, status="approved", business_name="Hood Co")
+        self.buyer = User.objects.create_user("vb", "vb@example.com", "pass12345")
+
+    def _form(self, **extra):
+        data = {"name": "Hoodie", "category": "hoodies", "price": "40.00", "stock": "0", "image_url": "https://example.com/h.jpg",
+                "variant_id": ["", ""], "variant_size": ["M", "L"], "variant_color": ["Black", "Black"],
+                "variant_price": ["", "45.00"], "variant_stock": ["3", "0"], "variant_sku": ["H-M", "H-L"]}
+        data.update(extra)
+        return data
+
+    def _product(self):
+        self.client.force_login(self.seller_user)
+        self.client.post(reverse("seller_add_product"), self._form())
+        p = Product.objects.get(name="Hoodie")
+        Product.objects.filter(pk=p.pk).update(approval_status="approved")
+        p.refresh_from_db()
+        return p
+
+    def test_seller_creates_variants(self):
+        p = self._product()
+        self.assertTrue(p.has_variants)
+        self.assertEqual(p.stock, 3)
+        self.assertEqual([v.label for v in p.variants.all()], ["M / Black", "L / Black"])
+        self.assertEqual(self.client.get(reverse("seller_edit_product", args=[p.id])).status_code, 200)
+
+    def test_duplicate_options_rejected(self):
+        self.client.force_login(self.seller_user)
+        r = self.client.post(reverse("seller_add_product"), self._form(variant_size=["M", "m"]))
+        self.assertContains(r, "listed twice")
+        self.assertFalse(Product.objects.exists())
+
+    def test_buy_variant_and_cancel_restocks(self):
+        p = self._product()
+        m, large = p.variants.all()
+        self.client.force_login(self.buyer)
+        page = self.client.get(reverse("product_detail", args=[p.id]))
+        self.assertContains(page, 'data-value="M"')
+        self.client.post(reverse("add_to_cart", args=[p.id]))  # no size chosen
+        self.assertEqual(self.client.session.get("cart", {}), {})
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": large.id})  # sold out
+        self.assertEqual(self.client.session.get("cart", {}), {})
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": m.id, "quantity": 5})
+        self.assertEqual(self.client.session["cart"], {f"{p.id}-{m.id}": 3})  # capped at stock
+        self.assertContains(self.client.get(reverse("cart")), "M / Black")
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        item = OrderItem.objects.get()
+        self.assertEqual((item.product_name, item.variant, item.quantity, item.price), ("Hoodie (M / Black)", m, 3, Decimal("40.00")))
+        m.refresh_from_db(); p.refresh_from_db()
+        self.assertEqual((m.stock, p.stock), (0, 0))
+        self.client.post(reverse("cancel_order", args=[item.order_id]))
+        m.refresh_from_db(); p.refresh_from_db()
+        self.assertEqual((m.stock, p.stock), (3, 3))
+
+    def test_variant_price_used(self):
+        p = self._product()
+        large = p.variants.get(size="L")
+        ProductVariant.objects.filter(pk=large.pk).update(stock=2)
+        p.sync_variants()
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": large.id})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(OrderItem.objects.get().price, Decimal("45.00"))
+
+    def test_admin_removes_variant(self):
+        p = self._product()
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(staff)
+        m = p.variants.get(size="M")
+        self.client.post(reverse("manage_product_edit", args=[p.id]), {
+            "name": "Hoodie", "category": "hoodies", "price": "40", "stock": "0", "image_url": p.image_url,
+            "approval_status": "approved", "variant_id": [m.id], "variant_size": ["M"], "variant_color": ["Black"],
+            "variant_price": [""], "variant_stock": ["7"], "variant_sku": [""],
+        })
+        p.refresh_from_db()
+        self.assertEqual(p.variants.count(), 1)
+        self.assertEqual(p.stock, 7)
+
+    def test_buy_again_keeps_size(self):
+        p = self._product()
+        m = p.variants.get(size="M")
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": m.id})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.client.post(reverse("buy_again", args=[Order.objects.get().id]))
+        self.assertEqual(list(self.client.session["cart"]), [f"{p.id}-{m.id}"])
+
+
+class StockAlertTests(TestCase):
+    def test_notified_once_when_back_in_stock(self):
+        from .models import StockAlert
+        product = make_product(name="Rare Serum", stock=0)
+        self.client.post(reverse("stock_alert", args=[product.id]), {"email": "Fan@Example.com"})
+        self.client.post(reverse("stock_alert", args=[product.id]), {"email": "fan@example.com"})
+        self.assertEqual(StockAlert.objects.count(), 1)
+        self.assertContains(self.client.get(reverse("product_detail", args=[product.id])), "Notify me")
+        with self.captureOnCommitCallbacks(execute=True):
+            product.stock = 4
+            product.save()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("back in stock", mail.outbox[0].subject)
+        self.assertEqual(mail.outbox[0].to, ["fan@example.com"])
+        with self.captureOnCommitCallbacks(execute=True):
+            product.stock = 5
+            product.save()
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_variant_alert_waits_for_that_variant(self):
+        product = make_product(name="Tee", stock=0)
+        small = ProductVariant.objects.create(product=product, size="S", stock=0)
+        large = ProductVariant.objects.create(product=product, size="L", stock=0)
+        product.sync_variants()
+        self.client.post(reverse("stock_alert", args=[product.id]), {"email": "a@example.com", "variant": small.id})
+        with self.captureOnCommitCallbacks(execute=True):
+            large.stock = 3
+            large.save()
+        self.assertEqual(len(mail.outbox), 0)
+        with self.captureOnCommitCallbacks(execute=True):
+            small.stock = 1
+            small.save()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Tee (S)", mail.outbox[0].subject)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class GuestCheckoutTests(TestCase):
+    def setUp(self):
+        self.product = make_product(name="Guest Serum", price=Decimal("15.00"), stock=5)
+
+    def _guest_cod(self, client=None):
+        c = client or self.client
+        c.post(reverse("add_to_cart", args=[self.product.id]))
+        with self.captureOnCommitCallbacks(execute=True):
+            r = c.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        return Order.objects.latest("id"), r
+
+    def test_guest_places_and_tracks_order(self):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.assertContains(self.client.get(reverse("checkout")), "Checking out as a guest")
+        order, r = self._guest_cod()
+        self.assertIsNone(order.user)
+        self.assertEqual(order.guest_email, "jane@example.com")
+        self.assertRedirects(r, reverse("order_success", args=[order.id]))
+        self.assertContains(self.client.get(r.url), "Create an account")
+        email = mail.outbox[0].alternatives[0][0]
+        self.assertIn(order.tracking_path(), email)
+        # Anyone else needs the private link
+        stranger = Client()
+        self.assertEqual(stranger.get(reverse("order_success", args=[order.id])).status_code, 404)
+        self.assertEqual(stranger.get(reverse("order_track", args=[order.id, "nope"])).status_code, 404)
+        page = stranger.get(order.tracking_path())
+        self.assertContains(page, "Guest Serum")
+        # ... and can cancel from it
+        stranger.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 5)
+
+    def test_guest_cannot_touch_member_orders(self):
+        member = User.objects.create_user("mem", "mem@example.com", "pass12345")
+        order = Order.objects.create(user=member, full_name="M", address="x", city="y", phone="1")
+        self.client.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.status, "pending")
+        r = self.client.get(order.tracking_path())
+        self.assertEqual(r.status_code, 302)
+
+    def test_guest_card_payment_uses_email_not_customer(self):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        fake = mock.MagicMock(id="cs_g", url="https://checkout.stripe.com/g")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        kwargs = create.call_args.kwargs
+        self.assertEqual(kwargs["customer_email"], "jane@example.com")
+        self.assertNotIn("customer", kwargs)
+        order = Order.objects.get()
+        session = {"id": "cs_g", "payment_status": "paid", "status": "complete", "amount_total": order.total_cents,
+                   "currency": order.currency, "payment_intent": "pi_g", "metadata": {"order_id": str(order.id)}}
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=mock.MagicMock(to_dict=lambda: session)):
+            r = self.client.get(reverse("payment_success") + "?session_id=cs_g")
+        self.assertRedirects(r, reverse("order_success", args=[order.id]), fetch_redirect_response=False)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+
+    def test_guest_coupon_limit_by_email(self):
+        Coupon.objects.create(code="ONCE", percent_off=10, per_user_limit=1)
+        self.client.post(reverse("apply_coupon"), {"coupon_code": "ONCE"})
+        self._guest_cod()
+        other = Client()
+        other.post(reverse("add_to_cart", args=[self.product.id]))
+        other.post(reverse("apply_coupon"), {"coupon_code": "ONCE"})
+        other.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(Order.objects.count(), 1)  # same email can't reuse it
+
+    def test_guest_orders_join_account_after_email_verified(self):
+        order, _ = self._guest_cod()
+        user = User.objects.create_user("jane", "jane@example.com", "pass12345")
+        self.client.force_login(user)
+        from django.core.cache import cache as _cache
+        Profile.objects.create(user=user, referral_code="JN1")
+        _cache.set(f"email_verify_code:{user.id}", "123456", 900)
+        self.client.post(reverse("verify_email"), {"code": "123456"})
+        order.refresh_from_db()
+        self.assertEqual(order.user, user)
+        self.assertContains(self.client.get(reverse("my_orders")), "Guest Serum")
+
+
+class SavedCartTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("cart", "cart@example.com", "pass12345")
+        self.product = make_product(name="Lip Balm", price=Decimal("4.00"), stock=9)
+
+    def test_cart_follows_account_to_another_device(self):
+        phone = Client()
+        phone.post(reverse("login"), {"username": "cart", "password": "pass12345"})
+        phone.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 2})
+        laptop = Client()
+        laptop.post(reverse("add_to_cart", args=[make_product(name="Other").id]))  # browsing as a visitor
+        laptop.post(reverse("login"), {"username": "cart", "password": "pass12345"})
+        self.assertEqual(laptop.session["cart"][str(self.product.id)], 2)
+        self.assertEqual(len(laptop.session["cart"]), 2)
+        self.assertEqual(len(Profile.objects.get(user=self.user).saved_cart), 2)
+
+    def test_reminder_sent_once_after_a_day(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        self.assertEqual(len(mail.outbox), 0)  # too soon
+        Profile.objects.filter(user=self.user).update(cart_updated_at=timezone.now() - timedelta(hours=25))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Lip Balm", mail.outbox[0].alternatives[0][0])
+
+    def test_no_reminder_when_opted_out_or_ordered(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.client.post(reverse("account_privacy"), {"action": "emails"})  # both boxes unticked
+        Profile.objects.filter(user=self.user).update(cart_updated_at=timezone.now() - timedelta(hours=30))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        self.assertEqual(len(mail.outbox), 0)
+        Profile.objects.filter(user=self.user).update(cart_reminders=True)
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(Profile.objects.get(user=self.user).saved_cart, {})
+
+
+from django.test import TransactionTestCase  # noqa: E402
+
+
+class BackupTests(TransactionTestCase):
+    """Not wrapped in a transaction: SQLite can't copy a database while the
+    test's own open transaction holds its write lock."""
+
+    def test_backup_and_list(self):
+        import tempfile
+        from django.core.management import call_command
+        with tempfile.TemporaryDirectory() as tmp, override_settings(BASE_DIR=tmp, MEDIA_ROOT=os.path.join(tmp, "m")):
+            for _ in range(3):
+                call_command("backup_data", "--keep", "2", stdout=open(os.devnull, "w"))
+            files = os.listdir(os.path.join(tmp, "backups"))
+            self.assertTrue(1 <= len(files) <= 2)
+            self.assertTrue(all(f.startswith("backup-") and f.endswith(".tar.gz") for f in files))
+
+
+class TwoStepSignInTests(TestCase):
+    def setUp(self):
+        SiteSettings.objects.update_or_create(pk=1, defaults={"require_staff_2fa": True})
+        cache.clear()
+        self.staff = User.objects.create_user("owner", "owner@example.com", "Owner-pass-1", is_staff=True)
+
+    def _now_code(self, secret, offset=0):
+        from . import twofactor
+        return twofactor.code_at(secret, twofactor.current_step() + offset)
+
+    def _enable(self, client):
+        client.get(reverse("two_factor_setup"))
+        secret = client.session["totp_setup_secret"]
+        r = client.post(reverse("two_factor_setup"), {"code": self._now_code(secret)})
+        return secret, r
+
+    def test_staff_must_set_up_before_admin(self):
+        self.client.force_login(self.staff)
+        self.assertRedirects(self.client.get(reverse("manage_dashboard")), reverse("two_factor_setup"), fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/admin/"), reverse("two_factor_setup"), fetch_redirect_response=False)
+        page = self.client.get(reverse("two_factor_setup"))
+        self.assertContains(page, "<svg")
+        r = self.client.post(reverse("two_factor_setup"), {"code": "000000"})
+        self.assertContains(r, "didn&#x27;t match")
+        secret, r = self._enable(self.client)
+        self.assertContains(r, "Save your backup codes")
+        self.assertEqual(self.client.get(reverse("manage_dashboard")).status_code, 200)
+        self.assertTrue(Profile.objects.get(user=self.staff).totp_enabled)
+
+    def test_sign_in_needs_code(self):
+        self.client.force_login(self.staff)
+        secret, r = self._enable(self.client)
+        codes = r.context["codes"]
+        self.client.logout()
+        r = self.client.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1", "next": "/manage/"})
+        self.assertRedirects(r, reverse("login_code"), fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)  # not signed in yet
+        self.client.post(reverse("login_code"), {"code": "123456"})
+        self.assertNotIn("_auth_user_id", self.client.session)
+        r = self.client.post(reverse("login_code"), {"code": self._now_code(secret, 1)})
+        self.assertRedirects(r, "/manage/", fetch_redirect_response=False)
+        self.assertEqual(self.client.get("/manage/").status_code, 200)
+        # The same code can't be used again
+        other = Client()
+        other.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1"})
+        other.post(reverse("login_code"), {"code": self._now_code(secret, 1)})
+        self.assertNotIn("_auth_user_id", other.session)
+        # A backup code works once
+        other.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1"})
+        other.post(reverse("login_code"), {"code": codes[0]})
+        self.assertIn("_auth_user_id", other.session)
+        third = Client()
+        third.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1"})
+        third.post(reverse("login_code"), {"code": codes[0]})
+        self.assertNotIn("_auth_user_id", third.session)
+
+    def test_django_admin_login_goes_through_store_login(self):
+        r = self.client.get("/admin/login/?next=/admin/")
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(r.url.startswith("/login/"))
+
+    def test_reset_command(self):
+        from django.core.management import call_command
+        self.client.force_login(self.staff)
+        self._enable(self.client)
+        call_command("reset_two_factor", "owner@example.com", stdout=open(os.devnull, "w"))
+        self.assertFalse(Profile.objects.get(user=self.staff).totp_enabled)
+
+    def test_customers_can_opt_in_but_are_not_forced(self):
+        buyer = User.objects.create_user("cust", "cust@example.com", "Cust-pass-1")
+        self.client.force_login(buyer)
+        self.assertContains(self.client.get(reverse("account_security")), "Set up")
+        secret, _ = self._enable(self.client)
+        self.client.post(reverse("two_factor_disable"), {"password": "Cust-pass-1", "code": self._now_code(secret, 1)})
+        self.assertFalse(Profile.objects.get(user=buyer).totp_enabled)

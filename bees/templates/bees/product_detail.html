@@ -79,6 +79,16 @@
         .buybox { position: static; }
     }
     @media (max-width: 480px) { .buy-actions { grid-template-columns: 1fr; } }
+    .variant-picker { display: grid; gap: 14px; margin: 6px 0 14px; }
+    .variant-picker fieldset { border: 0; padding: 0; }
+    .variant-picker legend { font-size: .95rem; margin-bottom: 8px; color: var(--muted); }
+    .variant-picker legend strong { color: var(--ink); }
+    .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+    .opt { min-width: 48px; padding: 9px 14px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; }
+    .opt:hover { border-color: var(--ink); }
+    .opt[aria-pressed="true"] { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--surface)); box-shadow: inset 0 0 0 1px var(--brand); }
+    .opt.na { color: var(--muted); text-decoration: line-through; }
+    .notify-form { margin-top: 12px; padding: 14px; border-radius: var(--radius); background: var(--surface-2); }
 {% endblock %}
 {% block content %}
 <div class="wrap page">
@@ -116,29 +126,44 @@
             {% endif %}
 
             <div class="buy-price">
-                <span class="price">{{ product.price|money }}</span>
+                <span class="price" id="buy-price">{{ product.price|money }}</span>
                 {% if product.old_price %}<span class="price-was"><span class="sr-only">Was </span>{{ product.old_price|money }}</span>{% endif %}
                 {% if product.discount_percent %}<span class="badge badge-sale">Save {{ product.discount_percent }}%</span>{% endif %}
             </div>
-            {% if product.stock <= 0 %}<p class="stock-line out">{{ t.out_of_stock }}</p>
-            {% elif product.stock <= 5 %}<p class="stock-line low">Only {{ product.stock }} left — order soon</p>
-            {% else %}<p class="stock-line ok">{{ t.in_stock }}</p>{% endif %}
+            {% if product.has_variants %}
+            <div class="variant-picker">
+                {% if variant_sizes %}<fieldset><legend>Size: <strong id="pick-size">Choose</strong></legend><div class="opts">{% for s in variant_sizes %}<button type="button" class="opt" data-kind="size" data-value="{{ s }}">{{ s }}</button>{% endfor %}</div></fieldset>{% endif %}
+                {% if variant_colors %}<fieldset><legend>Colour: <strong id="pick-color">Choose</strong></legend><div class="opts">{% for c in variant_colors %}<button type="button" class="opt" data-kind="color" data-value="{{ c }}">{{ c }}</button>{% endfor %}</div></fieldset>{% endif %}
+            </div>
+            {{ variants_json|json_script:"variant-data" }}
+            {% endif %}
+            <p class="stock-line {% if product.stock <= 0 %}out{% elif product.stock <= 5 and not product.has_variants %}low{% else %}ok{% endif %}" id="stock-line">
+                {% if product.stock <= 0 %}{{ t.out_of_stock }}{% elif product.has_variants %}Choose {% if variant_sizes and variant_colors %}a size and colour{% elif variant_sizes %}a size{% else %}a colour{% endif %}{% elif product.stock <= 5 %}Only {{ product.stock }} left — order soon{% else %}{{ t.in_stock }}{% endif %}
+            </p>
 
-            {% if product.stock > 0 %}
-            <div class="buy-actions">
+            <div class="buy-actions" id="buy-actions" {% if product.stock <= 0 %}hidden{% endif %}>
                 <form method="post" action="{% url 'add_to_cart' product.id %}" class="ajax-add-cart-form">
                     {% csrf_token %}
-                    <button class="btn btn-secondary" type="submit">{{ t.add_to_cart }}</button>
+                    {% if product.has_variants %}<input type="hidden" name="variant" class="variant-input">{% endif %}
+                    <button class="btn btn-secondary buy-btn" type="submit" {% if product.has_variants %}disabled{% endif %}>{{ t.add_to_cart }}</button>
                 </form>
                 <form method="post" action="{% url 'add_to_cart' product.id %}">
                     {% csrf_token %}
+                    {% if product.has_variants %}<input type="hidden" name="variant" class="variant-input">{% endif %}
                     <input type="hidden" name="next" value="{% url 'checkout' %}">
-                    <button class="btn btn-primary" type="submit">{{ t.buy_now }}</button>
+                    <button class="btn btn-primary buy-btn" type="submit" {% if product.has_variants %}disabled{% endif %}>{{ t.buy_now }}</button>
                 </form>
             </div>
-            {% else %}
-            <button class="btn btn-secondary btn-block" disabled>{{ t.out_of_stock }}</button>
-            {% endif %}
+            <form method="post" action="{% url 'stock_alert' product.id %}" class="notify-form" id="notify-form" {% if product.stock > 0 %}hidden{% endif %}>
+                {% csrf_token %}
+                {% if product.has_variants %}<input type="hidden" name="variant" class="variant-input">{% endif %}
+                <p class="small" style="margin-bottom:8px;"><strong>Sold out.</strong> Get an email as soon as it's back.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <label class="sr-only" for="notify-email">Email</label>
+                    <input class="input" id="notify-email" type="email" name="email" required placeholder="you@example.com" value="{{ user.email|default:'' }}" style="flex:1;min-width:200px;">
+                    <button type="submit" class="btn btn-secondary">Notify me</button>
+                </div>
+            </form>
 
             <div class="buy-secondary">
                 {% if user.is_authenticated %}
@@ -152,8 +177,8 @@
             </div>
 
             <ul class="assurances">
-                <li><span>Shipping</span><span>{% if brand.free_shipping_threshold %}Free over {{ brand.free_shipping_threshold|money }}{% elif brand.shipping_flat_fee %}{{ brand.shipping_flat_fee|money }} flat rate{% else %}Free{% endif %}</span></li>
-                <li><span>Returns</span><span>14 days from delivery</span></li>
+                <li><span>Shipping</span><span>{% if has_shipping_zones %}By country, shown at checkout{% elif brand.free_shipping_threshold %}Free over {{ brand.free_shipping_threshold|money }}{% elif brand.shipping_flat_fee %}{{ brand.shipping_flat_fee|money }} flat rate{% else %}Free{% endif %}</span></li>
+                <li><span>Returns</span><span>{{ brand.return_days }} days from delivery</span></li>
                 <li><span>Payment</span><span>{% if stripe_enabled %}Secure card checkout via Stripe{% else %}{{ t.cash_on_delivery }}{% endif %}</span></li>
             </ul>
         </div>
@@ -263,4 +288,62 @@
         btn.classList.add('active');
     }
 </script>
+{% if product.has_variants %}
+<script>
+(function () {
+    const variants = JSON.parse(document.getElementById('variant-data').textContent);
+    const needSize = !!document.querySelector('.opt[data-kind="size"]');
+    const needColor = !!document.querySelector('.opt[data-kind="color"]');
+    const pick = { size: '', color: '' };
+    const inputs = document.querySelectorAll('.variant-input');
+    const buttons = document.querySelectorAll('.buy-btn');
+    const stockLine = document.getElementById('stock-line');
+    const actions = document.getElementById('buy-actions');
+    const notify = document.getElementById('notify-form');
+    const basePrice = document.getElementById('buy-price').textContent;
+    function stockOf(kind, value) {
+        return variants.filter(v => v[kind] === value && (kind === 'size' ? (!pick.color || v.color === pick.color) : (!pick.size || v.size === pick.size)))
+                       .reduce((n, v) => n + v.stock, 0);
+    }
+    function render() {
+        document.querySelectorAll('.opt').forEach(b => {
+            b.setAttribute('aria-pressed', pick[b.dataset.kind] === b.dataset.value ? 'true' : 'false');
+            b.classList.toggle('na', stockOf(b.dataset.kind, b.dataset.value) <= 0);
+        });
+        const ps = document.getElementById('pick-size'); if (ps) ps.textContent = pick.size || 'Choose';
+        const pc = document.getElementById('pick-color'); if (pc) pc.textContent = pick.color || 'Choose';
+        const ready = (!needSize || pick.size) && (!needColor || pick.color);
+        const v = ready ? variants.find(x => (!needSize || x.size === pick.size) && (!needColor || x.color === pick.color)) : null;
+        inputs.forEach(i => { i.value = v ? v.id : ''; });
+        document.getElementById('buy-price').textContent = v ? v.price : basePrice;
+        if (!ready) {
+            stockLine.className = 'stock-line ok';
+            stockLine.textContent = 'Choose ' + (needSize && !pick.size ? 'a size' : 'a colour');
+            actions.hidden = false; notify.hidden = true;
+            buttons.forEach(b => { b.disabled = true; });
+        } else if (!v) {
+            stockLine.className = 'stock-line out';
+            stockLine.textContent = 'This combination isn\'t available';
+            actions.hidden = false; notify.hidden = true;
+            buttons.forEach(b => { b.disabled = true; });
+        } else if (v.stock <= 0) {
+            stockLine.className = 'stock-line out';
+            stockLine.textContent = v.label + ' is sold out';
+            actions.hidden = true; notify.hidden = false;
+        } else {
+            stockLine.className = 'stock-line ' + (v.stock <= 5 ? 'low' : 'ok');
+            stockLine.textContent = v.stock <= 5 ? 'Only ' + v.stock + ' left in ' + v.label + ' — order soon' : 'In stock';
+            actions.hidden = false; notify.hidden = true;
+            buttons.forEach(b => { b.disabled = false; });
+        }
+    }
+    document.querySelectorAll('.opt').forEach(b => b.addEventListener('click', () => {
+        pick[b.dataset.kind] = pick[b.dataset.kind] === b.dataset.value ? '' : b.dataset.value;
+        render();
+    }));
+    if (variants.length === 1) { pick.size = variants[0].size; pick.color = variants[0].color; }
+    {% if product.stock > 0 %}render();{% endif %}
+})();
+</script>
+{% endif %}
 {% endblock %}

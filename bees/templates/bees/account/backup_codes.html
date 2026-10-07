@@ -1,0 +1,20 @@
+{% extends "bees/base.html" %}
+{% block title %}Backup codes — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block content %}
+<div class="wrap page" style="max-width:920px;">
+    <div class="page-head"><div><h1>Your account</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    {% include "bees/partials/account_tabs.html" %}
+    <section class="panel">
+        <h2>{% if first_time %}Two-step sign-in is on. {% endif %}Save your backup codes</h2>
+        <p class="muted" style="margin:6px 0 16px;">If you lose your phone, each of these codes lets you sign in once. Keep them somewhere safe (a password manager or printed). <strong>They won't be shown again.</strong></p>
+        <pre id="codes" style="font-family:ui-monospace,Menlo,monospace;font-size:1.05rem;line-height:1.9;background:var(--surface-2);padding:16px 20px;border-radius:var(--radius);columns:2;max-width:420px;">{% for c in codes %}{{ c }}
+{% endfor %}</pre>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+            <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('codes').textContent.trim()).then(() => { this.textContent = 'Copied'; })">Copy codes</button>
+            <button type="button" class="btn btn-secondary" onclick="window.print()">Print</button>
+            <a class="btn btn-primary" href="{% url 'account_security' %}">I've saved them</a>
+        </div>
+    </section>
+</div>
+{% endblock %}

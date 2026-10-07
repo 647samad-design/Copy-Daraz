@@ -1,0 +1,40 @@
+{% extends "bees/base.html" %}
+{% block title %}Set up two-step sign-in — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .qr-wrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+    .qr { background: #fff; padding: 10px; border-radius: var(--radius); border: 1px solid var(--line); width: 220px; }
+    .qr svg { width: 100%; height: auto; display: block; }
+    .secret { font-family: ui-monospace, Menlo, monospace; font-size: 1rem; letter-spacing: .06em; background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); word-break: break-all; }
+    .steps { counter-reset: s; list-style: none; display: grid; gap: 10px; margin: 0 0 18px; }
+    .steps li { counter-increment: s; padding-left: 34px; position: relative; }
+    .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: .85rem; }
+    @media (max-width: 640px) { .qr-wrap { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block content %}
+<div class="wrap page" style="max-width:920px;">
+    <div class="page-head"><div><h1>Your account</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    {% include "bees/partials/account_tabs.html" %}
+    <section class="panel">
+        <h2>Set up two-step sign-in</h2>
+        <p class="muted" style="margin:6px 0 18px;">{% if required %}Staff accounts need this to open the store admin. {% endif %}After your password, you'll also enter a code from your phone, so a stolen password alone can't get in.</p>
+        <ol class="steps">
+            <li>Install an authenticator app: Google Authenticator, Microsoft Authenticator, Authy or 1Password.</li>
+            <li>In the app, add an account and scan this QR code.</li>
+            <li>Type the 6-digit code the app shows.</li>
+        </ol>
+        <div class="qr-wrap">
+            <div class="qr" aria-label="QR code for your authenticator app">{{ qr|safe }}</div>
+            <div>
+                <p class="small muted">Can't scan? Enter this key in the app instead (time-based):</p>
+                <p class="secret">{{ secret_spaced }}</p>
+                <form method="post" style="margin-top:16px;display:grid;gap:10px;max-width:280px;">
+                    {% csrf_token %}
+                    <div class="field"><label for="id_code">6-digit code</label><input type="text" id="id_code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required style="font-size:1.3rem;letter-spacing:.3em;"></div>
+                    <button type="submit" class="btn btn-primary">Turn on</button>
+                </form>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

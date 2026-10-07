@@ -32,13 +32,14 @@ from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
-    OrganizationMember, ChatThread, ChatMessage,
+    OrganizationMember, ChatThread, ChatMessage, ProductVariant,
 )
+from .cart import persist as _persist_cart
 from .ratelimit import ratelimit
 from .security import (
     safe_next_url, redirect_back, validate_image_upload, validate_document_upload, random_upload_name,
 )
-from .templatetags.bees_extras import money
+from .templatetags.bees_extras import country_name, money
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,9 @@ def _send_html_email(subject, template, context, recipient):
 
 def _send_order_confirmation(request, order):
     invoice_url = request.build_absolute_uri(reverse("invoice_pdf", args=[order.id]))
+    if order.is_guest:
+        invoice_url += f"?t={order.access_token}"
+    track_url = request.build_absolute_uri(order.tracking_path() if order.is_guest else reverse("my_orders"))
     if order.status == "pending":
         subject = f"We've received your {_store_name()} order #{order.id}"
     else:
@@ -199,7 +203,7 @@ def _send_order_confirmation(request, order):
     _send_html_email(
         subject,
         "bees/emails/order_confirmation.html",
-        {"order": order, "invoice_url": invoice_url},
+        {"order": order, "invoice_url": invoice_url, "track_url": track_url},
         order.contact_email,
     )
 
@@ -261,6 +265,15 @@ def product_detail(request, pk):
         can_review = not review_block
 
     gallery = [product.image_url] + list(product.extra_images.values_list("image_url", flat=True))
+    variants = list(product.variants.all()) if product.has_variants else []
+    variant_sizes = list(dict.fromkeys(v.size for v in variants if v.size))
+    variant_colors = list(dict.fromkeys(v.color for v in variants if v.color))
+    variants_json = [
+        {"id": v.id, "size": v.size, "color": v.color, "stock": v.stock, "price": money(v.unit_price), "label": v.label}
+        for v in variants
+    ]
+    from . import shipping as shipping_rules
+    has_shipping_zones = "flat" not in shipping_rules.table()
     related_products = with_ratings(Product.objects.live().filter(category=product.category).exclude(pk=product.pk))[:6]
     questions = product.questions.all()
 
@@ -281,6 +294,10 @@ def product_detail(request, pk):
         "can_review": can_review,
         "review_block": review_block,
         "gallery": gallery,
+        "variant_sizes": variant_sizes,
+        "variant_colors": variant_colors,
+        "variants_json": variants_json,
+        "has_shipping_zones": has_shipping_zones,
         "related_products": related_products,
         "questions": questions,
         "recently_viewed": recently_viewed,
@@ -397,6 +414,30 @@ def store_page(request, seller_name):
         "products": products,
         "seller_account": seller_account,
     })
+
+
+@require_POST
+@ratelimit("stock_alert", rate_limit=10, window_seconds=600, redirect_to="home")
+def stock_alert(request, pk):
+    from .models import StockAlert
+    product = get_object_or_404(Product.objects.live(), pk=pk)
+    email = (request.POST.get("email") or (request.user.email if request.user.is_authenticated else "")).strip().lower()
+    try:
+        validate_email(email)
+    except ValidationError:
+        messages.error(request, "Please enter a valid email address.")
+        return redirect("product_detail", pk=pk)
+    variant = None
+    vid = request.POST.get("variant", "")
+    if vid.isdigit():
+        variant = product.variants.filter(pk=vid).first()
+    StockAlert.objects.get_or_create(
+        product=product, variant=variant, email=email, notified_at=None,
+        defaults={"user": request.user if request.user.is_authenticated else None},
+    )
+    what = f"{product.name} ({variant.label})" if variant else product.name
+    messages.success(request, f"Done! We'll email {email} when {what} is back in stock.")
+    return redirect("product_detail", pk=pk)
 
 
 @ratelimit("ask_question", rate_limit=10, window_seconds=600, redirect_to="home")
@@ -576,6 +617,13 @@ def verify_email_code(request):
         elif secrets.compare_digest(entered, stored):
             profile.email_verified = True
             profile.save(update_fields=["email_verified"])
+            # Guest orders placed with this (now proven) email become theirs.
+            email = request.user.email
+            if email:
+                linked = Order.objects.filter(user__isnull=True).filter(
+                    Q(guest_email__iexact=email) | Q(email__iexact=email)).update(user=request.user)
+                if linked:
+                    messages.info(request, f"{linked} earlier order{'s' if linked != 1 else ''} placed as a guest {'are' if linked != 1 else 'is'} now in My orders.")
             cache.delete(f"email_verify_code:{request.user.id}")
             cache.delete(attempts_key)
             messages.success(request, "Your email has been verified.")
@@ -615,6 +663,15 @@ def login_view(request):
                 username = matches[0]
         user = authenticate(request, username=username, password=password)
         if user is not None:
+            if Profile.objects.filter(user=user, totp_enabled=True).exists():
+                # Password is right; now ask for the authenticator code.
+                from django.utils import timezone as _tz
+                request.session["2fa_pending"] = {
+                    "uid": user.pk, "backend": user.backend, "next": next_url,
+                    "remember": bool(request.POST.get("remember")), "tries": 0,
+                    "expires": _tz.now().timestamp() + 300,
+                }
+                return redirect("login_code")
             auth_login(request, user)
             if not request.POST.get("remember"):
                 request.session.set_expiry(0)  # signed out when the browser closes
@@ -742,28 +799,12 @@ def set_language(request, lang_code):
 # ---------------------------------------------------------------------------
 
 def _get_cart_items(request):
-    """Reads the session cart {product_id: qty} and returns (items, total, count).
+    """Reads the session cart and returns (items, total, count). Each item
+    has product, variant (or None), qty, unit_price, subtotal, label, key.
     Unavailable products and invalid quantities are dropped."""
-    cart = request.session.get("cart", {})
-    ids = [pid for pid in cart if str(pid).isdigit()]
-    products = Product.objects.select_related("seller_account").in_bulk([int(pid) for pid in ids])
-    items = []
-    total = Decimal("0")
-    count = 0
-    for pid, qty in cart.items():
-        product = products.get(int(pid)) if str(pid).isdigit() else None
-        if not product or not product.is_live:
-            continue
-        try:
-            qty = int(qty)
-        except (TypeError, ValueError):
-            continue
-        if qty <= 0:
-            continue
-        subtotal = product.price * qty
-        total += subtotal
-        count += qty
-        items.append({"product": product, "qty": qty, "subtotal": subtotal})
+    from .cart import lines, totals
+    items = lines(request.session.get("cart", {}))
+    total, count = totals(items)
     return items, total, count
 
 
@@ -781,17 +822,28 @@ def _is_ajax(request):
 
 @require_POST
 def add_to_cart(request, pk):
+    from .cart import make_key
     product = get_object_or_404(Product.objects.live(), pk=pk)
 
-    if product.stock <= 0:
-        msg = f"{product.name} is out of stock."
+    def fail(msg):
         if _is_ajax(request):
             return JsonResponse({"ok": False, "error": msg}, status=400)
         messages.error(request, msg)
-        return redirect_back(request, "cart")
+        return redirect("product_detail", pk=pk) if product.has_variants else redirect_back(request, "cart")
+
+    variant = None
+    if product.has_variants:
+        vid = request.POST.get("variant", "")
+        variant = product.variants.filter(pk=vid).first() if vid.isdigit() else None
+        if not variant:
+            return fail(f"Please choose a size/colour for {product.name}.")
+    stock = variant.stock if variant else product.stock
+    name = f"{product.name} ({variant.label})" if variant else product.name
+    if stock <= 0:
+        return fail(f"{name} is out of stock.")
 
     cart = request.session.get("cart", {})
-    key = str(pk)
+    key = make_key(pk, variant.pk if variant else None)
     try:
         qty = int(request.POST.get("quantity", 1))
     except (TypeError, ValueError):
@@ -799,17 +851,18 @@ def add_to_cart(request, pk):
     qty = max(1, min(qty, 99))
     new_qty = cart.get(key, 0) + qty
     warning = None
-    if new_qty > product.stock:
-        new_qty = product.stock
-        warning = f"Only {product.stock} of {product.name} left in stock."
+    if new_qty > stock:
+        new_qty = stock
+        warning = f"Only {stock} of {name} left in stock."
     cart[key] = new_qty
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
 
     if _is_ajax(request):
         return JsonResponse({
             "ok": True,
-            "message": f"{product.name} added to cart.",
+            "message": f"{name} added to cart.",
             "warning": warning,
             "cart_count": cart_count(request),
             "product_id": product.id,
@@ -818,22 +871,22 @@ def add_to_cart(request, pk):
 
     if warning:
         messages.warning(request, warning)
-    messages.success(request, f"{product.name} added to cart.")
+    messages.success(request, f"{name} added to cart.")
     return redirect_back(request, "cart")
 
 
 @require_POST
-def update_cart_item(request, pk):
+def update_cart_item(request, key):
+    from .cart import lines
     cart = request.session.get("cart", {})
-    key = str(pk)
     action = request.POST.get("action")
     warning = None
     if key in cart:
         if action == "increase":
-            product = Product.objects.filter(pk=pk).first()
-            if product and cart[key] >= product.stock:
-                warning = f"Only {product.stock} of {product.name} available."
-            else:
+            row = next(iter(lines({key: cart[key]})), None)
+            if row and cart[key] >= row["stock"]:
+                warning = f"Only {row['stock']} of {row['product'].name} available."
+            elif row:
                 cart[key] += 1
         elif action == "decrease":
             cart[key] -= 1
@@ -842,11 +895,12 @@ def update_cart_item(request, pk):
         elif action == "remove":
             del cart[key]
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
 
     if _is_ajax(request):
         items, total, count = _get_cart_items(request)
-        row = next((i for i in items if str(i["product"].id) == key), None)
+        row = next((i for i in items if i["key"] == key), None)
         return JsonResponse({
             "ok": True,
             "warning": warning,
@@ -854,7 +908,7 @@ def update_cart_item(request, pk):
             "cart_total": str(total),
             "cart_total_display": money(total),
             "removed": row is None,
-            "product_id": pk,
+            "key": key,
             "product_qty": row["qty"] if row else 0,
             "product_subtotal": str(row["subtotal"]) if row else "0",
             "product_subtotal_display": money(row["subtotal"]) if row else money(0),
@@ -877,6 +931,7 @@ def cart_bulk_remove(request):
     for pid in request.POST.getlist("selected"):
         cart.pop(pid, None)
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
     messages.success(request, "Selected items removed from cart.")
     return redirect("cart")
@@ -933,23 +988,29 @@ def _payment_methods():
     return methods
 
 
-def _price_cart(subtotal, coupon=None):
-    """Returns the full price breakdown for a cart subtotal."""
+def _price_cart(subtotal, coupon=None, country=None):
+    """Returns the full price breakdown for a cart subtotal. Shipping
+    depends on the destination country; ``shipping`` is None while the
+    country isn't known, and ``ships`` is False if we don't deliver there."""
+    from . import shipping as shipping_rules
     brand = _brand()
     discount = Decimal("0")
     if coupon:
         discount = (subtotal * Decimal(coupon.percent_off) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     discounted = max(subtotal - discount, Decimal("0"))
-    # Free-shipping threshold is checked against what the customer actually
-    # pays for the goods (after the coupon).
-    shipping = brand.shipping_for(discounted) if subtotal else Decimal("0")
+    # Free-shipping thresholds are checked against what the customer
+    # actually pays for the goods (after the coupon).
+    quote = shipping_rules.quote(country, discounted) if subtotal else {"ships": True, "fee": Decimal("0"), "zone": None}
+    shipping = quote["fee"]
     tax = (discounted * Decimal(brand.tax_percent or 0) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
         "subtotal": subtotal,
         "discount": discount,
+        "ships": quote["ships"],
+        "shipping_zone": quote["zone"],
         "shipping": shipping,
         "tax": tax,
-        "total": discounted + shipping + tax,
+        "total": discounted + (shipping or Decimal("0")) + tax,
         "tax_percent": brand.tax_percent,
     }
 
@@ -972,7 +1033,6 @@ class CheckoutError(Exception):
     pass
 
 
-@login_required
 @ratelimit("checkout", rate_limit=10, window_seconds=300, redirect_to="cart",
            message="Too many checkout attempts. Please wait a few minutes and try again.")
 def checkout_view(request):
@@ -982,7 +1042,8 @@ def checkout_view(request):
         return redirect("cart")
 
     coupon, coupon_error = _session_coupon(request, subtotal)
-    pricing = _price_cart(subtotal, coupon)
+    default_address = Address.objects.filter(user=request.user, is_default=True).first() if request.user.is_authenticated else None
+    pricing = _price_cart(subtotal, coupon, default_address.country if default_address else None)
     methods = _payment_methods()
 
     if request.method == "POST":
@@ -998,10 +1059,13 @@ def checkout_view(request):
         data = {f: request.POST.get(f, "").strip() for f in CHECKOUT_REQUIRED + ("state",)}
         data["country"] = data["country"].upper()[:2]
         missing = [f.replace("_", " ") for f in CHECKOUT_REQUIRED if not data[f]]
+        pricing = _price_cart(subtotal, coupon, data["country"])
         try:
             if missing:
                 raise ValidationError(f"Please fill in: {', '.join(missing)}.")
             validate_email(data["email"])
+            if not pricing["ships"]:
+                raise ValidationError(f"Sorry, we don't deliver to {country_name(data['country'])} yet.")
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods, data))
@@ -1013,7 +1077,10 @@ def checkout_view(request):
             return redirect("cart")
 
         request.session["cart"] = {}
+        _persist_cart(request)
         request.session["coupon_code"] = ""
+        if not order.user_id:
+            _remember_guest_order(request, order)
         request.session.modified = True
 
         if payment_method == "card" and order.total_cents > 0:
@@ -1032,7 +1099,8 @@ def checkout_view(request):
             order.save(update_fields=["payment_status", "status"])
 
         _send_order_confirmation(request, order)
-        Notification.objects.create(user=request.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
+        if order.user_id:
+            Notification.objects.create(user=request.user, message=f"Order #{order.id} placed successfully.", link="/my-orders/")
         return redirect("order_success", order_id=order.id)
 
     return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods))
@@ -1044,14 +1112,22 @@ def _store_credit(user):
 
 
 def _checkout_context(request, items, pricing, coupon, methods, form=None):
+    signed_in = request.user.is_authenticated
     if form is None:
-        form = {"email": request.user.email, "full_name": request.user.get_full_name()}
-        default = Address.objects.filter(user=request.user, is_default=True).first()
+        form = {"email": request.user.email, "full_name": request.user.get_full_name()} if signed_in else {}
+        default = Address.objects.filter(user=request.user, is_default=True).first() if signed_in else None
         if default:
             form.update({f: getattr(default, f) for f in ("full_name", "phone", "address", "city", "state", "postal_code", "country")})
-    credit = _store_credit(request.user)
+    from . import shipping as shipping_rules
+    credit = _store_credit(request.user) if request.user.is_authenticated else Decimal("0")
     credit_applicable = min(credit, pricing["total"])
+    checkout_data = {
+        "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "tax": str(pricing["tax"]),
+        "credit": str(credit), "currency": settings.STORE_CURRENCY.upper(),
+        "shipping": shipping_rules.table(), "card": "card" in methods,
+    }
     return {
+        "checkout_data": checkout_data,
         "store_credit": credit,
         "credit_applicable": credit_applicable,
         "total_after_credit": pricing["total"] - credit_applicable,
@@ -1061,7 +1137,8 @@ def _checkout_context(request, items, pricing, coupon, methods, form=None):
         "discount_amount": pricing["discount"],
         "final_total": pricing["total"],
         "coupon": coupon,
-        "addresses": Address.objects.filter(user=request.user),
+        "addresses": Address.objects.filter(user=request.user) if signed_in else [],
+        "guest": not signed_in,
         "payment_methods": methods,
         "form": form,
     }
@@ -1072,8 +1149,10 @@ def _place_order(request, items, data, payment_method, use_credit=False):
     can't both take the last unit, re-checks stock and the coupon inside
     the transaction, then decrements stock."""
     with transaction.atomic():
-        product_ids = sorted(item["product"].id for item in items)
+        product_ids = sorted({item["product"].id for item in items})
         locked = {p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids).order_by("id")}
+        variant_ids = sorted(item["variant"].id for item in items if item.get("variant"))
+        locked_variants = {v.id: v for v in ProductVariant.objects.select_for_update().filter(id__in=variant_ids).order_by("id")}
 
         subtotal = Decimal("0")
         lines = []
@@ -1081,24 +1160,40 @@ def _place_order(request, items, data, payment_method, use_credit=False):
             product = locked.get(item["product"].id)
             if not product or not product.is_live:
                 raise CheckoutError(f"{item['product'].name} is no longer available.")
-            if item["qty"] > product.stock:
-                raise CheckoutError(f"Sorry, only {product.stock} of {product.name} left in stock. Please update your cart.")
-            subtotal += product.price * item["qty"]
-            lines.append((product, item["qty"]))
+            variant = None
+            if item.get("variant"):
+                variant = locked_variants.get(item["variant"].id)
+                if not variant or variant.product_id != product.id:
+                    raise CheckoutError(f"That option of {product.name} is no longer available. Please update your cart.")
+                if item["qty"] > variant.stock:
+                    raise CheckoutError(f"Sorry, only {variant.stock} of {product.name} ({variant.label}) left in stock. Please update your cart.")
+                price = variant.price if variant.price is not None else product.price
+            else:
+                if product.has_variants:
+                    raise CheckoutError(f"Please choose a size/colour for {product.name}.")
+                if item["qty"] > product.stock:
+                    raise CheckoutError(f"Sorry, only {product.stock} of {product.name} left in stock. Please update your cart.")
+                price = product.price
+            subtotal += price * item["qty"]
+            lines.append((product, variant, price, item["qty"]))
 
         coupon = None
         code = request.session.get("coupon_code", "")
         if code:
             coupon = Coupon.objects.select_for_update().filter(code__iexact=code).first()
             if coupon:
-                is_valid, error = coupon.is_valid_for(request.user, subtotal)
+                is_valid, error = coupon.is_valid_for(request.user, subtotal, email=data["email"])
                 if not is_valid:
                     raise CheckoutError(error)
 
-        pricing = _price_cart(subtotal, coupon)
+        pricing = _price_cart(subtotal, coupon, data["country"])
+        if not pricing["ships"]:
+            raise CheckoutError("Sorry, we don't deliver to that country yet.")
         is_card = payment_method == "card"
+        signed_in = request.user.is_authenticated
         order = Order.objects.create(
-            user=request.user,
+            user=request.user if signed_in else None,
+            guest_email="" if signed_in else data["email"],
             email=data["email"],
             full_name=data["full_name"][:150],
             address=data["address"][:255],
@@ -1114,11 +1209,12 @@ def _place_order(request, items, data, payment_method, use_credit=False):
             discount_amount=pricing["discount"],
             shipping_amount=pricing["shipping"],
             tax_amount=pricing["tax"],
-            estimated_delivery=order_emails.default_delivery_date(),
+            estimated_delivery=order_emails.default_delivery_date(country=data["country"]),
         )
         seller_cache = {}
-        for product, qty in lines:
-            item = OrderItem(order=order, product=product, product_name=product.name, price=product.price, quantity=qty)
+        for product, variant, price, qty in lines:
+            name = f"{product.name} ({variant.label})" if variant else product.name
+            item = OrderItem(order=order, product=product, variant=variant, product_name=name[:255], price=price, quantity=qty)
             seller = None
             if product.seller_account_id:
                 if product.seller_account_id not in seller_cache:
@@ -1126,9 +1222,12 @@ def _place_order(request, items, data, payment_method, use_credit=False):
                 seller = seller_cache[product.seller_account_id]
             item.apply_commission(seller)
             item.save()
-            product.stock -= qty
+            if variant:
+                variant.stock -= qty
+                variant.save(update_fields=["stock"])
+            product.stock = max(product.stock - qty, 0)
             product.save(update_fields=["stock"])  # save() sends low-stock alerts
-        if use_credit:
+        if use_credit and signed_in:
             profile = Profile.objects.select_for_update().filter(user=request.user).first()
             if profile and profile.store_credit > 0:
                 credit = min(profile.store_credit, order.grand_total)
@@ -1140,11 +1239,14 @@ def _place_order(request, items, data, payment_method, use_credit=False):
 
 
 def _restore_cart_from_order(request, order):
+    from .cart import make_key
     cart = request.session.get("cart", {})
     for item in order.items.all():
         if item.product_id:
-            cart[str(item.product_id)] = cart.get(str(item.product_id), 0) + item.quantity
+            key = make_key(item.product_id, item.variant_id)
+            cart[key] = cart.get(key, 0) + item.quantity
     request.session["cart"] = cart
+    _persist_cart(request)
     if order.coupon_code and not request.session.get("coupon_code"):
         request.session["coupon_code"] = order.coupon_code
     request.session.modified = True
@@ -1171,19 +1273,59 @@ def apply_coupon(request):
     return redirect("checkout")
 
 
+def _remember_guest_order(request, order):
+    ids = request.session.get("guest_orders", [])
+    if order.pk not in ids:
+        request.session["guest_orders"] = (ids + [order.pk])[-20:]
+
+
+def _order_access(request, order_id, owner_only=False, lock=False):
+    """The order if this visitor may see it: its owner, staff (unless
+    ``owner_only``), or - for guest orders - the browser that placed it or
+    anyone with its private tracking link (?t=token)."""
+    qs = Order.objects.select_for_update() if lock else Order.objects.all()
+    order = get_object_or_404(qs, pk=order_id)
+    user = request.user
+    if user.is_authenticated and order.user_id == user.id:
+        return order
+    if user.is_authenticated and user.is_staff and not owner_only:
+        return order
+    if order.user_id is None:
+        token = request.GET.get("t", "")
+        if order.pk in request.session.get("guest_orders", []) or (token and secrets.compare_digest(token, order.access_token)):
+            _remember_guest_order(request, order)
+            return order
+    raise Http404
+
+
 def _get_order_for_viewer(request, order_id):
-    """Orders are visible to their owner and to staff only."""
-    if not request.user.is_authenticated:
-        raise Http404
-    if request.user.is_staff:
-        return get_object_or_404(Order, pk=order_id)
-    return get_object_or_404(Order, pk=order_id, user=request.user)
+    return _order_access(request, order_id)
 
 
-@login_required
+def _orders_page(request, order):
+    """Where to send a customer after an order action."""
+    if order.user_id and request.user.is_authenticated:
+        return redirect("my_orders")
+    return redirect(order.tracking_path())
+
+
 def order_success(request, order_id):
-    order = _get_order_for_viewer(request, order_id)
+    order = _order_access(request, order_id)
     return render(request, "bees/order_success.html", {"order": order})
+
+
+def order_track(request, order_id, token):
+    """Private tracking page for guest orders (link is in every email)."""
+    order = get_object_or_404(Order, pk=order_id)
+    if not token or not secrets.compare_digest(token, order.access_token):
+        raise Http404
+    if order.user_id:
+        if request.user.is_authenticated and request.user.id == order.user_id:
+            return redirect("my_orders")
+        return redirect(f"{reverse('login')}?{urlencode({'next': reverse('my_orders')})}")
+    _remember_guest_order(request, order)
+    order = Order.objects.prefetch_related("items", "items__product", "items__return_requests").get(pk=order.pk)
+    return render(request, "bees/my_orders.html", {"orders": [order], "guest": True})
 
 
 @login_required
@@ -1194,18 +1336,17 @@ def my_orders(request):
     return render(request, "bees/my_orders.html", {"orders": orders})
 
 
-@login_required
 @require_POST
 def cancel_order(request, pk):
     with transaction.atomic():
-        order = get_object_or_404(Order.objects.select_for_update(), pk=pk, user=request.user)
+        order = _order_access(request, pk, owner_only=True, lock=True)
         if not order.is_cancellable:
             messages.error(request, "This order can no longer be cancelled.")
-            return redirect("my_orders")
+            return _orders_page(request, order)
         if order.payment_status == "paid":
             if not payments.refund_order(order):
                 messages.error(request, "We couldn't process the refund automatically. Please contact support and we'll sort it out.")
-                return redirect("my_orders")
+                return _orders_page(request, order)
             order.payment_status = "refunded"
         payments.void_pending_payment(order)
         order.status = "cancelled"
@@ -1215,7 +1356,7 @@ def cancel_order(request, pk):
         messages.success(request, f"Order #{order.id} has been cancelled and a full refund issued to your card.")
     else:
         messages.success(request, f"Order #{order.id} has been cancelled.")
-    return redirect("my_orders")
+    return _orders_page(request, order)
 
 
 @login_required
@@ -1260,14 +1401,21 @@ def buy_again(request, order_id):
     order = get_object_or_404(Order, pk=order_id, user=request.user)
     cart = request.session.get("cart", {})
     added, skipped = 0, 0
-    for item in order.items.select_related("product"):
-        if not item.product or item.product.stock <= 0 or not item.product.is_live:
+    from .cart import make_key
+    for item in order.items.select_related("product", "variant"):
+        product, variant = item.product, item.variant
+        if product and product.has_variants and (not variant or variant.product_id != product.id):
+            variant = None
+            product = None  # that size/colour no longer exists
+        stock = variant.stock if variant else (product.stock if product else 0)
+        if not product or stock <= 0 or not product.is_live:
             skipped += 1
             continue
-        key = str(item.product.id)
-        cart[key] = min(cart.get(key, 0) + item.quantity, item.product.stock)
+        key = make_key(product.id, variant.id if variant else None)
+        cart[key] = min(cart.get(key, 0) + item.quantity, stock)
         added += 1
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
     if added:
         messages.success(request, f"{added} item(s) added back to your cart.")
@@ -1276,7 +1424,6 @@ def buy_again(request, order_id):
     return redirect("cart")
 
 
-@login_required
 def invoice_pdf(request, order_id):
     order = _get_order_for_viewer(request, order_id)
 
@@ -1374,21 +1521,21 @@ def invoice_pdf(request, order_id):
 # Stripe payments
 # ---------------------------------------------------------------------------
 
-@login_required
 def payment_success(request):
     session_id = request.GET.get("session_id", "")
     session = payments.retrieve_session(session_id) if session_id and payments.is_configured() else None
     if not session:
-        messages.info(request, "We're confirming your payment. You'll see it in My orders shortly.")
-        return redirect("my_orders")
+        messages.info(request, "We're confirming your payment. We'll email you as soon as it's done.")
+        return redirect("my_orders" if request.user.is_authenticated else "home")
     order_id = (session.get("metadata") or {}).get("order_id")
-    order = Order.objects.filter(pk=order_id, user=request.user).first() if order_id else None
-    if not order:
+    if not str(order_id or "").isdigit():
         raise Http404
+    order = _order_access(request, int(order_id), owner_only=True)
     order, newly_paid = payments.mark_order_paid(order.id, session)
     if newly_paid:
         _send_order_confirmation(request, order)
-        Notification.objects.create(user=order.user, message=f"Payment received for order #{order.id}.", link="/my-orders/")
+        if order.user_id:
+            Notification.objects.create(user=order.user, message=f"Payment received for order #{order.id}.", link="/my-orders/")
     if order.payment_status == "paid":
         messages.success(request, "Payment received - thank you!")
     else:
@@ -1396,18 +1543,17 @@ def payment_success(request):
     return redirect("order_success", order_id=order.id)
 
 
-@login_required
 @require_POST
 def pay_online(request, order_id):
     """Lets a customer pay a cash-on-delivery order online in advance."""
     with transaction.atomic():
-        order = get_object_or_404(Order.objects.select_for_update(), pk=order_id, user=request.user)
+        order = _order_access(request, order_id, owner_only=True, lock=True)
         if not payments.is_configured():
             messages.error(request, "Online payment isn't available right now. You can pay cash on delivery.")
-            return redirect("my_orders")
-        if order.payment_method != "cod" or order.payment_status != "not_applicable" or order.status not in ("pending", "confirmed"):
+            return _orders_page(request, order)
+        if order.payment_method != "cod" or order.payment_status != "not_applicable" or order.status not in ("pending", "confirmed") or not order.total_cents:
             messages.info(request, "This order can't be paid online.")
-            return redirect("my_orders")
+            return _orders_page(request, order)
         order.cod_fallback = True
         order.payment_method = "card"
         order.payment_status = "pending"
@@ -1417,12 +1563,11 @@ def pay_online(request, order_id):
     except payments.PaymentError as exc:
         payments.release_unpaid_order(order.id)
         messages.error(request, str(exc))
-        return redirect("my_orders")
+        return _orders_page(request, order)
 
 
-@login_required
 def payment_cancel(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    order = _order_access(request, order_id, owner_only=True)
     if order.payment_status == "pending" and order.stripe_session_id and payments.is_configured():
         session = payments.retrieve_session(order.stripe_session_id)
         if session and session.get("payment_status") == "paid":
@@ -1436,25 +1581,24 @@ def payment_cancel(request, order_id):
         payments.release_unpaid_order(order.id, reason="failed")
         if was_cod:
             messages.info(request, "Online payment cancelled - nothing was charged. Your order stays on cash on delivery.")
-            return redirect("my_orders")
+            return _orders_page(request, order)
         _restore_cart_from_order(request, order)
         messages.info(request, "Payment cancelled - nothing was charged. Your items are back in your cart.")
         return redirect("cart")
-    return redirect("my_orders")
+    return _orders_page(request, order)
 
 
-@login_required
 def resume_payment(request, order_id):
-    order = get_object_or_404(Order, pk=order_id, user=request.user)
+    order = _order_access(request, order_id, owner_only=True)
     if order.payment_status != "pending" or not order.stripe_session_id:
-        return redirect("my_orders")
+        return _orders_page(request, order)
     session = payments.retrieve_session(order.stripe_session_id)
     if session and session.get("status") == "open" and session.get("url"):
         return redirect(session["url"])
     if session and session.get("payment_status") == "paid":
         return redirect(f"{reverse('payment_success')}?session_id={order.stripe_session_id}")
     messages.error(request, "That payment link has expired. Please place the order again.")
-    return redirect("my_orders")
+    return _orders_page(request, order)
 
 
 @csrf_exempt
@@ -1742,29 +1886,85 @@ def _product_fields_from_post(request):
     }
 
 
+def parse_variant_rows(request):
+    """Reads the size/colour rows from a product form. Blank rows are
+    ignored. Raises ValidationError for bad values or duplicates."""
+    post = request.POST
+    ids, sizes, colors = post.getlist("variant_id"), post.getlist("variant_size"), post.getlist("variant_color")
+    prices, stocks, skus = post.getlist("variant_price"), post.getlist("variant_stock"), post.getlist("variant_sku")
+    rows, seen = [], set()
+    for i, size in enumerate(sizes):
+        size = size.strip()[:40]
+        color = (colors[i] if i < len(colors) else "").strip()[:40]
+        if not size and not color:
+            continue
+        combo = (size.lower(), color.lower())
+        if combo in seen:
+            raise ValidationError(f"The option {' / '.join(p for p in (size, color) if p)} is listed twice.")
+        seen.add(combo)
+        price = _parse_decimal(prices[i] if i < len(prices) else "", f"Price for {size or color}", required=False, minimum=Decimal("0.01"))
+        stock = _parse_int(stocks[i] if i < len(stocks) else "0", f"Stock for {size or color}", minimum=0, maximum=1_000_000)
+        vid = ids[i] if i < len(ids) else ""
+        rows.append({"id": int(vid) if vid.isdigit() else None, "size": size, "color": color, "price": price,
+                     "stock": stock, "sku": (skus[i] if i < len(skus) else "").strip()[:60]})
+    return rows
+
+
+def apply_variant_rows(product, rows):
+    """Saves the rows as the product's variants (update / add / remove)
+    and refreshes the product's total stock."""
+    existing = {v.id: v for v in product.variants.all()}
+    keep = set()
+    for position, row in enumerate(rows):
+        variant = existing.get(row["id"]) or ProductVariant(product=product)
+        for field in ("size", "color", "price", "stock", "sku"):
+            setattr(variant, field, row[field])
+        variant.position = position
+        variant.save()
+        keep.add(variant.id)
+    ProductVariant.objects.filter(product=product).exclude(id__in=keep).delete()
+    product.sync_variants()
+
+
+def variant_rows_for_form(request, product=None):
+    if request.method == "POST":
+        try:
+            return parse_variant_rows(request)
+        except ValidationError:
+            post = request.POST
+            return [{"id": "", "size": s, "color": c, "price": p, "stock": st, "sku": k} for s, c, p, st, k in zip(
+                post.getlist("variant_size"), post.getlist("variant_color"), post.getlist("variant_price"),
+                post.getlist("variant_stock"), post.getlist("variant_sku"))]
+    return list(product.variants.all()) if product else []
+
+
 @login_required
 def seller_add_product(request):
     seller, role = _approved_seller_or_404(request.user)
     if request.method == "POST":
         try:
             fields = _product_fields_from_post(request)
+            variant_rows = parse_variant_rows(request)
             if not fields["image_url"]:
                 raise ValidationError("Please add a product image (upload a file or paste an https:// link).")
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return render(request, "bees/seller_add_product.html", {
-                "categories": Product.CATEGORY_CHOICES, "p": request.POST,
+                "categories": Product.CATEGORY_CHOICES, "p": request.POST, "variant_rows": variant_rows_for_form(request),
             })
-        Product.objects.create(
-            **fields,
-            seller_account=seller,
-            seller_name=seller.display_name,
-            approval_status="pending",
-        )
+        with transaction.atomic():
+            product = Product.objects.create(
+                **fields,
+                seller_account=seller,
+                seller_name=seller.display_name,
+                approval_status="pending",
+            )
+            if variant_rows:
+                apply_variant_rows(product, variant_rows)
         messages.success(request, "Product submitted for review. It will go live once approved by an admin.")
         return redirect("seller_dashboard")
     return render(request, "bees/seller_add_product.html", {
-        "categories": Product.CATEGORY_CHOICES, "p": {"stock": 10, "discount_percent": 0},
+        "categories": Product.CATEGORY_CHOICES, "p": {"stock": 10, "discount_percent": 0}, "variant_rows": [],
     })
 
 
@@ -1780,10 +1980,12 @@ def seller_edit_product(request, pk):
     if request.method == "POST":
         try:
             fields = _product_fields_from_post(request)
+            variant_rows = parse_variant_rows(request)
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return render(request, "bees/seller_add_product.html", {
                 "categories": Product.CATEGORY_CHOICES, "product": product, "p": request.POST,
+                "variant_rows": variant_rows_for_form(request, product),
             })
         if not fields["image_url"]:
             fields["image_url"] = product.image_url
@@ -1795,11 +1997,13 @@ def seller_edit_product(request, pk):
             messages.success(request, "Product updated. Because the listing details changed, it will go live again after a quick review.")
         else:
             messages.success(request, "Product updated.")
-        product.save()
+        with transaction.atomic():
+            product.save()
+            apply_variant_rows(product, variant_rows)
         return redirect("seller_dashboard")
     return render(request, "bees/seller_add_product.html", {
         "categories": Product.CATEGORY_CHOICES,
-        "product": product, "p": product,
+        "product": product, "p": product, "variant_rows": variant_rows_for_form(request, product),
     })
 
 

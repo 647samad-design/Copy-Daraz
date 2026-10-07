@@ -93,6 +93,21 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Demo catalogue ready: {created_count} new products, {updated_images} product images created."))
 
+        # Demo sizes for clothing and shoes (only where none exist yet).
+        from bees.models import ProductVariant
+        size_sets = {"hoodies": ["S", "M", "L", "XL"], "sneakers": ["7", "8", "9", "10", "11"]}
+        sized = 0
+        for category, sizes in size_sets.items():
+            for product in Product.objects.filter(category=category, seller_account__isnull=True, has_variants=False):
+                ProductVariant.objects.bulk_create([
+                    ProductVariant(product=product, size=size, stock=rng.choice([0, 3, 6, 10]), position=i)
+                    for i, size in enumerate(sizes)
+                ])
+                product.sync_variants()
+                sized += 1
+        if sized:
+            self.stdout.write(self.style.SUCCESS(f"Added sizes to {sized} demo products."))
+
         for code, pct in [("WELCOME10", 10), ("SAVE20", 20)]:
             _, created = Coupon.objects.get_or_create(code=code, defaults={"percent_off": pct, "active": True})
             if created:

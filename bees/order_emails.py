@@ -63,9 +63,10 @@ def add_business_days(start, days):
     return current
 
 
-def default_delivery_date(order=None):
+def default_delivery_date(order=None, country=None):
     from .models import SiteSettings
-    days = SiteSettings.load().delivery_days or 5
+    from .shipping import delivery_days
+    days = delivery_days(country or (order.country if order else None)) or SiteSettings.load().delivery_days or 5
     start = timezone.localdate(order.created_at) if order and order.created_at else timezone.localdate()
     return add_business_days(start, days)
 
@@ -82,8 +83,8 @@ def send(order, kind):
             "brand": brand,
             "order": order,
             "kind": kind,
-            "orders_url": absolute(reverse("my_orders")),
-            "invoice_url": absolute(reverse("invoice_pdf", args=[order.id])),
+            "orders_url": absolute(order.tracking_path() if order.is_guest else reverse("my_orders")),
+            "invoice_url": absolute(reverse("invoice_pdf", args=[order.id])) + (f"?t={order.access_token}" if order.is_guest else ""),
             "shop_url": absolute(reverse("home")),
             "items": [
                 {

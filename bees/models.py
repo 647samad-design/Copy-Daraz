@@ -101,6 +101,19 @@ class Product(models.Model):
 
 
     objects = ProductQuerySet.as_manager()
+    # True when the product is sold in sizes/colours (see ProductVariant);
+    # ``stock`` is then the total of all variants.
+    has_variants = models.BooleanField(default=False)
+
+    def sync_variants(self):
+        """Keeps ``stock`` and ``has_variants`` in line with the variants."""
+        from django.db.models import Sum
+        total = self.variants.aggregate(n=Sum("stock"))["n"]
+        has = total is not None
+        Product.objects.filter(pk=self.pk).update(has_variants=has, **({"stock": total} if has else {}))
+        self.has_variants = has
+        if has:
+            self.stock = total
 
     @property
     def is_live(self):
@@ -149,6 +162,50 @@ class Product(models.Model):
         if hasattr(self, "review_count"):
             return self.review_count
         return self.reviews.count()
+
+
+class ProductVariant(models.Model):
+    """One buyable version of a product, e.g. size M in red. Each has its
+    own stock and, optionally, its own price."""
+    product = models.ForeignKey(Product, related_name="variants", on_delete=models.CASCADE)
+    size = models.CharField(max_length=40, blank=True)
+    color = models.CharField(max_length=40, blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                help_text="Leave empty to use the product price.")
+    stock = models.PositiveIntegerField(default=0)
+    sku = models.CharField("SKU", max_length=60, blank=True)
+    position = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.product.name} ({self.label})"
+
+    @property
+    def label(self):
+        return " / ".join(part for part in (self.size, self.color) if part) or "Standard"
+
+    @property
+    def unit_price(self):
+        return self.price if self.price is not None else self.product.price
+
+
+class StockAlert(models.Model):
+    """"Email me when it's back" request for a sold-out product (or one
+    size/colour of it)."""
+    product = models.ForeignKey(Product, related_name="stock_alerts", on_delete=models.CASCADE)
+    variant = models.ForeignKey(ProductVariant, null=True, blank=True, related_name="stock_alerts", on_delete=models.CASCADE)
+    email = models.EmailField()
+    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+    notified_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} -> {self.product.name}"
 
 
 class Review(models.Model):
@@ -219,6 +276,8 @@ class Order(models.Model):
     # change what the goods cost) and whether it was given back on cancel.
     credit_used = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     credit_returned = models.BooleanField(default=False)
+    # Secret for the tracking link emailed to guest customers.
+    access_token = models.CharField(max_length=32, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     CANCELLABLE_STATUSES = ("pending", "confirmed")
@@ -287,8 +346,21 @@ class Order(models.Model):
             return self.user.email
         return self.guest_email
 
+    @property
+    def is_guest(self):
+        return self.user_id is None
+
+    def tracking_path(self):
+        from django.urls import reverse
+        return reverse("order_track", args=[self.pk, self.access_token])
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
+        if not self.access_token:
+            import secrets
+            self.access_token = secrets.token_urlsafe(16)[:32]
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = list(kwargs["update_fields"]) + ["access_token"]
         old_status = None
         if not is_new:
             old_status = Order.objects.filter(pk=self.pk).values_list("status", flat=True).first()
@@ -373,6 +445,7 @@ class OrderItem(models.Model):
     )
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     commission_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    variant = models.ForeignKey("ProductVariant", null=True, blank=True, on_delete=models.SET_NULL, related_name="order_items")
 
     objects = OrderItemQuerySet.as_manager()
     FULFILLMENT_CHOICES = [
@@ -444,14 +517,16 @@ class Coupon(models.Model):
     def times_used(self):
         return Order.objects.filter(coupon_code__iexact=self.code).exclude(status="cancelled").count()
 
-    def times_used_by(self, user):
-        if not user or not user.is_authenticated:
-            return 0
-        return Order.objects.filter(
-            user=user, coupon_code__iexact=self.code
-        ).exclude(status="cancelled").count()
+    def times_used_by(self, user, email=None):
+        orders = Order.objects.filter(coupon_code__iexact=self.code).exclude(status="cancelled")
+        if user and user.is_authenticated:
+            return orders.filter(user=user).count()
+        if email:
+            # Guests are counted by the email they check out with.
+            return orders.filter(models.Q(email__iexact=email) | models.Q(guest_email__iexact=email)).count()
+        return 0
 
-    def is_valid_for(self, user, order_total):
+    def is_valid_for(self, user, order_total, email=None):
         """Returns (is_valid, error_message). error_message is None if valid."""
         from django.utils import timezone
 
@@ -464,7 +539,7 @@ class Coupon(models.Model):
             return False, f"This coupon needs a minimum order of {money(self.min_order_value)}."
         if self.usage_limit is not None and self.times_used() >= self.usage_limit:
             return False, "This coupon has reached its usage limit."
-        if self.times_used_by(user) >= self.per_user_limit:
+        if self.times_used_by(user, email) >= self.per_user_limit:
             return False, "You've already used this coupon the maximum number of times."
         return True, None
 
@@ -491,6 +566,17 @@ class Profile(models.Model):
     # Stripe customer that holds this person's saved cards. Card numbers
     # never touch our servers - Stripe stores them.
     stripe_customer_id = models.CharField(max_length=255, blank=True)
+    # Cart kept with the account so it follows the customer between
+    # devices, and for the "you left something in your cart" reminder.
+    saved_cart = models.JSONField(default=dict, blank=True)
+    cart_updated_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    cart_reminder_sent = models.BooleanField(default=False)
+    cart_reminders = models.BooleanField(default=True, help_text="Email a reminder about items left in the cart.")
+    # Two-step sign-in (authenticator app).
+    totp_secret = models.CharField(max_length=64, blank=True)
+    totp_enabled = models.BooleanField(default=False)
+    totp_last_step = models.BigIntegerField(default=0)
+    backup_codes = models.JSONField(default=list, blank=True)
 
     POINTS_PER_UNIT = 100  # 100 reward points = 1.00 of store credit
 
@@ -802,6 +888,41 @@ class ReturnRequest(models.Model):
         return f"Return: {self.order_item.product_name} ({self.status})"
 
 
+class ShippingZone(models.Model):
+    """Shipping fee for a group of countries. A zone whose countries are
+    "*" covers every country not listed in another zone ("rest of the
+    world"). With no zones at all, the flat fee in Settings applies
+    everywhere."""
+    name = models.CharField(max_length=60, help_text="e.g. United States, Europe, Rest of world")
+    countries = models.TextField(help_text="Two-letter country codes separated by commas (US, CA), or * for every other country.")
+    fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    free_over = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                    help_text="Orders at or above this amount (after discounts) ship free. Empty = never free.")
+    delivery_days = models.PositiveSmallIntegerField(null=True, blank=True,
+                                                     help_text="Usual delivery time in business days. Empty = store default.")
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_rest_of_world(self):
+        return self.countries.strip() == "*"
+
+    @property
+    def country_codes(self):
+        return [c.strip().upper() for c in self.countries.replace("\n", ",").split(",") if c.strip() and c.strip() != "*"]
+
+    def fee_for(self, amount):
+        from decimal import Decimal
+        if self.free_over is not None and amount >= self.free_over:
+            return Decimal("0")
+        return self.fee
+
+
 class SiteSettings(models.Model):
     """A single-row table for site-wide settings, editable from the admin
     panel. Everything brand-related lives here so the store can be
@@ -837,6 +958,10 @@ class SiteSettings(models.Model):
     )
     delivery_days = models.PositiveSmallIntegerField(
         default=5, help_text="Usual delivery time in business days. Used for the 'Arrives by' date customers see and get emailed.",
+    )
+    require_staff_2fa = models.BooleanField(
+        "Require two-step sign-in for staff", default=True,
+        help_text="Staff must use an authenticator app code to open the store admin.",
     )
     allow_cash_on_delivery = models.BooleanField(default=True, help_text="Show 'Cash on delivery' at checkout. Card payments appear automatically once Stripe keys are set.")
     show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")
@@ -932,6 +1057,41 @@ class ChatMessage(models.Model):
 # membership changes.
 from django.db.models.signals import post_delete, post_save  # noqa: E402
 from django.dispatch import receiver  # noqa: E402
+
+
+@receiver(post_save, sender=Product)
+@receiver(post_save, sender=ProductVariant)
+def _back_in_stock(sender, instance, **kwargs):
+    if instance.stock > 0:
+        from .stock_alerts import notify_restocked
+        if sender is Product:
+            notify_restocked(instance.pk, None)
+        else:
+            notify_restocked(instance.product_id, instance.pk)
+
+
+from django.contrib.auth.signals import user_logged_in  # noqa: E402
+
+
+@receiver(user_logged_in)
+def _merge_saved_cart(sender, request, user, **kwargs):
+    """On sign-in, items saved on the account (e.g. from another device)
+    are added to this browser's cart, and the merged cart is saved back."""
+    if request is None or not hasattr(request, "session"):
+        return
+    from .cart import persist
+    profile = Profile.objects.filter(user=user).only("saved_cart").first()
+    cart = dict(request.session.get("cart", {}))
+    for key, qty in ((profile.saved_cart if profile else {}) or {}).items():
+        cart.setdefault(key, qty)
+    request.session["cart"] = cart
+    persist(request, user=user)
+
+
+@receiver([post_save, post_delete], sender=ShippingZone)
+def _clear_shipping_cache(sender, **kwargs):
+    from .shipping import clear_cache
+    clear_cache()
 
 
 @receiver([post_save, post_delete], sender=SellerAccount)

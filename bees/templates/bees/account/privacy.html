@@ -11,6 +11,7 @@
             <p class="muted" style="margin:6px 0 14px;">Order updates (confirmed, shipped, delivered, refunds) are always sent so you know what's happening with your purchases.</p>
             <form method="post">{% csrf_token %}<input type="hidden" name="action" value="emails">
                 <label class="pay-option" style="max-width:560px;"><input type="checkbox" name="marketing" value="1" {% if subscribed %}checked{% endif %}><span><strong>Offers and new arrivals</strong><span class="muted">About one email a week. Unsubscribe any time.</span></span></label>
+                <label class="pay-option" style="max-width:560px;"><input type="checkbox" name="cart_reminders" value="1" {% if cart_reminders %}checked{% endif %}><span><strong>Cart reminders</strong><span class="muted">One email if you leave items in your cart for a day.</span></span></label>
                 <button type="submit" class="btn btn-secondary" style="margin-top:12px;">Save preferences</button>
             </form>
         </section>

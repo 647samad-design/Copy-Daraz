@@ -87,7 +87,7 @@
         .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
         .skip-link { position: absolute; left: 12px; top: -60px; background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: var(--radius-sm); z-index: 1000; }
         .skip-link:focus { top: 12px; }
-        .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
+        .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 12px; }
         .muted { color: var(--muted); }
         .small { font-size: 0.875rem; }
         .stack > * + * { margin-top: 12px; }
@@ -396,7 +396,7 @@
             .icon-label { display: none; }
         }
         @media (max-width: 720px) {
-            .wrap { padding: 0 16px; }
+            .wrap { padding: 0 12px; }
             .header-row { flex-wrap: wrap; gap: 8px 12px; padding: 10px 0; min-height: 0; }
             .search { order: 3; flex-basis: 100%; max-width: none; }
             .logo img { height: 34px; }

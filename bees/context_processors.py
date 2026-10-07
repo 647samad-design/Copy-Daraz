@@ -42,8 +42,32 @@ def site_language(request):
 
 
 def trending_searches(request):
+    """Kept for template compatibility; evaluated only if a template uses it."""
+    from django.utils.functional import SimpleLazyObject
     from .models import SearchLog
-    return {"trending_searches": SearchLog.objects.all()[:5]}
+    return {"trending_searches": SimpleLazyObject(lambda: list(SearchLog.objects.all()[:5]))}
+
+
+def roles(request):
+    """Cheap role flags for the header: is the user a seller, and (for
+    staff) how many things in the store admin need attention."""
+    user = request.user
+    if not user.is_authenticated:
+        return {"is_seller": False, "admin_attention": 0}
+    from django.core.cache import cache
+    from .models import SellerAccount, OrganizationMember
+    is_seller = cache.get(f"is_seller:{user.pk}")
+    if is_seller is None:
+        is_seller = (
+            SellerAccount.objects.filter(user=user).exists()
+            or OrganizationMember.objects.filter(user=user).exists()
+        )
+        cache.set(f"is_seller:{user.pk}", is_seller, 300)
+    attention = 0
+    if user.is_staff:
+        from .manage_views import attention_counts
+        attention = attention_counts()["total"]
+    return {"is_seller": is_seller, "admin_attention": attention}
 
 
 def unread_notifications(request):

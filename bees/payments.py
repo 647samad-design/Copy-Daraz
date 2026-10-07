@@ -175,6 +175,24 @@ def refund_order(order):
     return True
 
 
+def refund_amount(order, amount, key):
+    """Refunds part of a paid card order (e.g. one returned item).
+    ``key`` makes the refund idempotent. Returns True on success."""
+    if not order.stripe_payment_intent or not amount:
+        return False
+    stripe = _stripe()
+    try:
+        stripe.Refund.create(
+            payment_intent=order.stripe_payment_intent,
+            amount=to_cents(amount),
+            idempotency_key=f"refund-{key}",
+        )
+    except Exception:
+        logger.exception("Stripe partial refund failed for order %s", order.id)
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Order state changes driven by Stripe. All idempotent: Stripe may deliver the
 # same event more than once, and the success page may race the webhook.

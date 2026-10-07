@@ -1,0 +1,53 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}{% if product %}{{ product.name }}{% else %}New product{% endif %}{% endblock %}
+{% block admin %}
+{% with p=form|default:product %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'manage_products' %}">← All products</a><h1 style="margin-top:6px;">{% if product %}Edit product{% else %}Add a product{% endif %}</h1></div>
+    {% if product %}<div class="actions"><a class="btn btn-secondary btn-sm" href="{% url 'product_detail' product.id %}" target="_blank" rel="noopener">View in store</a></div>{% endif %}
+</div>
+<form method="post" enctype="multipart/form-data" class="two-col">
+    {% csrf_token %}
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Details</h2>
+            <div class="form-grid">
+                <div class="field span-2"><label for="m-name">Name</label><input id="m-name" name="name" value="{{ p.name|default:'' }}" required maxlength="255"></div>
+                <div class="field span-2"><label for="m-desc">Description</label><textarea id="m-desc" name="description" rows="7">{{ p.description|default:'' }}</textarea></div>
+                <div class="field"><label for="m-cat">Category</label><select id="m-cat" name="category">{% for v, l in categories %}<option value="{{ v }}" {% if p.category == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+                <div class="field"><label for="m-seller">Seller name</label><input id="m-seller" name="seller_name" value="{{ p.seller_name|default:'Official Store' }}" maxlength="100"></div>
+            </div>
+        </section>
+        <section class="panel">
+            <h2>Images</h2>
+            <div class="form-grid">
+                {% if product.image_url %}<div class="span-2"><img src="{{ product.image_url }}" alt="Current main image" style="width:140px;height:140px;object-fit:cover;border-radius:var(--radius);"></div>{% endif %}
+                <div class="field"><label for="m-file">Upload main image</label><input id="m-file" type="file" name="image_file" accept="image/jpeg,image/png,image/webp,image/gif" style="padding:9px;min-height:0;"><span class="hint">JPG, PNG, WebP or GIF, up to 5 MB.</span></div>
+                <div class="field"><label for="m-url">…or image link</label><input id="m-url" type="url" name="image_url" value="{{ p.image_url|default:'' }}" placeholder="https://"></div>
+                <div class="field span-2"><label for="m-extra">Extra gallery images</label><textarea id="m-extra" name="extra_images" rows="3" placeholder="One https:// link per line (up to 8)">{{ extra_images }}</textarea></div>
+            </div>
+        </section>
+    </div>
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Price &amp; stock</h2>
+            <div class="stack-sm">
+                <div class="field"><label for="m-price">Price ({{ store_currency }})</label><input id="m-price" type="number" name="price" min="0.01" step="0.01" value="{{ p.price|default:'' }}" required></div>
+                <div class="field"><label for="m-old">Original price <span class="muted">(optional)</span></label><input id="m-old" type="number" name="old_price" min="0" step="0.01" value="{{ p.old_price|default:'' }}"><span class="hint">Shown crossed out when higher than the price.</span></div>
+                <div class="field"><label for="m-disc">Discount badge %</label><input id="m-disc" type="number" name="discount_percent" min="0" max="95" value="{{ p.discount_percent|default:'0' }}"></div>
+                <div class="field"><label for="m-stock">Stock</label><input id="m-stock" type="number" name="stock" min="0" step="1" value="{{ p.stock|default:'10' }}" required></div>
+            </div>
+        </section>
+        <section class="panel">
+            <h2>Visibility</h2>
+            <div class="stack-sm">
+                <div class="field"><label for="m-appr">Status</label><select id="m-appr" name="approval_status">{% for v, l in approval_choices %}<option value="{{ v }}" {% if p.approval_status|default:'approved' == v %}selected{% endif %}>{% if v == 'approved' %}Live in store{% else %}{{ l }}{% endif %}</option>{% endfor %}</select></div>
+                <label class="check"><input type="checkbox" name="is_flash_sale" value="1" {% if p.is_flash_sale %}checked{% endif %}> Show in today's deals</label>
+            </div>
+        </section>
+        <button type="submit" class="btn btn-primary btn-block">{% if product %}Save product{% else %}Create product{% endif %}</button>
+    </div>
+</form>
+{% endwith %}
+{% endblock %}

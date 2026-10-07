@@ -1,0 +1,89 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Products{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><h1>Products</h1><p>{{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}</p></div>
+    <div class="actions"><a class="btn btn-primary" href="{% url 'manage_product_new' %}">Add product</a></div>
+</div>
+<div class="tabs" role="group" aria-label="Quick filters">
+    <a href="?" class="{% if not state %}on{% endif %}">All</a>
+    <a href="?state=pending" class="{% if state == 'pending' %}on{% endif %}">Needs review{% if attention.products %} ({{ attention.products }}){% endif %}</a>
+    <a href="?state=low" class="{% if state == 'low' %}on{% endif %}">Low stock</a>
+    <a href="?state=out" class="{% if state == 'out' %}on{% endif %}">Out of stock</a>
+    <a href="?state=deals" class="{% if state == 'deals' %}on{% endif %}">Today's deals</a>
+    <a href="?state=rejected" class="{% if state == 'rejected' %}on{% endif %}">Rejected</a>
+</div>
+<form method="get" class="toolbar">
+    {% if state %}<input type="hidden" name="state" value="{{ state }}">{% endif %}
+    <label for="pq" class="sr-only">Search products</label>
+    <input class="input grow" id="pq" type="search" name="q" value="{{ q }}" placeholder="Product or seller name">
+    <label for="pc" class="sr-only">Category</label>
+    <select class="input" id="pc" name="category"><option value="">All categories</option>{% for v, l in categories %}<option value="{{ v }}" {% if category == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <button class="btn btn-primary" type="submit">Search</button>
+    {% if q or category %}<a class="btn btn-ghost" href="?{% if state %}state={{ state }}{% endif %}">Clear</a>{% endif %}
+</form>
+<form method="post" action="{% url 'manage_products_bulk' %}" id="bulk-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <div class="bulkbar">
+        <label class="check"><input type="checkbox" id="select-all"> Select all</label>
+        <label for="bulk-action" class="sr-only">Action</label>
+        <select class="input" id="bulk-action" name="action" style="width:auto;min-height:40px;">
+            <option value="">With selected…</option>
+            <option value="approve">Approve (make live)</option>
+            <option value="reject">Reject</option>
+            <option value="deal_on">Add to today's deals</option>
+            <option value="deal_off">Remove from today's deals</option>
+            <option value="delete">Delete</option>
+        </select>
+        <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+        <span class="muted small" id="sel-count"></span>
+    </div>
+    <section class="panel" style="padding:8px 20px;margin-top:12px;">
+        <div class="table-scroll">
+            <table class="table" style="min-width:700px;">
+                <thead><tr><th style="width:28px;"></th><th></th><th>Product</th><th>Status</th><th class="num">Stock</th><th class="num">Price</th></tr></thead>
+                <tbody>
+                {% for p in page_obj %}
+                <tr>
+                    <td><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check" aria-label="Select {{ p.name }}" style="width:18px;height:18px;accent-color:var(--brand);"></td>
+                    <td><img class="thumb" src="{{ p.image_url }}" alt="" loading="lazy"></td>
+                    <td><a class="rowlink" href="{% url 'manage_product_edit' p.id %}">{{ p.name }}</a><div class="muted small">{{ p.get_category_display }} · {{ p.seller_name }}</div></td>
+                    <td>
+                        {% if p.approval_status == "pending" %}<span class="pill warn">Needs review</span>{% elif p.approval_status == "rejected" %}<span class="pill bad">Rejected</span>{% else %}<span class="pill ok">Live</span>{% endif %}
+                        {% if p.is_flash_sale %}<span class="pill info">Deal</span>{% endif %}
+                    </td>
+                    <td class="num">{% if p.stock <= 0 %}<span class="pill bad">Out</span>{% elif p.stock <= 5 %}<span class="pill warn">{{ p.stock }}</span>{% else %}{{ p.stock }}{% endif %}</td>
+                    <td class="num">{{ p.price|money }}{% if p.old_price %}<div class="muted small" style="text-decoration:line-through;">{{ p.old_price|money }}</div>{% endif %}</td>
+                </tr>
+                {% empty %}
+                <tr class="empty-row"><td colspan="6">No products here. <a class="link" href="{% url 'manage_product_new' %}">Add a product</a></td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</form>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+    var all = document.getElementById('select-all'), rows = document.querySelectorAll('.row-check'), count = document.getElementById('sel-count');
+    function upd() { var n = document.querySelectorAll('.row-check:checked').length; count.textContent = n ? n + ' selected' : ''; }
+    all.addEventListener('change', function () { rows.forEach(function (r) { r.checked = all.checked; }); upd(); });
+    rows.forEach(function (r) { r.addEventListener('change', upd); });
+    document.getElementById('bulk-form').addEventListener('submit', function (e) {
+        var action = document.getElementById('bulk-action').value;
+        if (action === 'delete' && !window.__confirmDelete) {
+            e.preventDefault();
+            var btn = e.submitter || this.querySelector('button[type=submit]');
+            btn.textContent = 'Click again to delete';
+            btn.classList.add('btn-danger');
+            window.__confirmDelete = true;
+        }
+    });
+})();
+</script>
+{% endblock %}

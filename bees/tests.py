@@ -11,7 +11,19 @@ Run with: python manage.py test bees
 from decimal import Decimal
 
 from django.contrib.auth.models import User
-from django.test import TestCase, Client
+from django.core.cache import cache
+from django.test import Client
+from django.test import TestCase as DjangoTestCase
+
+
+class TestCase(DjangoTestCase):
+    """Clears the cache before every test: site settings and rate-limit
+    counters are cached, and the test database is rolled back between
+    tests while the in-memory cache is not."""
+
+    def _pre_setup(self):
+        super()._pre_setup()
+        cache.clear()
 from django.urls import reverse
 
 from .models import (
@@ -869,3 +881,189 @@ class WhiteLabelTests(TestCase):
         make_product(name="Euro Product", price=Decimal("1234.50"))
         response = self.client.get(reverse("all_products"))
         self.assertContains(response, "€1,234.50")
+
+
+# ---------------------------------------------------------------------------
+# Store admin (/manage/)
+# ---------------------------------------------------------------------------
+from django.core import mail
+
+from .models import ChatMessage, ChatThread, Question, ReturnRequest
+
+
+class ManageAccessTests(TestCase):
+    PAGES = ["manage_dashboard", "manage_orders", "manage_products", "manage_product_new", "manage_sellers",
+             "manage_customers", "manage_coupons", "manage_reviews", "manage_returns", "manage_support", "manage_settings"]
+
+    def setUp(self):
+        self.staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.shopper = User.objects.create_user("shop", "shop@example.com", "pass12345")
+        make_product(name="Admin Visible Product")
+
+    def test_anonymous_redirected_to_login(self):
+        for name in self.PAGES:
+            r = self.client.get(reverse(name))
+            self.assertEqual(r.status_code, 302, name)
+            self.assertIn("/login/", r.url)
+
+    def test_customers_are_forbidden(self):
+        self.client.force_login(self.shopper)
+        for name in self.PAGES:
+            self.assertEqual(self.client.get(reverse(name)).status_code, 403, name)
+
+    def test_staff_can_open_every_page(self):
+        self.client.force_login(self.staff)
+        for name in self.PAGES:
+            self.assertEqual(self.client.get(reverse(name)).status_code, 200, name)
+        self.assertEqual(self.client.get(reverse("manage_reviews") + "?tab=questions").status_code, 200)
+        self.assertEqual(self.client.get(reverse("manage_dashboard") + "?range=30").status_code, 200)
+
+    def test_admin_icon_only_for_staff(self):
+        self.client.force_login(self.shopper)
+        self.assertNotContains(self.client.get(reverse("home")), f'href="{reverse("manage_dashboard")}"')
+        self.client.force_login(self.staff)
+        self.assertContains(self.client.get(reverse("home")), f'href="{reverse("manage_dashboard")}"')
+
+    def test_old_dashboard_url_redirects(self):
+        self.client.force_login(self.staff)
+        self.assertRedirects(self.client.get(reverse("owner_dashboard")), reverse("manage_dashboard"))
+
+
+class ManageActionTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.buyer = User.objects.create_user("buyer", "buyer@example.com", "pass12345")
+        self.product = make_product(price=Decimal("30.00"), stock=5)
+        self.client.force_login(self.staff)
+
+    def _order(self, **kw):
+        order = Order.objects.create(user=self.buyer, email="buyer@example.com", full_name="Buy Er", address="1 St",
+                                     city="Austin", postal_code="1", country="US", phone="1", **kw)
+        OrderItem.objects.create(order=order, product=self.product, product_name=self.product.name, price=Decimal("30.00"), quantity=2)
+        return order
+
+    def test_marking_shipped_emails_customer_and_notifies(self):
+        order = self._order(status="confirmed")
+        self.client.post(reverse("manage_order", args=[order.id]), {
+            "action": "update", "status": "shipped", "tracking_number": "1Z999", "courier_name": "UPS", "estimated_delivery": "2026-12-01",
+        })
+        order.refresh_from_db()
+        self.assertEqual(order.status, "shipped")
+        self.assertEqual(order.tracking_number, "1Z999")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("1Z999", mail.outbox[0].alternatives[0][0])
+        self.assertTrue(Notification.objects.filter(user=self.buyer, message__icontains="Shipped").exists())
+
+    def test_cancel_restocks(self):
+        order = self._order(status="pending")
+        Product.objects.filter(pk=self.product.pk).update(stock=3)
+        self.client.post(reverse("manage_order", args=[order.id]), {"action": "cancel"})
+        order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(self.product.stock, 5)
+
+    def test_orders_csv_export(self):
+        self._order()
+        r = self.client.get(reverse("manage_orders") + "?export=csv")
+        self.assertEqual(r["Content-Type"], "text/csv")
+        self.assertIn(b"Buy Er", r.content)
+
+    def test_create_product(self):
+        r = self.client.post(reverse("manage_product_new"), {
+            "name": "Staff Made", "category": "skincare", "price": "12.50", "stock": "7",
+            "image_url": "https://example.com/a.jpg", "approval_status": "approved", "is_flash_sale": "1",
+            "extra_images": "https://example.com/b.jpg\nnot-a-url",
+        })
+        p = Product.objects.get(name="Staff Made")
+        self.assertRedirects(r, reverse("manage_product_edit", args=[p.id]))
+        self.assertTrue(p.is_flash_sale)
+        self.assertEqual(p.extra_images.count(), 1)
+
+    def test_bulk_approve_notifies_seller(self):
+        seller_user = User.objects.create_user("sel", "sel@example.com", "pass12345")
+        seller = SellerAccount.objects.create(user=seller_user, status="approved", business_name="Sel Co")
+        pending = make_product(name="Pending One", seller_account=seller, approval_status="pending")
+        self.client.post(reverse("manage_products_bulk"), {"ids": [pending.id], "action": "approve"})
+        pending.refresh_from_db()
+        self.assertEqual(pending.approval_status, "approved")
+        self.assertTrue(Notification.objects.filter(user=seller_user, message__icontains="approved").exists())
+
+    def test_seller_approve_and_payout(self):
+        u = User.objects.create_user("app", "app@example.com", "pass12345")
+        s = SellerAccount.objects.create(user=u, business_name="App Shop")
+        self.client.post(reverse("manage_seller", args=[s.id]), {"action": "approved"})
+        s.refresh_from_db()
+        self.assertEqual(s.status, "approved")
+        self.client.post(reverse("manage_seller", args=[s.id]), {"action": "payout", "amount": "25.50"})
+        s.refresh_from_db()
+        self.assertEqual(s.total_paid_out, Decimal("25.50"))
+        self.client.post(reverse("manage_seller", args=[s.id]), {"action": "payout", "amount": "-4"})
+        s.refresh_from_db()
+        self.assertEqual(s.total_paid_out, Decimal("25.50"))
+
+    def test_coupon_create_toggle_delete(self):
+        self.client.post(reverse("manage_coupons"), {"action": "create", "code": "spring", "percent_off": "15",
+                                                      "min_order_value": "0", "per_user_limit": "1", "active": "on"})
+        c = Coupon.objects.get(code="SPRING")
+        self.client.post(reverse("manage_coupons"), {"action": "toggle", "id": c.id})
+        c.refresh_from_db()
+        self.assertFalse(c.active)
+        self.client.post(reverse("manage_coupons"), {"action": "create", "code": "bad", "percent_off": "500",
+                                                      "min_order_value": "0", "per_user_limit": "1"})
+        self.assertFalse(Coupon.objects.filter(code="BAD").exists())
+        self.client.post(reverse("manage_coupons"), {"action": "delete", "id": c.id})
+        self.assertFalse(Coupon.objects.filter(pk=c.id).exists())
+
+    def test_answer_question(self):
+        qn = Question.objects.create(product=self.product, username="q", question="Waterproof?")
+        self.client.post(reverse("manage_reviews") + "?tab=questions", {"action": "answer", "id": qn.id, "answer": "Yes."})
+        qn.refresh_from_db()
+        self.assertEqual(qn.answer, "Yes.")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_dummy")
+    def test_return_refund_to_card_is_partial(self):
+        order = self._order(status="delivered", payment_method="card", payment_status="paid", stripe_payment_intent="pi_1")
+        item = order.items.get()
+        rr = ReturnRequest.objects.create(order_item=item, user=self.buyer, reason="Broken")
+        with mock.patch("stripe.Refund.create") as refund:
+            self.client.post(reverse("manage_returns"), {"id": rr.id, "action": "refund"})
+        self.assertEqual(refund.call_args.kwargs["amount"], 6000)
+        rr.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(rr.status, "refunded")
+        self.assertEqual(self.product.stock, 7)
+
+    def test_support_reply(self):
+        thread = ChatThread.objects.create(user=self.buyer)
+        ChatMessage.objects.create(thread=thread, sender="user", message="Where is my order?")
+        self.client.get(reverse("manage_support_thread", args=[thread.id]))
+        self.assertFalse(thread.messages.filter(is_read=False).exists())
+        self.client.post(reverse("manage_support_thread", args=[thread.id]), {"action": "reply", "message": "Shipping today!"})
+        self.assertTrue(thread.messages.filter(sender="support", message="Shipping today!").exists())
+        self.client.logout()
+        self.client.force_login(self.buyer)
+        msgs = self.client.get(reverse("chat_messages")).json()["messages"]
+        self.assertEqual(msgs[-1]["message"], "Shipping today!")
+
+    def test_settings_update_rebrands_store(self):
+        data = {f: v for f, v in {
+            "site_name": "Nova Goods", "tagline": "Good things", "primary_color": "#112233", "accent_color": "#FFCC00",
+            "hero_title": "Hello", "hero_subtitle": "World", "tax_percent": "0", "shipping_flat_fee": "0",
+            "free_shipping_threshold": "0", "allow_cash_on_delivery": "on",
+        }.items()}
+        self.client.post(reverse("manage_settings"), data)
+        self.assertContains(self.client.get(reverse("home")), "Nova Goods")
+        bad = dict(data, primary_color="red")
+        self.client.post(reverse("manage_settings"), bad)
+        self.assertEqual(SiteSettings.load().primary_color, "#112233")
+
+
+class SpeculativeRequestTests(TestCase):
+    def test_prefetch_does_not_count_as_search(self):
+        from .models import SearchLog
+        make_product(name="Oil Lamp")
+        self.client.get(reverse("search_products"), {"q": "oil"}, HTTP_SEC_PURPOSE="prefetch;prerender")
+        self.assertFalse(SearchLog.objects.exists())
+        self.client.get(reverse("search_products"), {"q": "oil"})
+        self.assertTrue(SearchLog.objects.exists())

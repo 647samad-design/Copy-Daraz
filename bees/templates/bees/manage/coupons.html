@@ -1,0 +1,57 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Coupons{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Coupons</h1><p>Discount codes customers enter at checkout.</p></div></div>
+<div class="two-col">
+    <section class="panel" style="padding:8px 20px;">
+        <div class="table-scroll">
+            <table class="table" style="min-width:560px;">
+                <thead><tr><th>Code</th><th>Discount</th><th>Rules</th><th class="num">Used</th><th></th></tr></thead>
+                <tbody>
+                {% for c in coupons %}
+                <tr>
+                    <td><strong style="font-family:var(--font-display);letter-spacing:.02em;">{{ c.code }}</strong><div>{% if c.active %}<span class="pill ok">Active</span>{% else %}<span class="pill">Paused</span>{% endif %}</div></td>
+                    <td>{{ c.percent_off }}% off</td>
+                    <td class="small">{% if c.min_order_value %}Min {{ c.min_order_value|money }}<br>{% endif %}{% if c.expiry_date %}Ends {{ c.expiry_date|date:"M j, Y" }}<br>{% endif %}{{ c.per_user_limit }} per customer</td>
+                    <td class="num">{{ c.used }}{% if c.usage_limit %} / {{ c.usage_limit }}{% endif %}</td>
+                    <td style="white-space:nowrap;">
+                        <form method="post" style="display:inline;">{% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}"><button class="btn btn-ghost btn-sm" name="action" value="toggle">{% if c.active %}Pause{% else %}Activate{% endif %}</button></form>
+                        <form method="post" style="display:inline;" class="del-form">{% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}"><button class="btn btn-ghost btn-sm" name="action" value="delete" style="color:var(--sale);">Delete</button></form>
+                    </td>
+                </tr>
+                {% empty %}<tr class="empty-row"><td colspan="5">No coupons yet. Create your first one on the right.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <section class="panel">
+        <h2>New coupon</h2>
+        <form method="post" class="stack-sm">
+            {% csrf_token %}<input type="hidden" name="action" value="create">
+            {% for field in form %}
+            {% if field.name == "active" %}
+            <label class="check"><input type="checkbox" name="active" {% if field.value %}checked{% endif %}> Active right away</label>
+            {% else %}
+            <div class="field">
+                <label for="{{ field.id_for_label }}">{% if field.name == "percent_off" %}Percent off{% elif field.name == "min_order_value" %}Minimum order{% elif field.name == "expiry_date" %}Ends on <span class="muted">(optional)</span>{% elif field.name == "usage_limit" %}Total uses <span class="muted">(optional)</span>{% elif field.name == "per_user_limit" %}Uses per customer{% else %}Code{% endif %}</label>
+                {{ field }}
+                {% for e in field.errors %}<span class="hint" style="color:var(--sale);">{{ e }}</span>{% endfor %}
+            </div>
+            {% endif %}
+            {% endfor %}
+            <button type="submit" class="btn btn-primary btn-block">Create coupon</button>
+        </form>
+    </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+document.querySelectorAll('.del-form').forEach(function (f) {
+    f.addEventListener('submit', function (e) {
+        var b = f.querySelector('button');
+        if (!b.dataset.armed) { e.preventDefault(); b.dataset.armed = '1'; b.textContent = 'Confirm delete'; }
+    });
+});
+</script>
+{% endblock %}

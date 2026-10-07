@@ -1,0 +1,34 @@
+{% extends "bees/manage/base.html" %}
+{% block page_title %}Store settings{% endblock %}
+{% block page_css %}
+    .field input[type=color] { width: 72px; min-height: 44px; padding: 4px; cursor: pointer; }
+    .errorlist { list-style: none; margin: 0; padding: 0; color: var(--sale); font-size: 0.9rem; }
+    .save-bar { position: sticky; bottom: 0; padding: 14px 0 calc(14px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--paper) 70%, transparent); }
+{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Store settings</h1><p>Everything here updates your live store right away.</p></div></div>
+<form method="post" enctype="multipart/form-data" style="display:grid;gap:20px;">
+    {% csrf_token %}
+    {% for title, hint, fields in form.groups %}
+    <section class="panel">
+        <h2 style="margin-bottom:4px;">{{ title }}</h2>
+        {% if hint %}<p class="muted" style="margin-bottom:16px;">{{ hint }}</p>{% endif %}
+        <div class="form-grid">
+            {% for f in fields %}
+            {% if f.field.widget.input_type == "checkbox" %}
+            <div class="span-2"><label class="check"><input type="checkbox" name="{{ f.html_name }}" id="{{ f.id_for_label }}" {% if f.value %}checked{% endif %}> {{ f.label }}</label>{% if f.help_text %}<span class="hint muted small" style="display:block;margin-left:30px;">{{ f.help_text }}</span>{% endif %}</div>
+            {% else %}
+            <div class="field {% if f.field.widget.input_type == 'textarea' or f.name == 'hero_subtitle' or f.name == 'tagline' or f.name == 'company_address' or f.name == 'banner_text' %}span-2{% endif %}">
+                <label for="{{ f.id_for_label }}">{{ f.label }}</label>
+                {{ f }}
+                {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
+                {{ f.errors }}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+    <div class="save-bar"><button type="submit" class="btn btn-primary">Save settings</button></div>
+</form>
+{% endblock %}

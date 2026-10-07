@@ -70,6 +70,12 @@ def get_seller_account_for_user(user):
     return None, None
 
 
+def is_speculative(request):
+    """True for browser prefetch/prerender requests (sent when a visitor
+    hovers a link). Those shouldn't count as views or searches."""
+    return request.headers.get("Sec-Purpose", "").startswith("prefetch") or request.headers.get("Purpose") == "prefetch"
+
+
 def _brand():
     return SiteSettings.load()
 
@@ -247,10 +253,13 @@ def product_detail(request, pk):
     questions = product.questions.all()
 
     recent_ids = request.session.get("recently_viewed", [])
-    recent_ids = [i for i in recent_ids if i != product.id]
-    recent_ids.insert(0, product.id)
-    request.session["recently_viewed"] = recent_ids[:10]
-    request.session.modified = True
+    if not is_speculative(request):
+        recent_ids = [i for i in recent_ids if i != product.id]
+        recent_ids.insert(0, product.id)
+        request.session["recently_viewed"] = recent_ids[:10]
+        request.session.modified = True
+    else:
+        recent_ids = [product.id] + [i for i in recent_ids if i != product.id]
     recently_viewed = with_ratings(Product.objects.filter(id__in=recent_ids[1:7], approval_status="approved"))
 
     return render(request, "bees/product_detail.html", {
@@ -317,7 +326,7 @@ def category_products(request, category):
 
 def search_products(request):
     query = request.GET.get("q", "").strip()[:150]
-    if query:
+    if query and not is_speculative(request):
         log, created = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
         if not created:
             SearchLog.objects.filter(pk=log.pk).update(count=F("count") + 1)
@@ -1693,109 +1702,8 @@ def seller_document(request, seller_id, field):
 
 @login_required
 def owner_dashboard(request):
-    if not _is_owner(request.user):
-        return HttpResponseForbidden("Staff access only.")
-
-    total_customers = User.objects.filter(seller_account__isnull=True).count()
-    total_sellers = SellerAccount.objects.filter(account_type="individual").count()
-    total_organizations = SellerAccount.objects.filter(account_type="organization").count()
-    total_products = Product.objects.count()
-    total_orders = Order.objects.count()
-
-    from datetime import timedelta
-    from django.utils import timezone
-    from django.db.models.functions import TruncDate
-
-    today = timezone.localdate()
-    start_date = today - timedelta(days=6)
-    non_cancelled = Order.objects.exclude(status="cancelled").exclude(payment_status__in=["pending", "failed"])
-
-    # Item subtotals and order-level amounts (discount/shipping/tax) are
-    # aggregated separately to avoid double-counting order-level fields
-    # across joined item rows.
-    subtotal_by_day = {
-        row["day"]: row["subtotal"] or 0
-        for row in non_cancelled.filter(created_at__date__gte=start_date)
-        .annotate(day=TruncDate("created_at")).values("day")
-        .annotate(subtotal=Sum(F("items__price") * F("items__quantity")))
-    }
-    adjust_by_day = {
-        row["day"]: (row["extra"] or 0) - (row["discount"] or 0)
-        for row in non_cancelled.filter(created_at__date__gte=start_date)
-        .annotate(day=TruncDate("created_at")).values("day")
-        .annotate(discount=Sum("discount_amount"), extra=Sum(F("shipping_amount") + F("tax_amount")))
-    }
-    total_agg = non_cancelled.aggregate(subtotal=Sum(F("items__price") * F("items__quantity")))
-    order_level = non_cancelled.aggregate(
-        discount=Sum("discount_amount"), extra=Sum(F("shipping_amount") + F("tax_amount")),
-    )
-    total_revenue = max(
-        (total_agg["subtotal"] or 0) - (order_level["discount"] or 0) + (order_level["extra"] or 0), 0
-    )
-
-    daily_revenue = []
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        day_total = max(float(subtotal_by_day.get(day, 0)) + float(adjust_by_day.get(day, 0)), 0)
-        daily_revenue.append({"label": day.strftime("%a"), "date": day.strftime("%d %b"), "amount": day_total})
-    max_daily = max([d["amount"] for d in daily_revenue] or [1]) or 1
-    for d in daily_revenue:
-        d["pct"] = round((d["amount"] / max_daily) * 100, 1) if max_daily else 0
-    pending_sellers = SellerAccount.objects.filter(status="pending")
-    active_sellers = SellerAccount.objects.filter(status="approved").count()
-    inactive_sellers = SellerAccount.objects.filter(status__in=["rejected", "suspended"]).count()
-    recent_orders = Order.objects.prefetch_related("items").order_by("-created_at")[:10]
-    approved_sellers = SellerAccount.objects.filter(status="approved")
-    top_sellers = sorted(approved_sellers, key=lambda s: s.lifetime_sales, reverse=True)[:5]
-
-    low_stock_products = Product.objects.filter(stock__gt=0, stock__lte=5).order_by("stock")[:10]
-    out_of_stock_products = Product.objects.filter(stock__lte=0).order_by("-id")[:10]
-    pending_products = Product.objects.filter(approval_status="pending").order_by("-id")[:10]
-    pending_products_count = Product.objects.filter(approval_status="pending").count()
-    low_stock_count = Product.objects.filter(stock__gt=0, stock__lte=5).count()
-    out_of_stock_count = Product.objects.filter(stock__lte=0).count()
-
-    seller_earnings = []
-    total_commission_earned = 0
-    total_still_owed = 0
-    for s in top_sellers:
-        units_sold = OrderItem.objects.filter(product__seller_account=s).aggregate(
-            total=Sum("quantity")
-        )["total"] or 0
-        seller_earnings.append({
-            "seller": s, "sales": float(s.lifetime_sales), "rate": s.effective_commission_rate,
-            "commission": round(float(s.lifetime_sales) * s.effective_commission_rate / 100, 2),
-            "net": s.net_earnings, "owed": s.amount_owed, "units_sold": units_sold,
-        })
-    for s in approved_sellers:
-        sales = float(s.lifetime_sales)
-        commission = sales * s.effective_commission_rate / 100
-        total_commission_earned += commission
-        total_still_owed += s.amount_owed
-
-    return render(request, "bees/owner_dashboard.html", {
-        "total_customers": total_customers,
-        "total_sellers": total_sellers,
-        "total_organizations": total_organizations,
-        "total_products": total_products,
-        "total_orders": total_orders,
-        "total_revenue": total_revenue,
-        "pending_sellers": pending_sellers,
-        "active_sellers": active_sellers,
-        "inactive_sellers": inactive_sellers,
-        "recent_orders": recent_orders,
-        "top_sellers": top_sellers,
-        "seller_earnings": seller_earnings,
-        "total_commission_earned": round(total_commission_earned, 2),
-        "total_still_owed": round(total_still_owed, 2),
-        "low_stock_products": low_stock_products,
-        "out_of_stock_products": out_of_stock_products,
-        "pending_products": pending_products,
-        "pending_products_count": pending_products_count,
-        "low_stock_count": low_stock_count,
-        "out_of_stock_count": out_of_stock_count,
-        "daily_revenue": daily_revenue,
-    })
+    """Old URL - the store dashboard now lives in the store admin."""
+    return redirect("manage_dashboard")
 
 
 # ---------------------------------------------------------------------------

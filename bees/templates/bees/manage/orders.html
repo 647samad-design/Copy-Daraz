@@ -1,0 +1,49 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Orders{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><h1>Orders</h1><p>{{ page_obj.paginator.count }} order{{ page_obj.paginator.count|pluralize }}{% if q or status or payment %} match your filters{% endif %}</p></div>
+    <div class="actions"><a class="btn btn-secondary btn-sm" href="?{% for k, v in request.GET.items %}{% if k != 'page' and k != 'export' %}{{ k|urlencode }}={{ v|urlencode }}&amp;{% endif %}{% endfor %}export=csv">Export CSV</a></div>
+</div>
+<div class="tabs" role="group" aria-label="Quick filters">
+    <a href="?" class="{% if not status %}on{% endif %}">All</a>
+    <a href="?status=open" class="{% if status == 'open' %}on{% endif %}">To ship{% if attention.orders %} <span class="n">({{ attention.orders }})</span>{% endif %}</a>
+    <a href="?status=shipped" class="{% if status == 'shipped' %}on{% endif %}">Shipped</a>
+    <a href="?status=delivered" class="{% if status == 'delivered' %}on{% endif %}">Delivered</a>
+    <a href="?status=cancelled" class="{% if status == 'cancelled' %}on{% endif %}">Cancelled</a>
+</div>
+<form method="get" class="toolbar">
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <label for="oq" class="sr-only">Search orders</label>
+    <input class="input grow" id="oq" type="search" name="q" value="{{ q }}" placeholder="Order number, name, email, phone or tracking">
+    <label for="op" class="sr-only">Payment</label>
+    <select class="input" id="op" name="payment">
+        <option value="">Any payment</option>
+        {% for v, l in payment_choices %}<option value="{{ v }}" {% if payment == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-primary" type="submit">Search</button>
+    {% if q or payment %}<a class="btn btn-ghost" href="?{% if status %}status={{ status }}{% endif %}">Clear</a>{% endif %}
+</form>
+<section class="panel" style="padding:8px 20px;">
+    <div class="table-scroll">
+        <table class="table" style="min-width:680px;">
+            <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Status</th><th class="num">Total</th></tr></thead>
+            <tbody>
+            {% for o in page_obj %}
+            <tr>
+                <td><a class="rowlink" href="{% url 'manage_order' o.id %}">#{{ o.id }}</a><div class="muted small">{{ o.created_at|date:"M j, Y H:i" }}</div></td>
+                <td>{{ o.full_name }}<div class="muted small">{{ o.contact_email|default:"—" }}{% if o.country %} · {{ o.country }}{% endif %}</div></td>
+                <td>{% for i in o.items.all|slice:":2" %}<div class="small">{{ i.product_name|truncatechars:30 }} × {{ i.quantity }}</div>{% endfor %}{% if o.items.all|length > 2 %}<div class="muted small">+{{ o.items.all|length|add:"-2" }} more</div>{% endif %}</td>
+                <td>{% include "bees/manage/_order_pills.html" %}</td>
+                <td class="num"><strong>{{ o.total|money }}</strong></td>
+            </tr>
+            {% empty %}
+            <tr class="empty-row"><td colspan="5">{% if q or status or payment %}No orders match these filters.{% else %}No orders yet.{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

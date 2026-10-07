@@ -127,6 +127,7 @@ urlpatterns = [
     path('manage/customers/', mv.customers, name='manage_customers'),
     path('manage/coupons/', mv.coupons, name='manage_coupons'),
     path('manage/shipping/', mv.shipping, name='manage_shipping'),
+    path('manage/system/', mv.system_check, name='manage_system'),
     path('manage/reviews/', mv.reviews, name='manage_reviews'),
     path('manage/returns/', mv.returns, name='manage_returns'),
     path('manage/support/', mv.support, name='manage_support'),

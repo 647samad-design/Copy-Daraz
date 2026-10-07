@@ -40,7 +40,7 @@ from django.urls import reverse
 
 from .models import (
     Product, Order, OrderItem, SellerAccount, OrganizationMember,
-    Review, Notification,
+    Review, Notification, AuditLog,
 )
 from .views import with_ratings, get_seller_account_for_user
 
@@ -2280,3 +2280,66 @@ class TwoStepSignInTests(TestCase):
         secret, _ = self._enable(self.client)
         self.client.post(reverse("two_factor_disable"), {"password": "Cust-pass-1", "code": self._now_code(secret, 1)})
         self.assertFalse(Profile.objects.get(user=buyer).totp_enabled)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class SystemCheckTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def test_page_and_live_tests(self):
+        page = self.client.get(reverse("manage_system"))
+        self.assertContains(page, "System check")
+        self.assertContains(page, "Database")
+        r = self.client.post(reverse("manage_system"), {"action": "email", "to": "me@example.com"}, follow=True)
+        self.assertContains(r, "Test email sent to me@example.com")
+        self.assertEqual(mail.outbox[-1].to, ["me@example.com"])
+        with mock.patch("stripe.Balance.retrieve", return_value={}):
+            r = self.client.post(reverse("manage_system"), {"action": "stripe"}, follow=True)
+        self.assertContains(r, "Stripe connection works")
+        import stripe as _stripe
+        err = _stripe.error.AuthenticationError("Invalid API Key provided", http_status=401)
+        with mock.patch("stripe.Balance.retrieve", side_effect=err):
+            r = self.client.post(reverse("manage_system"), {"action": "stripe"}, follow=True)
+        self.assertContains(r, "rejected the secret key")
+        r = self.client.post(reverse("manage_system"), {"action": "storage"}, follow=True)
+        self.assertContains(r, "Image storage works")
+
+    def test_email_failures_are_recorded(self):
+        from .views import _send_html_email
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("SMTP down")):
+            _send_html_email("Hello", "bees/emails/security_notice.html", {"user": self.staff, "event": "x", "detail": "y", "reset_url": "/"}, "a@example.com")
+        self.assertTrue(AuditLog.objects.filter(action__contains="SMTP down").exists())
+        self.assertContains(self.client.get(reverse("manage_system")), "SMTP down")
+
+    def _hook(self, typ, obj):
+        payload = json.dumps({"type": typ, "data": {"object": obj}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}):
+            return self.client.post(reverse("stripe_webhook"), data=payload, content_type="application/json", HTTP_STRIPE_SIGNATURE="t=1,v1=x")
+
+    def test_refund_made_in_stripe_dashboard_updates_order(self):
+        order = Order.objects.create(user=self.staff, full_name="A", address="x", city="y", phone="1", status="confirmed",
+                                     payment_method="card", payment_status="paid", stripe_payment_intent="pi_dash")
+        self.assertEqual(self._hook("charge.refunded", {"payment_intent": "pi_dash", "refunded": True, "amount": 1000}).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertTrue(Notification.objects.filter(user=self.staff, message__icontains="refunded in Stripe").exists())
+        self.assertIsNotNone(SiteSettings.objects.get(pk=1).stripe_last_webhook)
+
+    def test_dispute_alerts_staff(self):
+        self._hook("charge.dispute.created", {"payment_intent": "pi_x", "amount": 2500})
+        self.assertTrue(Notification.objects.filter(user=self.staff, message__icontains="disputed").exists())
+
+    def test_failed_refund_alerts_staff(self):
+        buyer = User.objects.create_user("b", "b@example.com", "pass12345")
+        order = Order.objects.create(user=buyer, full_name="A", address="x", city="y", phone="1", status="confirmed",
+                                     payment_method="card", payment_status="paid", stripe_payment_intent="pi_f")
+        OrderItem.objects.create(order=order, product_name="X", price=Decimal("5"), quantity=1)
+        c = Client(); c.force_login(buyer)
+        with mock.patch("stripe.Refund.create", side_effect=Exception("card_declined")):
+            r = c.post(reverse("cancel_order", args=[order.id]), follow=True)
+        self.assertContains(r, "team has been alerted")
+        self.assertTrue(Notification.objects.filter(user=self.staff, message__icontains="refund failed").exists())
+        order.refresh_from_db()
+        self.assertEqual(order.status, "confirmed")

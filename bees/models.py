@@ -959,6 +959,7 @@ class SiteSettings(models.Model):
     delivery_days = models.PositiveSmallIntegerField(
         default=5, help_text="Usual delivery time in business days. Used for the 'Arrives by' date customers see and get emailed.",
     )
+    stripe_last_webhook = models.DateTimeField(null=True, blank=True, editable=False)
     require_staff_2fa = models.BooleanField(
         "Require two-step sign-in for staff", default=True,
         help_text="Staff must use an authenticator app code to open the store admin.",

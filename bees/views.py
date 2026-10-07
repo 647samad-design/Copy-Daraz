@@ -24,6 +24,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.html import strip_tags
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
@@ -186,9 +187,12 @@ def _send_html_email(subject, template, context, recipient):
         html_body = render_to_string(template, context)
         email = EmailMultiAlternatives(subject, strip_tags(html_body), None, [recipient])
         email.attach_alternative(html_body, "text/html")
-        email.send(fail_silently=True)
-    except Exception:
-        logger.exception("Failed to send email '%s' to %s", subject, recipient)
+        email.send(fail_silently=False)
+    except Exception as exc:
+        # Never break the page for a mail problem, but make it visible to
+        # the owner (Admin > System check).
+        from .alerts import email_failed
+        email_failed(subject, recipient, exc)
 
 
 def _send_order_confirmation(request, order):
@@ -1345,7 +1349,10 @@ def cancel_order(request, pk):
             return _orders_page(request, order)
         if order.payment_status == "paid":
             if not payments.refund_order(order):
-                messages.error(request, "We couldn't process the refund automatically. Please contact support and we'll sort it out.")
+                from .alerts import REFUND_FAILED, notify_staff
+                notify_staff(f"Customer tried to cancel order #{order.id} but the Stripe refund failed. Refund it in Stripe, then cancel it here.",
+                             link=f"/manage/orders/{order.id}/", category=REFUND_FAILED)
+                messages.error(request, "We couldn't process the refund automatically. Our team has been alerted and will sort it out shortly.")
                 return _orders_page(request, order)
             order.payment_status = "refunded"
         payments.void_pending_payment(order)
@@ -1613,7 +1620,11 @@ def stripe_webhook(request):
         return HttpResponse(status=400)
 
     event_type = event.get("type", "")
+    SiteSettings.objects.filter(pk=1).update(stripe_last_webhook=timezone.now())
     session = (event.get("data") or {}).get("object") or {}
+    if event_type.startswith("charge."):
+        _stripe_charge_event(event_type, session)
+        return HttpResponse(status=200)
     order_id = (session.get("metadata") or {}).get("order_id")
     if not order_id:
         return HttpResponse(status=200)
@@ -1631,6 +1642,30 @@ def stripe_webhook(request):
     return HttpResponse(status=200)
 
 
+def _stripe_charge_event(event_type, charge):
+    """Refunds and disputes that happen in the Stripe dashboard."""
+    from .alerts import STRIPE_EVENT, notify_staff
+    intent = charge.get("payment_intent") or ""
+    if event_type.startswith("charge.dispute"):
+        intent = charge.get("payment_intent") or ""
+        order = Order.objects.filter(stripe_payment_intent=intent).first() if intent else None
+        amount = money(Decimal(charge.get("amount", 0)) / 100)
+        notify_staff(f"A customer disputed a payment of {amount}{f' (order #{order.id})' if order else ''}. Respond in the Stripe dashboard before the deadline.",
+                     link=f"/manage/orders/{order.id}/" if order else "/manage/orders/", category=STRIPE_EVENT)
+        return
+    order = Order.objects.filter(stripe_payment_intent=intent).first() if intent else None
+    if not order:
+        return
+    if charge.get("refunded") and order.payment_status != "refunded":
+        Order.objects.filter(pk=order.pk).update(payment_status="refunded")
+        if order.status not in ("cancelled", "delivered"):
+            notify_staff(f"Order #{order.id} was fully refunded in Stripe. Cancel it here if it shouldn't ship.",
+                         link=f"/manage/orders/{order.id}/", category=STRIPE_EVENT)
+        else:
+            from .alerts import log
+            log(f"{STRIPE_EVENT}: order #{order.id} fully refunded in Stripe")
+
+
 # ---------------------------------------------------------------------------
 # Content pages
 # ---------------------------------------------------------------------------
@@ -1644,8 +1679,8 @@ def help_support(request):
     faqs = [
         ("How do I place an order?", "Add products to your cart, open your cart and choose 'Checkout'. Enter your shipping details, pick a payment method and confirm."),
         ("Which payment methods do you accept?", f"We accept {pay}. Card payments are processed by Stripe - we never see or store your card number."),
-        ("How can I track my order?", "Sign in and open 'My orders' to see every order, its status and tracking details once it ships."),
-        ("Can I return a product?", "Yes. Open the order in 'My orders' and choose 'Request return' within 14 days of delivery. Our team reviews requests within 1-2 business days."),
+        ("How can I track my order?", "Sign in and open 'My orders', or use the tracking link in your order email if you checked out as a guest. You'll see the status and tracking details once it ships."),
+        ("Can I return a product?", f"Yes. Open the order in 'My orders' and choose 'Request return' within {brand.return_days} days of delivery. Our team reviews requests within 1-2 business days."),
         ("Can I cancel an order?", "You can cancel from 'My orders' until it ships. Paid orders are refunded to your card automatically."),
         ("I forgot my password - what now?", "Choose 'Forgot password?' on the sign-in page and we'll email you a secure reset link."),
     ]

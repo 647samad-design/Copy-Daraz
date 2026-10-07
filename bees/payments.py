@@ -27,6 +27,7 @@ STORE_CURRENCY           usd (default), eur, gbp ...
 Until STRIPE_SECRET_KEY is set, card payments are hidden at checkout.
 """
 import json
+import uuid
 import logging
 import time
 from decimal import Decimal, ROUND_HALF_UP
@@ -127,7 +128,7 @@ def create_checkout_session(request, order):
             )
             params["discounts"] = [{"coupon": coupon.id}]
         session = stripe.checkout.Session.create(
-            idempotency_key=f"order-{order.id}-{order.stripe_session_id or 'first'}",
+            idempotency_key=f"order-{order.id}-{uuid.uuid4().hex}",
             **params,
         )
     except Exception as exc:  # stripe.StripeError and network failures
@@ -222,20 +223,31 @@ def mark_order_paid(order_id, session):
             )
             return order, False
         order.payment_status = "paid"
+        order.payment_method = "card"
+        order.cod_fallback = False
         order.stripe_payment_intent = session.get("payment_intent") or ""
         if order.status == "pending":
             order.status = "confirmed"
-        order.save(update_fields=["payment_status", "stripe_payment_intent", "status"])
+        order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent", "status"])
     return order, True
 
 
 def release_unpaid_order(order_id, reason="failed"):
-    """Cancels an unpaid card order and returns its stock."""
+    """Cancels an unpaid card order and returns its stock. A cash-on-delivery
+    order whose advance online payment was abandoned goes back to cash on
+    delivery instead."""
     from .models import Order
 
     with transaction.atomic():
         order = Order.objects.select_for_update().filter(pk=order_id).first()
         if not order or order.payment_status == "paid" or order.status == "cancelled":
+            return order
+        if order.cod_fallback:
+            order.cod_fallback = False
+            order.payment_method = "cod"
+            order.payment_status = "not_applicable"
+            order.stripe_session_id = ""
+            order.save(update_fields=["cod_fallback", "payment_method", "payment_status", "stripe_session_id"])
             return order
         order.payment_status = reason
         order.status = "cancelled"

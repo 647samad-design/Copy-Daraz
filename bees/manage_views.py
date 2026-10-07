@@ -97,7 +97,7 @@ def dashboard(request):
     today = timezone.localdate()
     days = 30 if request.GET.get("range") == "30" else 7
     start = today - timedelta(days=days - 1)
-    counted = Order.objects.exclude(status="cancelled").exclude(payment_status__in=["pending", "failed"])
+    counted = Order.objects.exclude(status="cancelled").exclude(payment_status__in=["pending", "failed", "refunded"])
 
     items_by_day = {
         r["day"]: r["v"] or 0
@@ -134,6 +134,11 @@ def dashboard(request):
     if prev_revenue:
         change = round((period_revenue - prev_revenue) / prev_revenue * 100)
 
+    commission = (
+        OrderItem.objects.counted().filter(order__created_at__date__gte=start)
+        .aggregate(c=Sum("commission_amount"))["c"] or 0
+    )
+
     top_products = (
         OrderItem.objects.filter(order__in=counted.filter(created_at__date__gte=start))
         .values("product_name").annotate(units=Sum("quantity"), revenue=Sum(F("price") * F("quantity")))
@@ -149,6 +154,7 @@ def dashboard(request):
         "period_revenue": period_revenue,
         "period_orders": period_orders,
         "avg_order": (period_revenue / period_orders) if period_orders else 0,
+        "commission": commission,
         "change": change,
         "customers": User.objects.filter(is_staff=False).count(),
         "new_customers": User.objects.filter(is_staff=False, date_joined__date__gte=start).count(),
@@ -249,7 +255,7 @@ def order_detail(request, pk):
             messages.success(request, "Order updated." + (" The customer has been emailed." if new_status == "shipped" and was != "shipped" else ""))
         _refresh_attention()
         return redirect("manage_order", pk=pk)
-    items = order.items.select_related("product", "product__seller_account")
+    items = order.items.select_related("product", "seller_account__user")
     return _render(request, "order_detail.html", {
         "section": "orders", "order": order, "items": items,
         "status_choices": [c for c in Order.STATUS_CHOICES if c[0] != "cancelled"],

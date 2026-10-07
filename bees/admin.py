@@ -380,12 +380,12 @@ class SellerAccountAdmin(admin.ModelAdmin):
             "total_paid_out", "still_owed", "city", "country", "created_at",
         ])
         for s in queryset:
-            units = OrderItem.objects.filter(product__seller_account=s).aggregate(
+            units = OrderItem.objects.filter(seller_account=s).counted().aggregate(
                 total=Sum("quantity")
             )["total"] or 0
             sales = float(s.lifetime_sales)
             rate = s.effective_commission_rate
-            commission = round(sales * rate / 100, 2)
+            commission = float(s.commission_total)
             writer.writerow([
                 s.id, s.display_name, s.user.username, s.account_type, s.status, units,
                 f"{sales:.2f}", rate, f"{commission:.2f}", f"{s.net_earnings:.2f}",
@@ -421,7 +421,7 @@ class SellerAccountAdmin(admin.ModelAdmin):
 
     def products_sold_count(self, obj):
         from django.db.models import Sum
-        total = OrderItem.objects.filter(product__seller_account=obj).aggregate(total=Sum("quantity"))["total"]
+        total = OrderItem.objects.filter(seller_account=obj).counted().aggregate(total=Sum("quantity"))["total"]
         return total or 0
     products_sold_count.short_description = "Units sold"
 
@@ -430,11 +430,8 @@ class SellerAccountAdmin(admin.ModelAdmin):
     total_sales_display.short_description = "Total sales"
 
     def commission_owed_display(self, obj):
-        sales = float(obj.lifetime_sales)
-        rate = obj.effective_commission_rate
-        owed = sales * rate / 100
-        return f"{money(owed)} ({rate:g}%)"
-    commission_owed_display.short_description = "Commission owed"
+        return f"{money(obj.commission_total)} (current rate {obj.effective_commission_rate:g}%)"
+    commission_owed_display.short_description = "Commission earned by the store"
 
     def net_earnings_display(self, obj):
         return money(obj.net_earnings)

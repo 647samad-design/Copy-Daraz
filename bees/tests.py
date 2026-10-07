@@ -167,9 +167,12 @@ class SellerAccountTests(TestCase):
         buyer = User.objects.create_user("buyer2", "b2@example.com", "pass12345")
         order = Order.objects.create(user=buyer, full_name="B", address="St", city="Karachi",
                                       phone="0300", payment_method="cod")
-        OrderItem.objects.create(order=order, product=product, product_name=product.name,
-                                  price=Decimal("100.00"), quantity=3)
+        item = OrderItem(order=order, product=product, product_name=product.name,
+                         price=Decimal("100.00"), quantity=3)
+        item.apply_commission(seller)
+        item.save()
         self.assertEqual(seller.lifetime_sales, Decimal("300.00"))
+        self.assertEqual(item.commission_amount, Decimal("30.00"))
 
     def test_commission_rate_reduces_at_volume_thresholds(self):
         user = User.objects.create_user("u5", "u5@example.com", "pass12345")
@@ -456,12 +459,13 @@ class ChatTests(TestCase):
 # Checkout, Stripe and security regression tests
 # ---------------------------------------------------------------------------
 import json
+import os
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
-from .models import Coupon, SiteSettings
+from .models import Coupon, ProductImage, SiteSettings
 
 
 CHECKOUT_FORM = {
@@ -1067,3 +1071,146 @@ class SpeculativeRequestTests(TestCase):
         self.assertFalse(SearchLog.objects.exists())
         self.client.get(reverse("search_products"), {"q": "oil"})
         self.assertTrue(SearchLog.objects.exists())
+
+
+class MarketplaceFlowTests(TestCase):
+    """End to end: a business signs up to sell, gets approved, lists a
+    product, a buyer orders it, and the commission is recorded."""
+
+    def test_full_seller_to_buyer_flow(self):
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        # 1. A business applies to sell
+        self.client.post(reverse("signup"), {
+            "username": "acme", "email": "acme@example.com", "password": "Strong-pass-123", "confirm_password": "Strong-pass-123",
+            "user_type": "organization", "organization_name": "Acme Ltd", "phone": "+1 555 0101", "country": "US",
+        })
+        seller = SellerAccount.objects.get(user__username="acme")
+        self.assertEqual(seller.status, "pending")
+        self.assertEqual(seller.commission_rate, Decimal("20"))
+        # 2. Staff approve the seller
+        self.client.force_login(staff)
+        self.client.post(reverse("manage_seller", args=[seller.id]), {"action": "approved"})
+        # 3. Seller lists a product; it waits for review
+        self.client.force_login(seller.user)
+        self.client.post(reverse("seller_add_product"), {
+            "name": "Acme Lamp", "category": "table-lamp", "price": "50.00", "stock": "4",
+            "image_url": "https://example.com/lamp.jpg", "description": "A lamp",
+        })
+        product = Product.objects.get(name="Acme Lamp")
+        self.assertEqual(product.approval_status, "pending")
+        self.assertEqual(self.client.get(reverse("product_detail", args=[product.id])).status_code, 200)  # owner preview
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("product_detail", args=[product.id])).status_code, 404)  # hidden from public
+        # 4. Staff approve the product
+        self.client.force_login(staff)
+        self.client.post(reverse("manage_products_bulk"), {"ids": [product.id], "action": "approve"})
+        # 5. A buyer orders 2 with cash on delivery
+        buyer = User.objects.create_user("buyer", "buyer@example.com", "pass12345")
+        self.client.force_login(buyer)
+        self.client.post(reverse("add_to_cart", args=[product.id]), {"quantity": 2})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        item = OrderItem.objects.get(product=product)
+        self.assertEqual(item.seller_account, seller)
+        self.assertEqual(item.commission_rate, Decimal("20"))
+        self.assertEqual(item.commission_amount, Decimal("20.00"))
+        seller.refresh_from_db()
+        self.assertEqual(seller.lifetime_sales, Decimal("100.00"))
+        self.assertEqual(seller.net_earnings, 80.0)
+        # 6. The seller sees the sale, the address and their earning
+        self.client.force_login(seller.user)
+        page = self.client.get(reverse("seller_dashboard"))
+        self.assertContains(page, "Acme Lamp")
+        self.assertContains(page, "Austin")
+        self.assertContains(page, "$80.00")
+        # 7. Cancelled orders don't count toward earnings
+        self.client.force_login(buyer)
+        self.client.post(reverse("cancel_order", args=[item.order.id]))
+        seller = SellerAccount.objects.get(pk=seller.pk)
+        self.assertEqual(seller.lifetime_sales, 0)
+        product.refresh_from_db()
+        self.assertEqual(product.stock, 4)
+
+    def test_store_products_have_no_commission(self):
+        buyer = User.objects.create_user("b2", "b2@example.com", "pass12345")
+        p = make_product(price=Decimal("10.00"))
+        self.client.force_login(buyer)
+        self.client.post(reverse("add_to_cart", args=[p.id]))
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        item = OrderItem.objects.get()
+        self.assertIsNone(item.seller_account)
+        self.assertEqual(item.commission_amount, 0)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class PayCodOrderOnlineTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("payer", "payer@example.com", "pass12345")
+        self.product = make_product(price=Decimal("25.00"), stock=5)
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.order = Order.objects.get()
+
+    def _start(self):
+        fake = mock.MagicMock()
+        fake.id = "cs_cod_1"
+        fake.url = "https://checkout.stripe.com/c/pay/cs_cod_1"
+        with mock.patch("stripe.checkout.Session.create", return_value=fake):
+            return self.client.post(reverse("pay_online", args=[self.order.id]))
+
+    def test_cod_order_can_be_paid_in_advance(self):
+        r = self._start()
+        self.assertTrue(r.url.startswith("https://checkout.stripe.com/"))
+        self.order.refresh_from_db()
+        payload = json.dumps({"type": "checkout.session.completed", "data": {"object": _fake_session(self.order)}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}):
+            self.client.post(reverse("stripe_webhook"), data=payload, content_type="application/json", HTTP_STRIPE_SIGNATURE="x")
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_status, "paid")
+        self.assertEqual(self.order.payment_method, "card")
+        self.assertFalse(self.order.cod_fallback)
+
+    def test_abandoned_advance_payment_keeps_cod_order(self):
+        self._start()
+        self.order.refresh_from_db()
+        payload = json.dumps({"type": "checkout.session.expired", "data": {"object": _fake_session(self.order, payment_status="unpaid", status="expired")}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}):
+            self.client.post(reverse("stripe_webhook"), data=payload, content_type="application/json", HTTP_STRIPE_SIGNATURE="x")
+        self.order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(self.order.status, "pending")
+        self.assertEqual(self.order.payment_method, "cod")
+        self.assertEqual(self.order.payment_status, "not_applicable")
+        self.assertEqual(self.product.stock, 4)  # still reserved for the COD order
+
+    def test_cancel_page_returns_to_cod(self):
+        self._start()
+        fake = mock.MagicMock()
+        self.order.refresh_from_db()
+        fake.to_dict.return_value = _fake_session(self.order, payment_status="unpaid", status="open")
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=fake), mock.patch("stripe.checkout.Session.expire"):
+            r = self.client.get(reverse("payment_cancel", args=[self.order.id]))
+        self.assertRedirects(r, reverse("my_orders"))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_method, "cod")
+        self.assertNotEqual(self.order.status, "cancelled")
+
+    def test_paid_or_shipped_orders_cannot_switch(self):
+        Order.objects.filter(pk=self.order.pk).update(status="shipped")
+        self._start()
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_method, "cod")
+
+
+class DemoCatalogueTests(TestCase):
+    def test_seed_gives_every_product_a_matching_image(self):
+        import tempfile
+        from django.core.management import call_command
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            Product.objects.create(name="Charcoal Face Wash", category="skincare", price=5,
+                                   image_url="https://picsum.photos/id/10/400/400")
+            call_command("seed_data", stdout=open(os.devnull, "w"))
+            fw = Product.objects.get(name="Charcoal Face Wash")
+            self.assertIn("charcoal-face-wash", fw.image_url)
+            self.assertFalse(Product.objects.filter(image_url__contains="picsum").exists())
+            self.assertFalse(ProductImage.objects.filter(image_url__contains="picsum").exists())

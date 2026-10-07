@@ -26,7 +26,7 @@
                     <tr>
                         <td>{% if i.product %}<img class="thumb" src="{{ i.product.image_url }}" alt="">{% endif %}</td>
                         <td>{% if i.product %}<a class="rowlink" href="{% url 'manage_product_edit' i.product.id %}">{{ i.product_name }}</a>{% else %}{{ i.product_name }}{% endif %}<div class="muted small">{{ i.get_fulfillment_status_display }}</div></td>
-                        <td class="small">{{ i.product.seller_name|default:"—" }}</td>
+                        <td class="small">{% if i.seller_account %}{{ i.seller_account.display_name }}<div class="muted">{{ i.commission_rate|floatformat:"-1" }}% = {{ i.commission_amount|money }}</div>{% else %}Your store{% endif %}</td>
                         <td class="num">{{ i.quantity }}</td><td class="num">{{ i.price|money }}</td><td class="num">{{ i.subtotal|money }}</td>
                     </tr>
                     {% endfor %}

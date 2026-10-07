@@ -37,6 +37,9 @@
                 <div><h3 style="font-size:1rem;margin-bottom:6px;">Payment</h3><p class="muted">{{ order.get_payment_method_display }}<br>{{ order.get_payment_status_display }}</p></div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:26px;">
+                {% if stripe_enabled and order.payment_method == "cod" and order.payment_status == "not_applicable" %}
+                <form method="post" action="{% url 'pay_online' order.id %}">{% csrf_token %}<button type="submit" class="btn btn-accent">Pay {{ order.total|money }} online now</button></form>
+                {% endif %}
                 <a class="btn btn-primary" href="{% url 'my_orders' %}">Track this order</a>
                 <a class="btn btn-secondary" href="{% url 'invoice_pdf' order.id %}">Download invoice</a>
                 <a class="btn btn-ghost" href="{% url 'all_products' %}">{{ t.continue_shopping }}</a>

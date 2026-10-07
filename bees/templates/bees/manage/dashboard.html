@@ -45,6 +45,7 @@
     <div class="kpi"><strong>{{ period_revenue|money }}</strong><span>Revenue{% if change is not None %} · <span class="delta {% if change >= 0 %}up{% else %}down{% endif %}">{% if change >= 0 %}+{% endif %}{{ change }}%</span> vs previous {{ days }} days{% endif %}</span></div>
     <div class="kpi"><strong>{{ period_orders }}</strong><span>Orders</span></div>
     <div class="kpi"><strong>{{ avg_order|money }}</strong><span>Average order</span></div>
+    <div class="kpi"><strong>{{ commission|money }}</strong><span>Commission from sellers</span></div>
     <div class="kpi"><strong>{{ customers }}</strong><span>Customers · {{ new_customers }} new</span></div>
 </div>
 

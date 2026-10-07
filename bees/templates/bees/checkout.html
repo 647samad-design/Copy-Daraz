@@ -70,7 +70,7 @@
                 {% if "cod" in payment_methods %}
                 <label class="pay-option">
                     <input type="radio" name="payment_method" value="cod" {% if "card" not in payment_methods %}checked{% endif %}>
-                    <span><strong>{{ t.cash_on_delivery }}</strong><span class="muted">Pay the courier when your order arrives.</span></span>
+                    <span><strong>{{ t.cash_on_delivery }}</strong><span class="muted">Pay the courier when your order arrives{% if "card" in payment_methods %}, or pay online any time before it ships from My orders{% endif %}.</span></span>
                 </label>
                 {% endif %}
                 <button type="submit" class="btn btn-primary btn-block place" id="place-btn">

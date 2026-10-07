@@ -21,7 +21,7 @@
             <h1>{{ seller.display_name }}</h1>
             <p>{% if role == "owner" %}Seller dashboard{% else %}You're helping as {{ role }}{% endif %}{% if seller.status == "approved" %} · Commission {{ seller.effective_commission_rate|floatformat:"-1" }}%{% endif %}</p>
         </div>
-        {% if seller.status == "approved" %}<div style="display:flex;gap:8px;"><a class="btn btn-secondary" href="{% url 'store_page' seller.display_name %}">View store</a>{% if role == "owner" or role == "admin" %}<a class="btn btn-secondary" href="{% url 'seller_store_settings' %}">Store settings</a>{% endif %}<a class="btn btn-primary" href="{% url 'seller_add_product' %}">Add product</a></div>{% endif %}
+        {% if seller.status == "approved" %}<div style="display:flex;gap:8px;flex-wrap:wrap;"><a class="btn btn-secondary" href="{% url 'store_page' seller.display_name %}">View store</a>{% if role == "owner" or role == "admin" %}<a class="btn btn-secondary" href="{% url 'seller_store_settings' %}">Store settings</a>{% endif %}<a class="btn btn-primary" href="{% url 'seller_add_product' %}">Add product</a></div>{% endif %}
     </div>
 
     {% if seller.status == "pending" %}<div class="callout warn"><strong>Application under review.</strong> We'll notify you as soon as it's approved, usually within two business days.</div>

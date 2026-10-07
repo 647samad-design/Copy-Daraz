@@ -114,6 +114,8 @@ urlpatterns = [
     path('owner/dashboard/', views.owner_dashboard, name='owner_dashboard'),
     path('api/chat/messages/', views.chat_messages, name='chat_messages'),
     path('api/chat/send/', views.chat_send, name='chat_send'),
+    path('api/chat/topic/', views.chat_topic, name='chat_topic'),
+    path('api/chat/unread/', views.chat_unread, name='chat_unread'),
 
     path('manage/', mv.dashboard, name='manage_dashboard'),
     path('manage/orders/', mv.orders, name='manage_orders'),

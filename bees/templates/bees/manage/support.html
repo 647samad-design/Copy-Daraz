@@ -22,7 +22,7 @@
         {% for t in threads %}
         <a href="{% url 'manage_support_thread' t.id %}?show={{ show }}" class="{% if thread and thread.id == t.id %}on{% endif %}">
             <span class="who"><span>{% if t.user %}{{ t.user.get_full_name|default:t.user.username }}{% else %}Guest visitor{% endif %}</span>{% if t.unread %}<span class="pill warn">{{ t.unread }} new</span>{% endif %}</span>
-            <span class="prev">{% if t.last %}{% if t.last.sender == 'support' %}You: {% endif %}{{ t.last.message }}{% endif %}</span>
+            <span class="prev">{% if t.last %}{% if t.last.sender == 'support' %}{% if t.last.is_auto %}Assistant: {% else %}You: {% endif %}{% endif %}{{ t.last.message }}{% endif %}</span>
         </a>
         {% empty %}
         <p class="muted" style="padding:16px;">{% if show == 'open' %}No open conversations.{% else %}No closed conversations.{% endif %}</p>
@@ -36,7 +36,7 @@
             <form method="post">{% csrf_token %}{% if thread.is_resolved %}<button class="btn btn-secondary btn-sm" name="action" value="reopen">Reopen</button>{% else %}<button class="btn btn-secondary btn-sm" name="action" value="resolve">Mark as done</button>{% endif %}</form>
         </div>
         <div class="convo" id="convo">
-            {% for m in chat %}<div class="bubble {% if m.sender == 'support' %}me{% endif %}">{{ m.message|linebreaksbr }}<div class="t">{{ m.created_at|date:"M j, H:i" }}</div></div>{% endfor %}
+            {% for m in chat %}<div class="bubble {% if m.sender == 'support' %}me{% endif %}" {% if m.is_auto %}style="opacity:.75;"{% endif %}>{{ m.message|linebreaksbr }}<div class="t">{% if m.is_auto %}Automatic answer · {% endif %}{{ m.created_at|date:"M j, H:i" }}</div></div>{% endfor %}
         </div>
         <form method="post" style="display:grid;gap:8px;margin-top:14px;">
             {% csrf_token %}<input type="hidden" name="action" value="reply">

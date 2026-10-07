@@ -2343,3 +2343,46 @@ class SystemCheckTests(TestCase):
         self.assertTrue(Notification.objects.filter(user=self.staff, message__icontains="refund failed").exists())
         order.refresh_from_db()
         self.assertEqual(order.status, "confirmed")
+
+
+class HelpAssistantTests(TestCase):
+    def test_topics_answer_from_store_settings(self):
+        from .models import ShippingZone
+        ShippingZone.objects.create(name="Europe", countries="DE, FR", fee=Decimal("12"), delivery_days=8)
+        SiteSettings.objects.update_or_create(pk=1, defaults={"return_days": 30})
+        cache.clear()
+        d = self.client.get(reverse("chat_topic") + "?key=start").json()
+        self.assertIn("help assistant", d["message"])
+        self.assertTrue(any(o["key"] == "human" for o in d["options"]))
+        self.assertIn("Europe: $12.00", self.client.get(reverse("chat_topic") + "?key=shipping").json()["message"])
+        self.assertIn("within 30 days", self.client.get(reverse("chat_topic") + "?key=returns").json()["message"])
+
+    def test_track_shows_own_orders(self):
+        user = User.objects.create_user("t", "t@example.com", "pass12345")
+        Order.objects.create(user=user, full_name="T", address="x", city="y", phone="1", status="shipped", tracking_number="1Z9")
+        self.client.force_login(user)
+        msg = self.client.get(reverse("chat_topic") + "?key=track").json()["message"]
+        self.assertIn("Shipped", msg)
+        self.assertIn("1Z9", msg)
+
+    def test_typed_question_gets_instant_answer_and_reaches_team(self):
+        r = self.client.post(reverse("chat_send"), {"message": "How do I return a broken item?"}).json()
+        self.assertIn("return items within", r["reply"]["message"])
+        self.assertTrue(r["reply"]["auto"])
+        r = self.client.post(reverse("chat_send"), {"message": "I want to talk to someone about bulk orders"}).json()
+        self.assertIn("member of our team will reply", r["reply"]["message"])
+        thread = ChatThread.objects.get()
+        self.assertEqual(thread.messages.filter(sender="user").count(), 2)
+
+    def test_team_reply_badge_notification_and_email(self):
+        user = User.objects.create_user("c", "c@example.com", "pass12345")
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(user)
+        self.client.post(reverse("chat_send"), {"message": "Hello?"})
+        thread = ChatThread.objects.get(user=user)
+        s = Client(); s.force_login(staff)
+        s.post(reverse("manage_support_thread", args=[thread.id]), {"action": "reply", "message": "Hi! How can we help?"})
+        self.assertEqual(self.client.get(reverse("chat_unread")).json()["unread"], 1)
+        self.assertTrue(any(m.to == ["c@example.com"] and "reply" in m.subject.lower() for m in mail.outbox))
+        self.client.get(reverse("chat_messages"))
+        self.assertEqual(self.client.get(reverse("chat_unread")).json()["unread"], 0)

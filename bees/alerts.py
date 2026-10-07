@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 EMAIL_FAILED = "Email failed"
 REFUND_FAILED = "Refund failed"
 STRIPE_EVENT = "Stripe"
+PAYMENT_FAILED = "Payment page failed"
 
 
 def log(action):

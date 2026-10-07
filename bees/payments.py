@@ -153,11 +153,38 @@ def create_checkout_session(request, order):
         )
     except Exception as exc:  # stripe.StripeError and network failures
         logger.exception("Stripe Checkout Session creation failed for order %s", order.id)
-        raise PaymentError("We couldn't start the secure payment page. Please try again in a moment.") from exc
+        from .alerts import PAYMENT_FAILED, log
+        log(f"{PAYMENT_FAILED}: order #{order.id} - {explain_error(exc)}")
+        msg = "Card payment is temporarily unavailable. Please try again in a few minutes"
+        from .models import SiteSettings
+        if SiteSettings.load().allow_cash_on_delivery:
+            msg += ", or choose Cash on delivery"
+        raise PaymentError(msg + ".") from exc
 
     order.stripe_session_id = session.id
     order.save(update_fields=["stripe_session_id"])
     return session.url
+
+
+def explain_error(exc):
+    """Plain-language reason for a failed Stripe call (for the owner)."""
+    text = str(exc)
+    status = getattr(exc, "http_status", None)
+    relay = bool(getattr(settings, "STRIPE_API_BASE", ""))
+    if relay and status == 401 and "Invalid API Key" not in text:
+        return ("The Supabase relay is still checking for a login token (JWT), so it blocks every payment. "
+                "In Supabase > Edge Functions > stripe-relay > Details, turn OFF 'Verify JWT' and save.")
+    if status == 401:
+        return "Stripe rejected the secret key (STRIPE_SECRET_KEY). Copy it again from Stripe > Developers > API keys."
+    if relay and status == 403:
+        return "The Supabase relay refused the request: RELAY_SECRET in Supabase doesn't match the end of STRIPE_API_BASE in .env."
+    if relay and status == 404:
+        return "The relay address wasn't found. Check STRIPE_API_BASE and that the stripe-relay function is deployed."
+    if relay and status == 500 and "RELAY_SECRET" in text:
+        return "RELAY_SECRET isn't set in Supabase > Edge Functions > Secrets."
+    if status is None:
+        return f"Couldn't reach {'the Supabase relay' if relay else 'Stripe'} from the server: {text[:200]}"
+    return f"Stripe error {status}: {text[:250]}"
 
 
 def retrieve_session(session_id):

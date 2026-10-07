@@ -232,6 +232,8 @@ STORAGES = {
 # Tests run without `collectstatic`, so they use plain static storage.
 if 'test' in sys.argv:
     STORAGES['staticfiles'] = {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'}
+    # Fast (insecure) password hashing - tests only.
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 # Supabase Storage (S3-compatible). Create two buckets in Supabase > Storage:
 #   - a PUBLIC bucket for product images (SUPABASE_STORAGE_BUCKET)

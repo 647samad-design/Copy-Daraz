@@ -163,6 +163,8 @@ def create_checkout_session(request, order):
 
     order.stripe_session_id = session.id
     order.save(update_fields=["stripe_session_id"])
+    from .alerts import payments_working
+    payments_working(f"payment page opened for order #{order.id}")
     return session.url
 
 

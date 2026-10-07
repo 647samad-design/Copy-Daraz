@@ -9,6 +9,23 @@ EMAIL_FAILED = "Email failed"
 REFUND_FAILED = "Refund failed"
 STRIPE_EVENT = "Stripe"
 PAYMENT_FAILED = "Payment page failed"
+PAYMENT_OK = "Payments working"
+
+
+def payments_working(note):
+    """Remembers the last time a Stripe call worked, so System check only
+    reports payment errors that happened after it (older ones were fixed).
+    Keeps a single entry instead of one per payment."""
+    from django.utils import timezone
+    from .models import AuditLog
+    try:
+        latest = AuditLog.objects.filter(action__startswith=PAYMENT_OK).order_by("-created_at").first()
+        if latest and (timezone.now() - latest.created_at).total_seconds() < 600:
+            return  # recorded in the last 10 minutes - no need to write again
+        AuditLog.objects.filter(action__startswith=PAYMENT_OK).delete()
+        AuditLog.objects.create(user=None, action=f"{PAYMENT_OK}: {note}"[:255])
+    except Exception:
+        logger.exception("Could not record working payments")
 
 
 def log(action):

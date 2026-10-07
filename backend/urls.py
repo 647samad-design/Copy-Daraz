@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.sitemaps.views import sitemap
 from django.views.generic import TemplateView
 from bees import views
+from bees import manage_views as mv
 from bees.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
 from bees.ratelimit import ratelimit
 
@@ -94,6 +95,23 @@ urlpatterns = [
     path('owner/dashboard/', views.owner_dashboard, name='owner_dashboard'),
     path('api/chat/messages/', views.chat_messages, name='chat_messages'),
     path('api/chat/send/', views.chat_send, name='chat_send'),
+
+    path('manage/', mv.dashboard, name='manage_dashboard'),
+    path('manage/orders/', mv.orders, name='manage_orders'),
+    path('manage/orders/<int:pk>/', mv.order_detail, name='manage_order'),
+    path('manage/products/', mv.products, name='manage_products'),
+    path('manage/products/bulk/', mv.products_bulk, name='manage_products_bulk'),
+    path('manage/products/new/', mv.product_form, name='manage_product_new'),
+    path('manage/products/<int:pk>/', mv.product_form, name='manage_product_edit'),
+    path('manage/sellers/', mv.sellers, name='manage_sellers'),
+    path('manage/sellers/<int:pk>/', mv.seller_detail, name='manage_seller'),
+    path('manage/customers/', mv.customers, name='manage_customers'),
+    path('manage/coupons/', mv.coupons, name='manage_coupons'),
+    path('manage/reviews/', mv.reviews, name='manage_reviews'),
+    path('manage/returns/', mv.returns, name='manage_returns'),
+    path('manage/support/', mv.support, name='manage_support'),
+    path('manage/support/<int:pk>/', mv.support, name='manage_support_thread'),
+    path('manage/settings/', mv.store_settings, name='manage_settings'),
 
     path('payment/success/', views.payment_success, name='payment_success'),
     path('payment/cancel/<int:order_id>/', views.payment_cancel, name='payment_cancel'),

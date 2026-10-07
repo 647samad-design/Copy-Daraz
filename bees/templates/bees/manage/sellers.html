@@ -1,0 +1,36 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Sellers{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Sellers</h1><p>Approve applications, set commission and record payouts.</p></div></div>
+<div class="tabs" role="group" aria-label="Filter by status">
+    <a href="?" class="{% if not status %}on{% endif %}">All</a>
+    {% for v, l in status_choices %}<a href="?status={{ v }}" class="{% if status == v %}on{% endif %}">{% if v == 'pending' %}Applications{% if attention.sellers %} ({{ attention.sellers }}){% endif %}{% else %}{{ l }}{% endif %}</a>{% endfor %}
+</div>
+<form method="get" class="toolbar">
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <label for="sq" class="sr-only">Search sellers</label>
+    <input class="input grow" id="sq" type="search" name="q" value="{{ q }}" placeholder="Store, person, username or email">
+    <button class="btn btn-primary" type="submit">Search</button>
+</form>
+<section class="panel" style="padding:8px 20px;">
+    <div class="table-scroll">
+        <table class="table" style="min-width:640px;">
+            <thead><tr><th>Seller</th><th>Type</th><th>Status</th><th class="num">Products</th><th class="num">Commission</th><th>Applied</th></tr></thead>
+            <tbody>
+            {% for s in page_obj %}
+            <tr>
+                <td><a class="rowlink" href="{% url 'manage_seller' s.id %}">{{ s.display_name }}</a><div class="muted small">{{ s.user.email|default:s.user.username }}{% if s.country %} · {{ s.country }}{% endif %}</div></td>
+                <td>{% if s.account_type == 'organization' %}Business{% else %}Individual{% endif %}</td>
+                <td>{% if s.status == 'approved' %}<span class="pill ok">Approved</span>{% elif s.status == 'pending' %}<span class="pill warn">Waiting</span>{% else %}<span class="pill bad">{{ s.get_status_display }}</span>{% endif %}</td>
+                <td class="num">{{ s.product_count }}</td>
+                <td class="num">{{ s.commission_rate|floatformat:"-2" }}%</td>
+                <td class="small">{{ s.created_at|date:"M j, Y" }}</td>
+            </tr>
+            {% empty %}<tr class="empty-row"><td colspan="6">No sellers here yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

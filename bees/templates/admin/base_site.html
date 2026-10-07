@@ -3,9 +3,12 @@
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title }}{% endblock %}
 {% block extrastyle %}
 {{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
 <link rel="stylesheet" href="{% static 'bees/css/admin_theme.css' %}">
 {% endblock %}
 {% block branding %}
 <h1 id="site-name"><a href="{% url 'admin:index' %}">{{ site_header }}</a></h1>
 {% endblock %}
-{% block userlinks %}<a href="{% url 'owner_dashboard' %}">Dashboard</a> / {{ block.super }}{% endblock %}
+{% block userlinks %}<a href="{% url 'manage_dashboard' %}">Store admin</a> / <a href="/">View store</a> / {{ block.super }}{% endblock %}

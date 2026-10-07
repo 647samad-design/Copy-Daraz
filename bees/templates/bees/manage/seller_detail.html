@@ -1,0 +1,81 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}{{ seller.display_name }}{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'manage_sellers' %}">← All sellers</a><h1 style="margin-top:6px;">{{ seller.display_name }}</h1>
+    <p>{% if seller.account_type == 'organization' %}Business{% else %}Individual{% endif %} seller · applied {{ seller.created_at|date:"M j, Y" }} ·
+    {% if seller.status == 'approved' %}<span class="pill ok">Approved</span>{% elif seller.status == 'pending' %}<span class="pill warn">Waiting for review</span>{% else %}<span class="pill bad">{{ seller.get_status_display }}</span>{% endif %}</p></div>
+    {% if seller.status == 'approved' %}<div class="actions"><a class="btn btn-secondary btn-sm" href="{% url 'store_page' seller.display_name %}" target="_blank" rel="noopener">View store page</a></div>{% endif %}
+</div>
+<div class="kpis" style="margin:0;">
+    <div class="kpi"><strong>{{ seller.lifetime_sales|money }}</strong><span>Lifetime sales</span></div>
+    <div class="kpi"><strong>{{ seller.effective_commission_rate|floatformat:"-1" }}%</strong><span>Current commission</span></div>
+    <div class="kpi"><strong>{{ seller.net_earnings|money }}</strong><span>Seller earnings</span></div>
+    <div class="kpi"><strong>{{ seller.amount_owed|money }}</strong><span>Still to pay out</span></div>
+</div>
+<div class="two-col">
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Application</h2>
+            <dl class="kv">
+                <dt>Name</dt><dd>{{ seller.full_name|default:"—" }}</dd>
+                <dt>Store / company</dt><dd>{{ seller.business_name|default:seller.organization_name|default:"—" }}</dd>
+                <dt>Account</dt><dd>{{ seller.user.username }} · {{ seller.user.email|default:"no email" }}</dd>
+                <dt>Phone</dt><dd>{{ seller.phone|default:"—" }}</dd>
+                <dt>ID / passport</dt><dd>{{ seller.cnic|default:"—" }}</dd>
+                <dt>Address</dt><dd>{{ seller.business_address|default:"—" }}{% if seller.city %}, {{ seller.city }}{% endif %}{% if seller.country %}, {{ seller.country }}{% endif %}</dd>
+                <dt>Sells</dt><dd>{{ seller.product_categories|default:"—" }}</dd>
+                <dt>About</dt><dd>{{ seller.store_description|default:"—"|linebreaksbr }}</dd>
+                <dt>Tax number</dt><dd>{{ seller.tax_info|default:"—" }}</dd>
+                <dt>Payout details</dt><dd>{{ seller.bank_details|default:"—" }}</dd>
+                <dt>Documents</dt><dd>
+                    {% if seller.business_certificate %}<a class="link" href="{% url 'seller_document' seller.id 'business_certificate' %}" target="_blank" rel="noopener">Business registration</a><br>{% endif %}
+                    {% if seller.id_document %}<a class="link" href="{% url 'seller_document' seller.id 'id_document' %}" target="_blank" rel="noopener">Identity document</a>{% endif %}
+                    {% if not seller.business_certificate and not seller.id_document %}None uploaded{% endif %}
+                </dd>
+                {% if seller.admin_note %}<dt>Staff note</dt><dd>{{ seller.admin_note }}</dd>{% endif %}
+            </dl>
+        </section>
+        <section class="panel">
+            <div class="adm-head" style="margin-bottom:8px;"><h2 style="margin:0;">Products ({{ product_count }})</h2><a class="link small" href="{% url 'manage_products' %}?q={{ seller.display_name|urlencode }}">Manage</a></div>
+            {% for p in products %}<div style="display:flex;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--line);"><img class="thumb" src="{{ p.image_url }}" alt=""><a class="rowlink" style="color:var(--ink);text-decoration:none;flex:1;" href="{% url 'manage_product_edit' p.id %}">{{ p.name }}</a>{% if p.approval_status == 'pending' %}<span class="pill warn">Review</span>{% endif %}<span>{{ p.price|money }}</span></div>{% empty %}<p class="muted">No products yet.</p>{% endfor %}
+        </section>
+    </div>
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Decision</h2>
+            <form method="post" class="stack-sm">
+                {% csrf_token %}
+                <div class="field"><label for="s-note">Message to seller <span class="muted">(optional)</span></label><textarea id="s-note" name="note" rows="3" placeholder="Reason for rejection, or what's missing">{{ seller.admin_note }}</textarea></div>
+                <div style="display:grid;gap:8px;">
+                    {% if seller.status != 'approved' %}<button class="btn btn-primary" name="action" value="approved">Approve seller</button>{% endif %}
+                    {% if seller.status == 'pending' %}<button class="btn btn-danger" name="action" value="rejected">Reject application</button>{% endif %}
+                    {% if seller.status == 'approved' %}<button class="btn btn-danger" name="action" value="suspended">Suspend seller</button>{% endif %}
+                </div>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>Commission</h2>
+            <form method="post" class="toolbar">
+                {% csrf_token %}<input type="hidden" name="action" value="commission">
+                <label for="s-rate" class="sr-only">Base commission %</label>
+                <input class="input" id="s-rate" type="number" name="commission_rate" min="0" max="90" step="0.5" value="{{ seller.commission_rate|floatformat:'-2' }}" style="width:110px;">
+                <span class="muted">% base rate</span>
+                <button class="btn btn-secondary btn-sm" type="submit">Save</button>
+            </form>
+            <p class="muted small" style="margin-top:8px;">The rate drops automatically as their lifetime sales grow.</p>
+        </section>
+        <section class="panel">
+            <h2>Record a payout</h2>
+            <p class="muted small" style="margin-bottom:10px;">Paid out so far: {{ seller.total_paid_out|money }}. Send the money from your bank, then record it here.</p>
+            <form method="post" class="toolbar">
+                {% csrf_token %}<input type="hidden" name="action" value="payout">
+                <label for="s-amt" class="sr-only">Amount</label>
+                <input class="input grow" id="s-amt" type="number" name="amount" min="0.01" step="0.01" value="{{ seller.amount_owed|floatformat:2 }}">
+                <button class="btn btn-primary btn-sm" type="submit">Record payout</button>
+            </form>
+        </section>
+    </div>
+</div>
+{% endblock %}

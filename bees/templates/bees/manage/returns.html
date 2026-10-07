@@ -1,0 +1,39 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Returns{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Returns</h1><p>Approve, reject or refund return requests. Customers are notified each time.</p></div></div>
+<div class="tabs" role="group" aria-label="Filter by status">
+    {% for v, l in status_choices %}<a href="?status={{ v }}" class="{% if status == v %}on{% endif %}">{% if v == 'requested' %}New{% if attention.returns %} ({{ attention.returns }}){% endif %}{% else %}{{ l }}{% endif %}</a>{% endfor %}
+    <a href="?status=all" class="{% if status == 'all' %}on{% endif %}">All</a>
+</div>
+<div class="col-stack tight">
+    {% for r in page_obj %}
+    <section class="panel panel-tight">
+        <div class="adm-head" style="align-items:flex-start;">
+            <div>
+                <strong>{{ r.order_item.product_name }}</strong> × {{ r.order_item.quantity }} · {{ r.order_item.subtotal|money }}
+                <div class="muted small">{{ r.user.get_full_name|default:r.user.username }} · <a class="link" href="{% url 'manage_order' r.order_item.order.id %}">Order #{{ r.order_item.order.id }}</a> · requested {{ r.created_at|date:"M j, Y" }} · refund to {{ r.get_refund_method_display|lower }}</div>
+            </div>
+            {% if r.status == 'requested' %}<span class="pill warn">New</span>{% elif r.status == 'approved' %}<span class="pill info">Approved, waiting for item</span>{% elif r.status == 'refunded' %}<span class="pill ok">Refunded</span>{% else %}<span class="pill bad">Rejected</span>{% endif %}
+        </div>
+        <p style="margin-top:8px;">“{{ r.reason }}”</p>
+        {% if r.status == 'requested' or r.status == 'approved' %}
+        <form method="post" style="margin-top:12px;display:grid;gap:8px;">
+            {% csrf_token %}<input type="hidden" name="id" value="{{ r.id }}">
+            <label for="note{{ r.id }}" class="sr-only">Note to customer</label>
+            <input class="input" id="note{{ r.id }}" name="note" value="{{ r.admin_note }}" placeholder="Note to the customer (optional, e.g. return address or reason)">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                {% if r.status == 'requested' %}<button class="btn btn-primary btn-sm" name="action" value="approve">Approve return</button>{% endif %}
+                <button class="btn btn-secondary btn-sm" name="action" value="refund">{% if r.refund_method == 'original_payment' and r.order_item.order.payment_status == 'paid' %}Refund {{ r.order_item.subtotal|money }} to card{% else %}Mark refunded{% endif %}</button>
+                {% if r.status == 'requested' %}<button class="btn btn-ghost btn-sm" name="action" value="reject" style="color:var(--sale);">Reject</button>{% endif %}
+            </div>
+        </form>
+        {% elif r.admin_note %}<p class="muted small" style="margin-top:6px;">Note: {{ r.admin_note }}</p>{% endif %}
+    </section>
+    {% empty %}
+    <section class="panel empty"><h2>Nothing here</h2><p>{% if status == 'requested' %}No new return requests. Nice.{% else %}No returns with this status.{% endif %}</p></section>
+    {% endfor %}
+</div>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

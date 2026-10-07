@@ -147,3 +147,24 @@ html[data-theme="dark"] .app-bees, html[data-theme="dark"] .app-auth { border-co
 .dashboard #content { width: min(600px, 100%); }
 .bees-admin-welcome { font-size: 13px; color: #666; margin-bottom: 18px; }
 html[data-theme="dark"] .bees-admin-welcome { color: #999; }
+
+/* ---- Typography and surfaces matched to the storefront and store admin ---- */
+:root {
+    --font-family-primary: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-family-monospace: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+    --body-bg: #F4F6F7;
+    --link-fg: #0E3B43;
+    --link-selected-fg: #0E3B43;
+    --link-hover-color: #8A5A00;
+}
+html[data-theme="dark"] { --body-bg: #0F1418; --link-fg: #F2B33D; --link-selected-fg: #F2B33D; }
+body { font-size: 15px; background: var(--body-bg); }
+#site-name, h1, h2, #content h1 { font-family: 'Bricolage Grotesque', var(--font-family-primary); letter-spacing: -0.01em; }
+#content h1 { font-size: 1.8rem; font-weight: 700; }
+.module { border-radius: 12px; overflow: hidden; border: 1px solid rgba(20, 26, 31, 0.08); }
+.module h2, .module caption, .inline-group h2 { font-family: var(--font-family-primary); font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 0.95rem; }
+input[type=text], input[type=password], input[type=email], input[type=url], input[type=number], input[type=tel], textarea, select, .vTextField {
+    border-radius: 8px; padding: 8px 10px; border-width: 1.5px;
+}
+.button, input[type=submit], input[type=button], .submit-row input, a.button { border-radius: 8px; font-weight: 700; padding: 10px 16px; }
+#changelist-filter { border-radius: 12px; }

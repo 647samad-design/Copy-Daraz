@@ -1,0 +1,92 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Overview{% endblock %}
+{% block page_css %}
+    .todo { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .todo a { display: block; padding: 14px 16px; border-radius: var(--radius); border: 1.5px solid var(--line); background: var(--surface); text-decoration: none; }
+    .todo a strong { display: block; font-family: var(--font-display); font-size: 1.6rem; line-height: 1.1; }
+    .todo a span { color: var(--muted); font-weight: 700; }
+    .todo a.hot { border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+    .todo a:hover { border-color: var(--ink); }
+    .chart { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; align-items: end; height: 200px; padding-top: 8px; }
+    .chart .col { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+    .chart .b { width: 100%; max-width: 36px; border-radius: 5px 5px 0 0; background: var(--brand); min-height: 2px; }
+    html[data-theme="dark"] .chart .b { background: var(--accent); }
+    .chart .col.zero .b { background: var(--line); }
+    .chart .lbl { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+    .chart.dense .lbl { visibility: hidden; }
+    .chart.dense .col:nth-child(5n+1) .lbl { visibility: visible; }
+    .delta { font-weight: 700; }
+    .delta.up { color: var(--ok); } .delta.down { color: var(--sale); }
+    .list-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .list-row:first-of-type { border-top: 0; }
+{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><h1>Good to see you, {{ user.first_name|default:user.username }}</h1><p>Here's how {{ brand.site_name }} is doing.</p></div>
+    <div class="tabs" role="group" aria-label="Period">
+        <a href="?range=7" class="{% if days == 7 %}on{% endif %}">Last 7 days</a>
+        <a href="?range=30" class="{% if days == 30 %}on{% endif %}">Last 30 days</a>
+    </div>
+</div>
+
+<section aria-label="Needs your attention">
+    <div class="todo">
+        <a href="{% url 'manage_orders' %}?status=open" class="{% if attention.orders %}hot{% endif %}"><strong>{{ attention.orders }}</strong><span>Orders to ship</span></a>
+        <a href="{% url 'manage_products' %}?state=pending" class="{% if attention.products %}hot{% endif %}"><strong>{{ attention.products }}</strong><span>Products to review</span></a>
+        <a href="{% url 'manage_sellers' %}?status=pending" class="{% if attention.sellers %}hot{% endif %}"><strong>{{ attention.sellers }}</strong><span>Seller applications</span></a>
+        <a href="{% url 'manage_returns' %}" class="{% if attention.returns %}hot{% endif %}"><strong>{{ attention.returns }}</strong><span>Return requests</span></a>
+        <a href="{% url 'manage_support' %}" class="{% if attention.messages %}hot{% endif %}"><strong>{{ attention.messages }}</strong><span>Unread messages</span></a>
+        <a href="{% url 'manage_reviews' %}?tab=questions" class="{% if attention.questions %}hot{% endif %}"><strong>{{ attention.questions }}</strong><span>Unanswered questions</span></a>
+    </div>
+</section>
+
+<div class="kpis" style="margin:0;">
+    <div class="kpi"><strong>{{ period_revenue|money }}</strong><span>Revenue{% if change is not None %} · <span class="delta {% if change >= 0 %}up{% else %}down{% endif %}">{% if change >= 0 %}+{% endif %}{{ change }}%</span> vs previous {{ days }} days{% endif %}</span></div>
+    <div class="kpi"><strong>{{ period_orders }}</strong><span>Orders</span></div>
+    <div class="kpi"><strong>{{ avg_order|money }}</strong><span>Average order</span></div>
+    <div class="kpi"><strong>{{ customers }}</strong><span>Customers · {{ new_customers }} new</span></div>
+</div>
+
+<section class="panel">
+    <h2>Revenue by day</h2>
+    <div class="chart {% if days == 30 %}dense{% endif %}" role="img" aria-label="Revenue per day for the last {{ days }} days">
+        {% for d in series %}
+        <div class="col {% if not d.amount %}zero{% endif %}" title="{{ d.date|date:'D, M j' }}: {{ d.amount|money }} from {{ d.orders }} order{{ d.orders|pluralize }}">
+            <div class="b" style="height:{{ d.pct }}%;"></div>
+            <span class="lbl">{% if days == 7 %}{{ d.date|date:"D" }}{% else %}{{ d.date|date:"j M" }}{% endif %}</span>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<div class="two-col">
+    <section class="panel">
+        <div class="adm-head" style="margin-bottom:10px;"><h2 style="margin:0;">Latest orders</h2><a class="link small" href="{% url 'manage_orders' %}">All orders</a></div>
+        <div class="table-scroll">
+            <table class="table">
+                <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th class="num">Total</th></tr></thead>
+                <tbody>
+                {% for o in recent_orders %}
+                <tr><td><a class="rowlink" href="{% url 'manage_order' o.id %}">#{{ o.id }}</a><div class="muted small">{{ o.created_at|date:"M j, H:i" }}</div></td><td>{{ o.full_name|truncatechars:22 }}</td><td>{% include "bees/manage/_order_pills.html" %}</td><td class="num">{{ o.total|money }}</td></tr>
+                {% empty %}<tr class="empty-row"><td colspan="4">No orders yet. They'll show up here the moment someone checks out.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Best sellers this period</h2>
+            {% for p in top_products %}
+            <div class="list-row"><span>{{ p.product_name|truncatechars:34 }} <span class="muted small">× {{ p.units }}</span></span><strong>{{ p.revenue|money }}</strong></div>
+            {% empty %}<p class="muted">No sales in this period yet.</p>{% endfor %}
+        </section>
+        <section class="panel">
+            <div class="adm-head" style="margin-bottom:6px;"><h2 style="margin:0;">Low stock</h2><a class="link small" href="{% url 'manage_products' %}?state=low">See all</a></div>
+            {% for p in low_stock %}
+            <div class="list-row"><a class="rowlink" style="color:var(--ink);text-decoration:none;" href="{% url 'manage_product_edit' p.id %}">{{ p.name|truncatechars:32 }}</a>{% if p.stock <= 0 %}<span class="pill bad">Out</span>{% else %}<span class="pill warn">{{ p.stock }} left</span>{% endif %}</div>
+            {% empty %}<p class="muted">Everything is well stocked.</p>{% endfor %}
+        </section>
+    </div>
+</div>
+{% endblock %}

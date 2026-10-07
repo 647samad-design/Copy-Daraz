@@ -658,10 +658,23 @@ class SiteSettings(models.Model):
     def __str__(self):
         return "Site settings"
 
+    CACHE_KEY = "site_settings:v1"
+
     @classmethod
     def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+        """Site settings are read on every page, so they're cached for a
+        minute and cleared whenever they're saved."""
+        from django.core.cache import cache
+        obj = cache.get(cls.CACHE_KEY)
+        if obj is None:
+            obj, _ = cls.objects.get_or_create(pk=1)
+            cache.set(cls.CACHE_KEY, obj, 60)
         return obj
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        from django.core.cache import cache
+        cache.delete(self.CACHE_KEY)
 
     @property
     def logo(self):
@@ -717,3 +730,16 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.sender}: {self.message[:40]}"
+
+
+# Header role flags are cached; clear them when a seller account or team
+# membership changes.
+from django.db.models.signals import post_delete, post_save  # noqa: E402
+from django.dispatch import receiver  # noqa: E402
+
+
+@receiver([post_save, post_delete], sender=SellerAccount)
+@receiver([post_save, post_delete], sender=OrganizationMember)
+def _clear_seller_flag(sender, instance, **kwargs):
+    from django.core.cache import cache
+    cache.delete(f"is_seller:{instance.user_id}")

@@ -1,0 +1,33 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Customers{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Customers</h1><p>{{ page_obj.paginator.count }} account{{ page_obj.paginator.count|pluralize }}</p></div></div>
+<form method="get" class="toolbar">
+    <label for="cq" class="sr-only">Search customers</label>
+    <input class="input grow" id="cq" type="search" name="q" value="{{ q }}" placeholder="Name, username or email">
+    <button class="btn btn-primary" type="submit">Search</button>
+    {% if q %}<a class="btn btn-ghost" href="?">Clear</a>{% endif %}
+</form>
+<section class="panel" style="padding:8px 20px;">
+    <div class="table-scroll">
+        <table class="table" style="min-width:640px;">
+            <thead><tr><th>Customer</th><th>Joined</th><th>Last seen</th><th class="num">Orders</th><th class="num">Spent</th></tr></thead>
+            <tbody>
+            {% for u in users %}
+            <tr>
+                <td><strong>{{ u.get_full_name|default:u.username }}</strong>
+                    {% if u.is_staff %} <span class="pill info">Staff</span>{% endif %}{% if u.is_seller %} <span class="pill">Seller</span>{% endif %}
+                    <div class="muted small">{{ u.email|default:u.username }}</div></td>
+                <td class="small">{{ u.date_joined|date:"M j, Y" }}</td>
+                <td class="small">{% if u.last_login %}{{ u.last_login|timesince }} ago{% else %}Never{% endif %}</td>
+                <td class="num">{% if u.order_count %}<a class="link" href="{% url 'manage_orders' %}?q={{ u.username|urlencode }}">{{ u.order_count }}</a>{% else %}0{% endif %}</td>
+                <td class="num">{{ u.spend|money }}</td>
+            </tr>
+            {% empty %}<tr class="empty-row"><td colspan="5">No customers match that search.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Reviews & questions{% endblock %}
+{% block admin %}
+<div class="adm-head"><div><h1>Reviews &amp; questions</h1><p>Answer shopper questions and remove reviews that break your rules.</p></div></div>
+<div class="tabs" role="group" aria-label="Show">
+    <a href="?tab=reviews" class="{% if tab == 'reviews' %}on{% endif %}">Reviews</a>
+    <a href="?tab=questions" class="{% if tab == 'questions' %}on{% endif %}">Questions{% if attention.questions %} ({{ attention.questions }} unanswered){% endif %}</a>
+</div>
+{% if tab == "questions" %}
+<div class="col-stack tight">
+    {% for qn in page_obj %}
+    <section class="panel panel-tight">
+        <div class="adm-head" style="align-items:flex-start;">
+            <div><strong>{{ qn.question }}</strong><div class="muted small">{{ qn.username }} on <a class="link" href="{% url 'product_detail' qn.product.id %}" target="_blank" rel="noopener">{{ qn.product.name }}</a> · {{ qn.created_at|date:"M j, Y" }}</div></div>
+            {% if qn.answer %}<span class="pill ok">Answered</span>{% else %}<span class="pill warn">Needs an answer</span>{% endif %}
+        </div>
+        <form method="post" style="margin-top:12px;display:grid;gap:8px;">
+            {% csrf_token %}<input type="hidden" name="id" value="{{ qn.id }}">
+            <label for="ans{{ qn.id }}" class="sr-only">Answer</label>
+            <textarea class="input" id="ans{{ qn.id }}" name="answer" rows="2" placeholder="Write a public answer">{{ qn.answer }}</textarea>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" name="action" value="answer">{% if qn.answer %}Update answer{% else %}Publish answer{% endif %}</button>
+                <button class="btn btn-ghost btn-sm" name="action" value="delete_question" style="color:var(--sale);">Delete question</button>
+            </div>
+        </form>
+    </section>
+    {% empty %}
+    <section class="panel empty"><h2>No questions yet</h2><p>Questions shoppers ask on product pages appear here.</p></section>
+    {% endfor %}
+</div>
+{% else %}
+<div class="tabs" role="group" aria-label="Filter by rating">
+    <a href="?tab=reviews" class="{% if not rating %}on{% endif %}">All ratings</a>
+    {% for n in "54321" %}<a href="?tab=reviews&amp;rating={{ n }}" class="{% if rating == n %}on{% endif %}">{{ n }} ★</a>{% endfor %}
+</div>
+<div class="col-stack tight">
+    {% for r in page_obj %}
+    <section class="panel panel-tight">
+        <div class="adm-head" style="align-items:flex-start;">
+            <div><span class="stars">{{ r.rating|stars }}</span> <strong>{{ r.username }}</strong>{% if r.is_verified_purchase %} <span class="pill ok">Verified purchase</span>{% endif %}
+            <div class="muted small"><a class="link" href="{% url 'product_detail' r.product.id %}" target="_blank" rel="noopener">{{ r.product.name }}</a> · {{ r.created_at|date:"M j, Y" }}</div></div>
+            <form method="post" class="del-form">{% csrf_token %}<input type="hidden" name="id" value="{{ r.id }}"><button class="btn btn-ghost btn-sm" name="action" value="delete_review" style="color:var(--sale);">Delete</button></form>
+        </div>
+        <p style="margin-top:8px;">{{ r.comment }}</p>
+    </section>
+    {% empty %}
+    <section class="panel empty"><h2>No reviews here</h2><p>Customer reviews will appear as they come in.</p></section>
+    {% endfor %}
+</div>
+{% endif %}
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}
+{% block extra_js %}
+<script>
+document.querySelectorAll('.del-form').forEach(function (f) {
+    f.addEventListener('submit', function (e) {
+        var b = f.querySelector('button');
+        if (!b.dataset.armed) { e.preventDefault(); b.dataset.armed = '1'; b.textContent = 'Confirm delete'; }
+    });
+});
+</script>
+{% endblock %}

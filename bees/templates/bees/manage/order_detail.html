@@ -1,0 +1,108 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Order #{{ order.id }}{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div>
+        <a class="link small" href="{% url 'manage_orders' %}">← All orders</a>
+        <h1 style="margin-top:6px;">Order #{{ order.id }}</h1>
+        <p>Placed {{ order.created_at|date:"M j, Y \a\t H:i" }} · {% with o=order %}{% include "bees/manage/_order_pills.html" %}{% endwith %}</p>
+    </div>
+    <div class="actions">
+        <a class="btn btn-secondary btn-sm" href="{% url 'invoice_pdf' order.id %}">Invoice PDF</a>
+        {% if order.stripe_payment_intent %}<a class="btn btn-secondary btn-sm" href="https://dashboard.stripe.com/{% if stripe_test %}test/{% endif %}payments/{{ order.stripe_payment_intent }}" target="_blank" rel="noopener">Open in Stripe</a>{% endif %}
+    </div>
+</div>
+
+<div class="two-col">
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Items</h2>
+            <div class="table-scroll">
+                <table class="table">
+                    <thead><tr><th></th><th>Product</th><th>Seller</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Subtotal</th></tr></thead>
+                    <tbody>
+                    {% for i in items %}
+                    <tr>
+                        <td>{% if i.product %}<img class="thumb" src="{{ i.product.image_url }}" alt="">{% endif %}</td>
+                        <td>{% if i.product %}<a class="rowlink" href="{% url 'manage_product_edit' i.product.id %}">{{ i.product_name }}</a>{% else %}{{ i.product_name }}{% endif %}<div class="muted small">{{ i.get_fulfillment_status_display }}</div></td>
+                        <td class="small">{{ i.product.seller_name|default:"—" }}</td>
+                        <td class="num">{{ i.quantity }}</td><td class="num">{{ i.price|money }}</td><td class="num">{{ i.subtotal|money }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <dl class="kv" style="margin-top:14px;justify-content:end;">
+                <dt>Subtotal</dt><dd class="num" style="text-align:right;">{{ order.subtotal|money }}</dd>
+                {% if order.discount_amount %}<dt>Discount{% if order.coupon_code %} ({{ order.coupon_code }}){% endif %}</dt><dd style="text-align:right;">−{{ order.discount_amount|money }}</dd>{% endif %}
+                <dt>Shipping</dt><dd style="text-align:right;">{{ order.shipping_amount|money }}</dd>
+                {% if order.tax_amount %}<dt>Tax</dt><dd style="text-align:right;">{{ order.tax_amount|money }}</dd>{% endif %}
+                <dt><strong>Total</strong></dt><dd style="text-align:right;"><strong>{{ order.total|money }}</strong></dd>
+            </dl>
+        </section>
+
+        {% if order.status != "cancelled" %}
+        <section class="panel">
+            <h2>Fulfilment</h2>
+            <form method="post" class="form-grid">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update">
+                <div class="field"><label for="f-status">Status</label>
+                    <select id="f-status" name="status">{% for v, l in status_choices %}<option value="{{ v }}" {% if order.status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+                    <span class="hint">The customer is notified when this changes. Marking "Shipped" also emails them the tracking details.</span>
+                </div>
+                <div class="field"><label for="f-eta">Estimated delivery</label><input type="date" id="f-eta" name="estimated_delivery" value="{{ order.estimated_delivery|date:'Y-m-d' }}"></div>
+                <div class="field"><label for="f-courier">Courier</label><input type="text" id="f-courier" name="courier_name" value="{{ order.courier_name }}" placeholder="DHL, FedEx, UPS…"></div>
+                <div class="field"><label for="f-track">Tracking number</label><input type="text" id="f-track" name="tracking_number" value="{{ order.tracking_number }}"></div>
+                <div class="span-2"><button type="submit" class="btn btn-primary">Save changes</button></div>
+            </form>
+        </section>
+        {% endif %}
+
+        {% if returns %}
+        <section class="panel">
+            <h2>Return requests</h2>
+            {% for r in returns %}<p><span class="pill {% if r.status == 'requested' %}warn{% elif r.status == 'rejected' %}bad{% else %}ok{% endif %}">{{ r.get_status_display }}</span> {{ r.order_item.product_name }}: <span class="muted">{{ r.reason|truncatechars:90 }}</span> <a class="link small" href="{% url 'manage_returns' %}?status={{ r.status }}">Open</a></p>{% endfor %}
+        </section>
+        {% endif %}
+    </div>
+
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Customer</h2>
+            <dl class="kv">
+                <dt>Name</dt><dd>{{ order.full_name }}</dd>
+                <dt>Email</dt><dd>{{ order.contact_email|default:"—" }}</dd>
+                <dt>Phone</dt><dd>{{ order.phone|default:"—" }}</dd>
+                {% if order.user %}<dt>Account</dt><dd>{{ order.user.username }} · <a class="link small" href="{% url 'manage_orders' %}?q={{ order.user.username|urlencode }}">All their orders</a></dd>{% endif %}
+            </dl>
+        </section>
+        <section class="panel">
+            <h2>Ship to</h2>
+            <p>{{ order.full_name }}<br>{{ order.address }}<br>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}<br>{{ order.country|country_name }}</p>
+        </section>
+        <section class="panel">
+            <h2>Payment</h2>
+            <dl class="kv">
+                <dt>Method</dt><dd>{{ order.get_payment_method_display }}</dd>
+                <dt>Status</dt><dd>{{ order.get_payment_status_display }}</dd>
+                <dt>Currency</dt><dd>{{ order.currency|upper }}</dd>
+            </dl>
+        </section>
+        {% if order.status != "cancelled" and order.status != "delivered" %}
+        <section class="panel">
+            <h2>Cancel order</h2>
+            <p class="muted" style="margin-bottom:12px;">Returns all items to stock{% if order.payment_status == "paid" %} and refunds {{ order.total|money }} to the customer's card{% endif %}. This can't be undone.</p>
+            <form method="post" id="cancel-form">
+                {% csrf_token %}<input type="hidden" name="action" value="cancel">
+                <label class="check" style="margin-bottom:12px;"><input type="checkbox" required id="cancel-confirm"> Yes, cancel order #{{ order.id }}</label>
+                <button type="submit" class="btn btn-danger btn-block">Cancel order{% if order.payment_status == "paid" %} and refund{% endif %}</button>
+            </form>
+        </section>
+        {% elif order.status == "delivered" %}
+        <section class="panel"><h2>Refunds</h2><p class="muted">Delivered orders are refunded item by item from <a class="link" href="{% url 'manage_returns' %}">Returns</a> once the customer requests a return.</p></section>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

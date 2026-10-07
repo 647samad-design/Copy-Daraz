@@ -529,15 +529,7 @@ def coupons(request):
 # ---------------------------------------------------------------------------
 
 def _stripe_error_text(exc):
-    text = str(exc)
-    status = getattr(exc, "http_status", None)
-    if status == 401 or "Invalid API Key" in text:
-        return "Stripe rejected the secret key (STRIPE_SECRET_KEY). Copy it again from Stripe > Developers > API keys."
-    if status == 403 or "Forbidden" in text:
-        return "The Supabase relay refused the request. Check RELAY_SECRET matches the end of STRIPE_API_BASE, and that 'Verify JWT' is OFF on the stripe-relay function."
-    if status == 404:
-        return "The relay address wasn't found. Check STRIPE_API_BASE and that the stripe-relay function is deployed."
-    return f"Couldn't reach Stripe: {text[:300]}"
+    return payments.explain_error(exc)
 
 
 @staff_required
@@ -546,7 +538,7 @@ def system_check(request):
     from django.core.mail import EmailMultiAlternatives
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
-    from .alerts import EMAIL_FAILED, REFUND_FAILED, STRIPE_EVENT
+    from .alerts import EMAIL_FAILED, PAYMENT_FAILED, REFUND_FAILED, STRIPE_EVENT
     from .management.commands.backup_data import list_backups
 
     if request.method == "POST":
@@ -631,6 +623,10 @@ def system_check(request):
     stuck = Order.objects.filter(payment_status="pending", created_at__lt=timezone.now() - timedelta(hours=2)).count()
     add("Payments", "Unpaid card orders older than 2 hours", stuck == 0,
         "None." if not stuck else f"{stuck} - the daily task or Stripe's 'expired' webhook releases them.", level=None if not stuck else "warn")
+    pay_fail = AuditLog.objects.filter(action__startswith=PAYMENT_FAILED, created_at__gte=week_ago).order_by("-created_at")
+    latest_pay_fail = pay_fail.first()
+    add("Payments", "Payment page errors (7 days)", latest_pay_fail is None,
+        "None." if latest_pay_fail is None else f"{pay_fail.count()}. Latest reason: {latest_pay_fail.action.split(' - ', 1)[-1][:300]}")
     refund_fail = AuditLog.objects.filter(action__startswith=REFUND_FAILED, created_at__gte=week_ago)
     add("Payments", "Failed refunds (7 days)", not refund_fail.exists(),
         "None." if not refund_fail.exists() else "; ".join(a.action[len(REFUND_FAILED) + 2:][:120] for a in refund_fail[:3]))
@@ -864,11 +860,17 @@ def support(request, pk=None):
         if action == "reply":
             text = request.POST.get("message", "").strip()[:2000]
             if text:
-                ChatMessage.objects.create(thread=thread, sender="support", message=text, is_read=True)
+                # is_read on a team reply = the customer has seen it.
+                ChatMessage.objects.create(thread=thread, sender="support", message=text, is_read=False)
                 thread.is_resolved = False
                 thread.save(update_fields=["is_resolved"])
                 if thread.user_id:
-                    Notification.objects.create(user=thread.user, message="Support replied to your message. Open the chat to read it.", link="/")
+                    Notification.objects.create(user=thread.user, message="Our team replied to your message. Open the chat to read it.", link="/?chat=1")
+                    if thread.user.email:
+                        from .views import _send_html_email
+                        from .order_emails import absolute
+                        _send_html_email("You have a reply from our support team", "bees/emails/support_reply.html",
+                                         {"user": thread.user, "reply": text, "url": absolute("/?chat=1")}, thread.user.email)
                 messages.success(request, "Reply sent.")
         elif action in ("resolve", "reopen"):
             thread.is_resolved = action == "resolve"

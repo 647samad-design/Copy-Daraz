@@ -1044,6 +1044,9 @@ class ChatMessage(models.Model):
     thread = models.ForeignKey(ChatThread, related_name="messages", on_delete=models.CASCADE)
     sender = models.CharField(max_length=10, choices=SENDER_CHOICES, default="user")
     message = models.TextField()
+    # Links / quick-reply buttons for automatic answers.
+    extra = models.JSONField(default=dict, blank=True)
+    is_auto = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     is_read = models.BooleanField(default=False)
 

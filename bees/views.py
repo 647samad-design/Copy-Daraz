@@ -2184,22 +2184,44 @@ def _get_or_create_chat_thread(request):
     return thread
 
 
+def _chat_json(m):
+    return {
+        "sender": m.sender, "message": m.message, "created_at": m.created_at.strftime("%H:%M"),
+        "auto": m.is_auto, "links": (m.extra or {}).get("links", []), "options": (m.extra or {}).get("options", []),
+    }
+
+
 def chat_messages(request):
-    """Returns this visitor's chat history as JSON, polled by the widget."""
+    """This visitor's chat history as JSON, polled by the widget."""
     thread = _get_or_create_chat_thread(request)
-    messages_qs = thread.messages.order_by("created_at")
-    data = [
-        {"sender": m.sender, "message": m.message, "created_at": m.created_at.strftime("%H:%M")}
-        for m in messages_qs
-    ]
+    data = [_chat_json(m) for m in thread.messages.order_by("created_at")]
+    if not is_speculative(request):
+        thread.messages.filter(sender="support", is_read=False).update(is_read=True)
     return JsonResponse({"messages": data})
+
+
+def chat_topic(request):
+    """Instant answer for a help topic button (not stored - it's a FAQ)."""
+    from . import assistant
+    return JsonResponse(assistant.answer(request.GET.get("key", "menu"), request))
+
+
+def chat_unread(request):
+    """Unread replies from the team, for the badge on the chat button."""
+    if not request.session.session_key and not request.user.is_authenticated:
+        return JsonResponse({"unread": 0})
+    thread = (ChatThread.objects.filter(user=request.user).first() if request.user.is_authenticated
+              else ChatThread.objects.filter(user=None, session_key=request.session.session_key).first())
+    n = thread.messages.filter(sender="support", is_auto=False, is_read=False).count() if thread else 0
+    return JsonResponse({"unread": n})
 
 
 @ratelimit("chat_send", rate_limit=20, window_seconds=300)
 def chat_send(request):
-    """Saves a real message from the visitor and stores a simple support
-    auto-reply, so the thread is a genuine record staff can review/reply
-    to from the admin panel (Chat threads)."""
+    """Saves the visitor's message. If the help assistant recognises the
+    question it answers straight away; the conversation also appears in
+    Admin > Messages so the team can follow up."""
+    from . import assistant
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
     text = request.POST.get("message", "").strip()[:2000]
@@ -2208,14 +2230,24 @@ def chat_send(request):
 
     thread = _get_or_create_chat_thread(request)
     ChatMessage.objects.create(thread=thread, sender="user", message=text)
+    if thread.is_resolved:
+        thread.is_resolved = False
+        thread.save(update_fields=["is_resolved"])
 
-    auto_reply = "Thanks for your message! Our support team typically replies within a few hours."
-    if any(w in text.lower() for w in ["order", "track", "delivery", "shipped", "shipping"]):
-        auto_reply = "For order status, check My orders in your account, or share your order number here and our team will follow up."
-    elif any(w in text.lower() for w in ["refund", "return"]):
-        auto_reply = "You can request a return from My orders. Our team reviews return requests within 1-2 business days."
-
-    reply = ChatMessage.objects.create(thread=thread, sender="support", message=auto_reply)
-    return JsonResponse({
-        "reply": {"sender": reply.sender, "message": reply.message, "created_at": reply.created_at.strftime("%H:%M")},
-    })
+    key = assistant.match(text)
+    if key and key not in ("human",):
+        reply = assistant.answer(key, request)
+        reply["message"] += "\n\nStill need help? Just reply here and someone from our team will get back to you."
+    else:
+        signed_in = request.user.is_authenticated
+        reply = {
+            "message": ("Thanks, we've got your message and a member of our team will reply right here, usually within a few hours"
+                        + (". You'll also get a notification." if signed_in else ". Sign in so you don't miss the reply, or keep this page open.")),
+            "links": [] if signed_in else [{"label": "Sign in", "url": reverse("login")}],
+            "options": [{"key": "menu", "label": "Main menu"}],
+        }
+    saved = ChatMessage.objects.create(
+        thread=thread, sender="support", message=reply["message"], is_auto=True, is_read=True,
+        extra={"links": reply.get("links", []), "options": reply.get("options", [])},
+    )
+    return JsonResponse({"reply": _chat_json(saved)})

@@ -1,0 +1,7 @@
+{% extends "bees/emails/_base_email.html" %}
+{% block email_body %}{% load bees_extras %}{% site_brand as b %}
+    <h1 style="margin:0 0 8px;font-size:24px;">We've replied to your message</h1>
+    <p style="margin:0 0 16px;color:#56606B;">Hi {{ user.first_name|default:user.username }}, here's our reply:</p>
+    <div style="margin:0 0 24px;padding:16px 18px;background:#F4F6F7;border-radius:10px;white-space:pre-line;">{{ reply }}</div>
+    <a href="{{ url }}" style="display:inline-block;background:{{ b.primary_color }};color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;">Continue the conversation</a>
+{% endblock %}

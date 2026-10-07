@@ -87,7 +87,7 @@
         .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
         .skip-link { position: absolute; left: 12px; top: -60px; background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: var(--radius-sm); z-index: 1000; }
         .skip-link:focus { top: 12px; }
-        .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 12px; }
+        .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 10px; }
         .muted { color: var(--muted); }
         .small { font-size: 0.875rem; }
         .stack > * + * { margin-top: 12px; }
@@ -139,7 +139,7 @@
         /* ================= Surfaces ================= */
         .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 28px; }
         .panel-tight { padding: 20px; }
-        .page { padding: 32px 0 56px; }
+        .page { padding-top: 32px; padding-bottom: 56px; }
         .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 24px; }
         .page-head p { color: var(--muted); margin-top: 6px; }
         .acct-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin: -8px 0 24px; scrollbar-width: none; }
@@ -396,7 +396,7 @@
             .icon-label { display: none; }
         }
         @media (max-width: 720px) {
-            .wrap { padding: 0 12px; }
+            .wrap { padding: 0 10px; }
             .header-row { flex-wrap: wrap; gap: 8px 12px; padding-top: 10px; padding-bottom: 10px; min-height: 0; }
             .search { order: 3; flex-basis: 100%; max-width: none; }
             .logo img { height: 34px; }

@@ -1,0 +1,11 @@
+# Netlify is the public front door; the Django app runs on a Python host
+# (PythonAnywhere, Render, Railway...). The edge function in
+# netlify/edge-functions/proxy.ts forwards every request to BACKEND_URL,
+# so visitors only ever see your Netlify domain.
+#
+# Netlify > Site configuration > Environment variables:
+#   BACKEND_URL = https://YOUR-USERNAME.pythonanywhere.com
+
+[build]
+  publish = "netlify-site"
+  command = "echo 'Nothing to build: Django runs on the backend and Netlify proxies to it.'"

@@ -182,6 +182,10 @@ class Order(models.Model):
     ]
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default="not_applicable", db_index=True)
     stripe_session_id = models.CharField(max_length=255, blank=True, db_index=True)
+    # True while a cash-on-delivery order is being paid online in advance:
+    # if that payment is abandoned, the order goes back to cash on delivery
+    # instead of being cancelled.
+    cod_fallback = models.BooleanField(default=False)
     stripe_payment_intent = models.CharField(max_length=255, blank=True)
     currency = models.CharField(max_length=3, default="usd")
     shipping_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -257,12 +261,34 @@ class Order(models.Model):
         return f"Order #{self.id} - {self.user.username if self.user else self.contact_email}"
 
 
+class OrderItemQuerySet(models.QuerySet):
+    def counted(self):
+        """Items that count as real sales: the order wasn't cancelled, its
+        payment didn't fail or get refunded, and the item wasn't refunded
+        through a return."""
+        return (
+            self.exclude(order__status="cancelled")
+            .exclude(order__payment_status__in=["pending", "failed", "refunded"])
+            .exclude(return_requests__status="refunded")
+        )
+
+
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
     product_name = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
+    # Recorded when the order is placed, so later rate changes or product
+    # deletions never rewrite past earnings.
+    seller_account = models.ForeignKey(
+        "SellerAccount", related_name="sold_items", on_delete=models.SET_NULL, null=True, blank=True,
+        help_text="Empty for the store's own products (no commission).",
+    )
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    commission_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    objects = OrderItemQuerySet.as_manager()
     FULFILLMENT_CHOICES = [
         ("pending", "Pending"),
         ("packed", "Packed"),
@@ -274,6 +300,20 @@ class OrderItem(models.Model):
     @property
     def subtotal(self):
         return self.price * self.quantity
+
+    @property
+    def seller_earning(self):
+        return self.subtotal - self.commission_amount
+
+    def apply_commission(self, seller):
+        """Sets seller and commission from the seller's current rate."""
+        from decimal import Decimal, ROUND_HALF_UP
+        self.seller_account = seller
+        rate = Decimal(str(seller.effective_commission_rate)) if seller else Decimal("0")
+        self.commission_rate = rate
+        self.commission_amount = (self.price * self.quantity * rate / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if seller is not None:
+            seller.__dict__.pop("_totals_cache", None)  # totals change once this item is saved
 
     def __str__(self):
         return f"{self.quantity} x {self.product_name}"
@@ -478,12 +518,25 @@ class SellerAccount(models.Model):
             self.commission_rate = 20 if self.account_type == "organization" else 10
         super().save(*args, **kwargs)
 
+    def _totals(self):
+        if not hasattr(self, "_totals_cache"):
+            from django.db.models import Sum, F
+            agg = OrderItem.objects.filter(seller_account=self).counted().aggregate(
+                sales=Sum(F("price") * F("quantity")), commission=Sum("commission_amount"),
+            )
+            self._totals_cache = (agg["sales"] or 0, agg["commission"] or 0)
+        return self._totals_cache
+
+    @property
+    def commission_total(self):
+        """Commission the platform has earned from this seller's sales."""
+        return self._totals()[1]
+
     @property
     def net_earnings(self):
         """Seller's total earnings after the platform's commission is deducted."""
-        sales = float(self.lifetime_sales)
-        commission = sales * self.effective_commission_rate / 100
-        return round(sales - commission, 2)
+        sales, commission = self._totals()
+        return round(float(sales) - float(commission), 2)
 
     @property
     def amount_owed(self):
@@ -497,11 +550,8 @@ class SellerAccount(models.Model):
 
     @property
     def lifetime_sales(self):
-        from django.db.models import Sum, F
-        result = OrderItem.objects.filter(product__seller_account=self).aggregate(
-            total=Sum(F("price") * F("quantity"))
-        )
-        return result["total"] or 0
+        """Value of this seller's completed (not cancelled or refunded) sales."""
+        return self._totals()[0]
 
     @property
     def effective_commission_rate(self):

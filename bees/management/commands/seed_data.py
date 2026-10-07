@@ -27,46 +27,73 @@ CATEGORY_PRODUCTS = {
 }
 
 
+DESCRIPTIONS = {
+    "skincare": "Gentle, dermatologist-tested formula for everyday use. Suitable for most skin types.",
+    "haircare": "Salon-quality care that leaves hair soft, shiny and easy to manage.",
+    "grocery": "Pantry staple, carefully sourced and packed fresh.",
+    "fashion": "Comfortable everyday fit in breathable fabric. Machine washable.",
+    "electronics": "Reliable everyday tech with a one-year warranty.",
+    "lotion-cream": "Rich, fast-absorbing care that keeps skin soft all day.",
+}
+
+
+def _demo_image(name, category, variant=0):
+    """Creates (once) and returns the URL of the demo packaging image."""
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+    from django.utils.text import slugify
+    from bees.product_art import render_bytes
+
+    path = f"demo/{slugify(name)}{'-' + str(variant + 1) if variant else ''}.webp"
+    if not default_storage.exists(path):
+        default_storage.save(path, ContentFile(render_bytes(name, category, variant=variant)))
+    return default_storage.url(path)
+
+
+def _is_placeholder(url):
+    return not url or "picsum.photos" in url
+
+
 class Command(BaseCommand):
-    help = "Seed the database with sample 19Bees products (5+ per category)"
+    help = "Add the demo catalogue (with matching product images) and starter coupons. Safe to run again."
 
     def handle(self, *args, **options):
-        img_id = 20
-        created_count = 0
-
-        SELLERS = ["Official Store", "UrbanStyle Co.", "TechHub Official", "Home Essentials", "Green Pantry"]
+        created_count = updated_images = 0
+        sellers = ["Official Store", "UrbanStyle Co.", "TechHub Official", "Home Essentials", "Green Pantry"]
+        rng = random.Random(42)
 
         for category, names in CATEGORY_PRODUCTS.items():
             for i, name in enumerate(names):
-                price = random.choice([9.99, 14.99, 19.99, 24.99, 29.99, 39.99, 49.99, 69.99, 89.99, 129.00])
-                has_discount = random.choice([True, True, False])
-                old_price = round(price * random.uniform(1.15, 1.6), 2) if has_discount else None
+                price = rng.choice([9.99, 14.99, 19.99, 24.99, 29.99, 39.99, 49.99, 69.99, 89.99, 129.00])
+                has_discount = rng.choice([True, True, False])
+                old_price = round(price * rng.uniform(1.15, 1.6), 2) if has_discount else None
                 discount = round((1 - price / old_price) * 100) if old_price else 0
-                img_id += 1
-
-                defaults = {
-                    "image_url": f"https://picsum.photos/id/{(img_id % 300) + 5}/400/400",
+                description = DESCRIPTIONS.get(category, f"A quality pick from our {category.replace('-', ' ')} collection, chosen for everyday value.")
+                obj, created = Product.objects.get_or_create(name=name, defaults={
+                    "image_url": "",
                     "price": price,
                     "old_price": old_price,
                     "discount_percent": discount,
                     "category": category,
                     "is_flash_sale": has_discount and i < 2,
-                    "seller_name": random.choice(SELLERS),
-                    "description": f"{name} - a quality pick from our {category.replace('-', ' ')} collection, chosen for everyday value and reliability.",
-                }
-                obj, created = Product.objects.get_or_create(name=name, defaults=defaults)
+                    "seller_name": rng.choice(sellers),
+                    "description": f"{name}. {description}",
+                })
                 if created:
                     created_count += 1
-                    self.stdout.write(self.style.SUCCESS(f"Created: {obj.name} ({category})"))
-                    for extra in range(2):
-                        ProductImage.objects.create(
-                            product=obj,
-                            image_url=f"https://picsum.photos/id/{((img_id + extra + 1) % 300) + 5}/400/400",
-                        )
+                # Give demo products a picture that matches them (also fixes
+                # older demo data that used random stock photos).
+                if _is_placeholder(obj.image_url):
+                    obj.image_url = _demo_image(name, category)
+                    obj.save(update_fields=["image_url"])
+                    updated_images += 1
+                    obj.extra_images.filter(image_url__contains="picsum.photos").delete()
+                    if not obj.extra_images.exists():
+                        ProductImage.objects.create(product=obj, image_url=_demo_image(name, category, variant=1))
 
-        self.stdout.write(self.style.SUCCESS(f"\nDone. {created_count} new products created."))
+        self.stdout.write(self.style.SUCCESS(f"Demo catalogue ready: {created_count} new products, {updated_images} product images created."))
 
-        for code, pct in [("WELCOME10", 10), ("SAVE20", 20), ("FLASH50", 50)]:
+        for code, pct in [("WELCOME10", 10), ("SAVE20", 20)]:
             _, created = Coupon.objects.get_or_create(code=code, defaults={"percent_off": pct, "active": True})
             if created:
-                self.stdout.write(self.style.SUCCESS(f"Coupon created: {code} (-{pct}%)"))
+                self.stdout.write(self.style.SUCCESS(f"Coupon created: {code} ({pct}% off)"))

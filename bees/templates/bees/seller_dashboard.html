@@ -37,8 +37,9 @@
     <div class="kpis">
         <div class="kpi"><strong>{{ product_count }}</strong><span>Products listed</span></div>
         <div class="kpi"><strong>{{ total_sales|money }}</strong><span>Total sales</span></div>
-        <div class="kpi"><strong>{{ commission_owed|money }}</strong><span>Platform commission</span></div>
+        <div class="kpi"><strong>{{ commission_owed|money }}</strong><span>Commission (now {{ current_rate|floatformat:"-1" }}%)</span></div>
         <div class="kpi"><strong>{{ net_earnings|money }}</strong><span>Your earnings</span></div>
+        <div class="kpi"><strong>{{ amount_owed|money }}</strong><span>To be paid to you</span></div>
     </div>
 
     <div class="dash">
@@ -78,8 +79,19 @@
             <section class="panel">
                 <h2>Orders to fulfil</h2>
                 {% for item in order_items %}
-                <div class="srow">
-                    <div><strong>{{ item.product_name }}</strong> × {{ item.quantity }}<div class="muted small">Order #{{ item.order.id }} · {{ item.order.created_at|date:"M j" }} · {{ item.subtotal|money }}</div></div>
+                <div class="srow" style="align-items:flex-start;">
+                    <div style="min-width:0;flex:1 1 220px;">
+                        <strong>{{ item.product_name }}</strong> × {{ item.quantity }}
+                        {% if item.order.status == "cancelled" %}<span class="badge badge-sale">Cancelled</span>{% elif not item.counts %}<span class="badge">Awaiting payment</span>{% endif %}
+                        <div class="muted small">Order #{{ item.order.id }} · {{ item.order.created_at|date:"M j" }} · {{ item.order.get_payment_method_display }}</div>
+                        <div class="small">Sale {{ item.subtotal|money }} · commission {{ item.commission_rate|floatformat:"-1" }}% ({{ item.commission_amount|money }}) · <strong>you earn {{ item.seller_earning|money }}</strong></div>
+                        {% if item.order.status != "cancelled" %}
+                        <details style="margin-top:4px;"><summary class="link small" style="cursor:pointer;">Ship to</summary>
+                            <p class="small" style="margin-top:6px;">{{ item.order.full_name }}<br>{{ item.order.address }}<br>{{ item.order.city }}{% if item.order.state %}, {{ item.order.state }}{% endif %} {{ item.order.postal_code }} {{ item.order.country }}<br>{{ item.order.phone }}</p>
+                        </details>
+                        {% endif %}
+                    </div>
+                    {% if item.order.status != "cancelled" %}
                     <form method="post" action="{% url 'update_fulfillment_status' item.id %}">
                         {% csrf_token %}
                         <label class="sr-only" for="fs{{ item.id }}">Fulfilment status</label>
@@ -87,6 +99,7 @@
                             {% for value, label in item.FULFILLMENT_CHOICES %}<option value="{{ value }}" {% if item.fulfillment_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
                         </select>
                     </form>
+                    {% endif %}
                 </div>
                 {% empty %}
                 <p class="muted">No orders yet. They'll appear here as soon as someone buys.</p>

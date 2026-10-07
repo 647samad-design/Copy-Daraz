@@ -10,7 +10,7 @@
 </div>
 <div class="kpis" style="margin:0;">
     <div class="kpi"><strong>{{ seller.lifetime_sales|money }}</strong><span>Lifetime sales</span></div>
-    <div class="kpi"><strong>{{ seller.effective_commission_rate|floatformat:"-1" }}%</strong><span>Current commission</span></div>
+    <div class="kpi"><strong>{{ seller.commission_total|money }}</strong><span>Commission earned · now {{ seller.effective_commission_rate|floatformat:"-1" }}%</span></div>
     <div class="kpi"><strong>{{ seller.net_earnings|money }}</strong><span>Seller earnings</span></div>
     <div class="kpi"><strong>{{ seller.amount_owed|money }}</strong><span>Still to pay out</span></div>
 </div>

@@ -166,13 +166,6 @@ def _filter_context(request, base_qs):
     }
 
 
-CATEGORY_IMAGE_IDS = {
-    "skincare": 26, "haircare": 27, "grocery": 30, "fashion": 31, "electronics": 48,
-    "3d-printers": 60, "pasta-tools": 61, "sim-devices": 62, "screen-protector": 63,
-    "casserole-pot": 64, "table-lamp": 65, "hoodies": 66, "toy-boxes": 67,
-    "sneakers": 68, "education": 69, "dress-up-kits": 70, "microphones": 71,
-    "leashes": 72, "donate-education": 73, "coloring-drawing": 74, "lotion-cream": 75,
-}
 
 
 def _can_view_unapproved(user, product):
@@ -217,19 +210,32 @@ def home(request):
         return redirect(f"{reverse('search_products')}?{urlencode({'q': query})}")
     flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:10]
     just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:15]
-    categories = [
-        {
-            "slug": slug,
-            "label": label,
-            "image": f"https://picsum.photos/id/{CATEGORY_IMAGE_IDS.get(slug, 10)}/300/220",
-        }
-        for slug, label in Product.CATEGORY_CHOICES
-    ]
     return render(request, "bees/index.html", {
         "flash_sale_products": flash_sale_products,
         "just_for_you_products": just_for_you_products,
-        "categories": categories,
+        "categories": _category_tiles(),
     })
+
+
+def _category_tiles():
+    """One tile per category that has products, pictured with one of its
+    own products (so the picture always matches). Cached for 5 minutes."""
+    tiles = cache.get("home:category_tiles")
+    if tiles is None:
+        images = {}
+        for category, image in (
+            Product.objects.filter(approval_status="approved").exclude(image_url="")
+            .order_by("category", "id").values_list("category", "image_url")
+        ):
+            images.setdefault(category, image)
+        tiles = [
+            {"slug": slug, "label": label, "image": images[slug]}
+            for slug, label in Product.CATEGORY_CHOICES if slug in images
+        ]
+        cache.set("home:category_tiles", tiles, 300)
+    return tiles
+
+
 
 
 def product_detail(request, pk):
@@ -1032,10 +1038,16 @@ def _place_order(request, items, data, payment_method):
             shipping_amount=pricing["shipping"],
             tax_amount=pricing["tax"],
         )
+        seller_cache = {}
         for product, qty in lines:
-            OrderItem.objects.create(
-                order=order, product=product, product_name=product.name, price=product.price, quantity=qty,
-            )
+            item = OrderItem(order=order, product=product, product_name=product.name, price=product.price, quantity=qty)
+            seller = None
+            if product.seller_account_id:
+                if product.seller_account_id not in seller_cache:
+                    seller_cache[product.seller_account_id] = product.seller_account
+                seller = seller_cache[product.seller_account_id]
+            item.apply_commission(seller)
+            item.save()
             product.stock -= qty
             product.save(update_fields=["stock"])  # save() sends low-stock alerts
     return order
@@ -1284,6 +1296,30 @@ def payment_success(request):
 
 
 @login_required
+@require_POST
+def pay_online(request, order_id):
+    """Lets a customer pay a cash-on-delivery order online in advance."""
+    with transaction.atomic():
+        order = get_object_or_404(Order.objects.select_for_update(), pk=order_id, user=request.user)
+        if not payments.is_configured():
+            messages.error(request, "Online payment isn't available right now. You can pay cash on delivery.")
+            return redirect("my_orders")
+        if order.payment_method != "cod" or order.payment_status != "not_applicable" or order.status not in ("pending", "confirmed"):
+            messages.info(request, "This order can't be paid online.")
+            return redirect("my_orders")
+        order.cod_fallback = True
+        order.payment_method = "card"
+        order.payment_status = "pending"
+        order.save(update_fields=["cod_fallback", "payment_method", "payment_status"])
+    try:
+        return redirect(payments.create_checkout_session(request, order))
+    except payments.PaymentError as exc:
+        payments.release_unpaid_order(order.id)
+        messages.error(request, str(exc))
+        return redirect("my_orders")
+
+
+@login_required
 def payment_cancel(request, order_id):
     order = get_object_or_404(Order, pk=order_id, user=request.user)
     if order.payment_status == "pending" and order.stripe_session_id and payments.is_configured():
@@ -1295,7 +1331,11 @@ def payment_cancel(request, order_id):
         except Exception:
             pass
     if order.payment_status == "pending":
+        was_cod = order.cod_fallback
         payments.release_unpaid_order(order.id, reason="failed")
+        if was_cod:
+            messages.info(request, "Online payment cancelled - nothing was charged. Your order stays on cash on delivery.")
+            return redirect("my_orders")
         _restore_cart_from_order(request, order)
         messages.info(request, "Payment cancelled - nothing was charged. Your items are back in your cart.")
         return redirect("cart")
@@ -1463,7 +1503,7 @@ def update_fulfillment_status(request, item_id):
     seller, role = get_seller_account_for_user(request.user)
     if not seller:
         return redirect("seller_dashboard")
-    item = get_object_or_404(OrderItem, pk=item_id, product__seller_account=seller)
+    item = get_object_or_404(OrderItem.objects.filter(Q(seller_account=seller) | Q(product__seller_account=seller)), pk=item_id)
     new_status = request.POST.get("fulfillment_status")
     if request.method == "POST" and new_status in dict(OrderItem.FULFILLMENT_CHOICES):
         item.fulfillment_status = new_status
@@ -1479,13 +1519,17 @@ def seller_dashboard(request):
         raise Http404("No seller account found for this user.")
     products = Product.objects.filter(seller_account=seller)
 
-    order_items_qs = OrderItem.objects.filter(product__seller_account=seller).select_related(
+    order_items_qs = OrderItem.objects.filter(seller_account=seller).select_related(
         "order", "product"
     ).order_by("-order__created_at")
     order_items = list(order_items_qs)
-    total_sales = sum((i.subtotal for i in order_items), Decimal("0"))
-    commission_owed = round(total_sales * seller.commission_rate / 100, 2)
-    net_earnings = total_sales - commission_owed
+    counted_ids = set(OrderItem.objects.filter(seller_account=seller).counted().values_list("id", flat=True))
+    counted_items = [i for i in order_items if i.id in counted_ids]
+    for i in order_items:
+        i.counts = i.id in counted_ids
+    total_sales = seller.lifetime_sales
+    commission_owed = seller.commission_total
+    net_earnings = seller.net_earnings
 
     from datetime import timedelta
     from django.utils import timezone
@@ -1494,7 +1538,7 @@ def seller_dashboard(request):
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
         day_total = sum(
-            it.subtotal for it in order_items if it.order.created_at.date() == day
+            it.subtotal for it in counted_items if it.order.created_at.date() == day
         )
         daily_sales.append({"label": day.strftime("%a"), "amount": float(day_total)})
     max_daily = max([d["amount"] for d in daily_sales] or [1]) or 1
@@ -1513,7 +1557,9 @@ def seller_dashboard(request):
         "seller": seller,
         "role": role,
         "products": products,
-        "order_items": order_items[:20],
+        "order_items": order_items[:30],
+        "amount_owed": seller.amount_owed,
+        "current_rate": seller.effective_commission_rate,
         "total_sales": total_sales,
         "commission_owed": commission_owed,
         "net_earnings": net_earnings,

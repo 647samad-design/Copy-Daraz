@@ -116,6 +116,7 @@ urlpatterns = [
     path('payment/success/', views.payment_success, name='payment_success'),
     path('payment/cancel/<int:order_id>/', views.payment_cancel, name='payment_cancel'),
     path('payment/resume/<int:order_id>/', views.resume_payment, name='resume_payment'),
+    path('payment/pay-online/<int:order_id>/', views.pay_online, name='pay_online'),
     path('payment/stripe/webhook/', views.stripe_webhook, name='stripe_webhook'),
     path('staff/seller-document/<int:seller_id>/<str:field>/', views.seller_document, name='seller_document'),
 ]

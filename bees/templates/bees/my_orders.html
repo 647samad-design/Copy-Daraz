@@ -63,6 +63,7 @@
             <strong style="font-size:1.1rem;">{{ t.total }}: {{ order.total|money }}</strong>
             <div class="actions">
                 {% if order.payment_status == "pending" and order.status != "cancelled" %}<a class="btn btn-primary btn-sm" href="{% url 'resume_payment' order.id %}">Complete payment</a>{% endif %}
+                {% if stripe_enabled and order.payment_method == "cod" and order.payment_status == "not_applicable" and order.is_cancellable %}<form method="post" action="{% url 'pay_online' order.id %}">{% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Pay online now</button></form>{% endif %}
                 <a class="btn btn-secondary btn-sm" href="{% url 'invoice_pdf' order.id %}">Invoice</a>
                 <form method="post" action="{% url 'buy_again' order.id %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">Buy again</button></form>
                 {% if order.is_cancellable %}

@@ -12,7 +12,7 @@ Flow
    our signed webhook at /payment/stripe/webhook/. The webhook is the
    source of truth: it checks the amount and marks the order paid.
 4. If the customer abandons the page, Stripe sends
-   ``checkout.session.expired`` (after 30 minutes) and we cancel the order
+   ``checkout.session.expired`` (after 60 minutes) and we cancel the order
    and put the stock back.
 
 Configuration (environment variables)
@@ -39,7 +39,7 @@ from django.urls import reverse
 
 logger = logging.getLogger(__name__)
 
-CHECKOUT_SESSION_LIFETIME_SECONDS = 30 * 60  # Stripe's minimum
+CHECKOUT_SESSION_LIFETIME_SECONDS = 60 * 60  # Stripe needs at least 30 min; 60 leaves room for clock and network delay
 
 
 class PaymentError(Exception):

@@ -2386,3 +2386,18 @@ class HelpAssistantTests(TestCase):
         self.assertTrue(any(m.to == ["c@example.com"] and "reply" in m.subject.lower() for m in mail.outbox))
         self.client.get(reverse("chat_messages"))
         self.assertEqual(self.client.get(reverse("chat_unread")).json()["unread"], 0)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy")
+class PaymentPageExpiryTests(TestCase):
+    def test_expiry_safely_above_stripe_minimum(self):
+        import time as _time
+        user = User.objects.create_user("exp", "exp@example.com", "pass12345")
+        self.client.force_login(user)
+        product = make_product(price=Decimal("10.00"))
+        self.client.post(reverse("add_to_cart", args=[product.id]))
+        fake = mock.MagicMock(id="cs_e", url="https://checkout.stripe.com/e")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        # Stripe rejects sessions that expire in under 30 minutes when they arrive.
+        self.assertGreaterEqual(create.call_args.kwargs["expires_at"] - int(_time.time()), 45 * 60)

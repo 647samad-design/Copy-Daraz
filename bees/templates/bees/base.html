@@ -216,10 +216,10 @@
         .logo img { height: 40px; width: auto; }
         .logo-text { font-family: var(--font-display); font-weight: 800; font-size: 1.55rem; letter-spacing: -0.03em; color: var(--brand); }
         html[data-theme="dark"] .logo-text { color: var(--ink); }
-        .search { flex: 1; position: relative; max-width: 640px; }
+        .search { flex: 1; position: relative; max-width: 640px; min-width: 0; }
         .search form { display: flex; }
         .search input {
-            flex: 1; min-height: 48px; padding: 0 18px; font-size: 1rem;
+            flex: 1; min-width: 0; min-height: 48px; padding: 0 18px; font-size: 1rem;
             border: 1.5px solid var(--line); border-right: 0; border-radius: 999px 0 0 999px;
             background: var(--paper); color: var(--ink);
         }

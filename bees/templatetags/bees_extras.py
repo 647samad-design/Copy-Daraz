@@ -9,7 +9,8 @@ CURRENCY_SYMBOLS = {
     "usd": "$", "eur": "€", "gbp": "£", "cad": "CA$", "aud": "A$",
     "aed": "AED ", "sar": "SAR ", "inr": "₹", "pkr": "Rs ", "jpy": "¥",
 }
-ZERO_DECIMAL = {"jpy", "krw", "vnd"}
+# Currencies Stripe charges in whole units (no cents).
+ZERO_DECIMAL = {"bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf"}
 
 
 @register.filter

@@ -58,8 +58,9 @@ def cancel_order_with_side_effects(order, request=None):
         if not payments.refund_order(order):
             return f"Order #{order.id}: Stripe refund failed - refund it from the Stripe dashboard, then cancel again."
         order.payment_status = "refunded"
+    payments.void_pending_payment(order)
     order.status = "cancelled"
-    order.save(update_fields=["status", "payment_status"])
+    order.save(update_fields=["status", "payment_status", "payment_method", "cod_fallback"])
     payments.restock(order)
     return None
 

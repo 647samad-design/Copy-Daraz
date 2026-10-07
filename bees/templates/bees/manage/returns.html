@@ -12,7 +12,7 @@
     <section class="panel panel-tight">
         <div class="adm-head" style="align-items:flex-start;">
             <div>
-                <strong>{{ r.order_item.product_name }}</strong> × {{ r.order_item.quantity }} · {{ r.order_item.subtotal|money }}
+                <strong>{{ r.order_item.product_name }}</strong> × {{ r.order_item.quantity }} · {{ r.order_item.subtotal|money }}{% if r.plan and r.plan.value != r.order_item.subtotal %} <span class="muted small">(customer paid {{ r.plan.value|money }} after discount)</span>{% endif %}
                 <div class="muted small">{{ r.user.get_full_name|default:r.user.username }} · <a class="link" href="{% url 'manage_order' r.order_item.order.id %}">Order #{{ r.order_item.order.id }}</a> · requested {{ r.created_at|date:"M j, Y" }} · refund to {{ r.get_refund_method_display|lower }}</div>
             </div>
             {% if r.status == 'requested' %}<span class="pill warn">New</span>{% elif r.status == 'approved' %}<span class="pill info">Approved, waiting for item</span>{% elif r.status == 'refunded' %}<span class="pill ok">Refunded</span>{% else %}<span class="pill bad">Rejected</span>{% endif %}
@@ -25,11 +25,13 @@
             <input class="input" id="note{{ r.id }}" name="note" value="{{ r.admin_note }}" placeholder="Note to the customer (optional, e.g. return address or reason)">
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 {% if r.status == 'requested' %}<button class="btn btn-primary btn-sm" name="action" value="approve">Approve return</button>{% endif %}
-                <button class="btn btn-secondary btn-sm" name="action" value="refund">{% if r.refund_method == 'original_payment' and r.order_item.order.payment_status == 'paid' %}Refund {{ r.order_item.subtotal|money }} to card{% else %}Mark refunded{% endif %}</button>
+                <button class="btn btn-secondary btn-sm" name="action" value="refund">{% if r.plan.card %}Refund {{ r.plan.card|money }} to card{% if r.plan.credit %} + {{ r.plan.credit|money }} credit{% endif %}{% elif r.plan.credit %}Give {{ r.plan.credit|money }} store credit{% else %}Mark paid back ({{ r.plan.manual|money }}){% endif %}</button>
+                {% if r.plan.card or r.plan.manual %}<button class="btn btn-ghost btn-sm" name="action" value="refund_credit">Refund as store credit instead</button>{% endif %}
                 {% if r.status == 'requested' %}<button class="btn btn-ghost btn-sm" name="action" value="reject" style="color:var(--sale);">Reject</button>{% endif %}
             </div>
         </form>
-        {% elif r.admin_note %}<p class="muted small" style="margin-top:6px;">Note: {{ r.admin_note }}</p>{% endif %}
+        {% if r.plan.manual %}<p class="muted small">Cash on delivery order: {{ r.plan.manual|money }} can't go back to a card. Pay the customer back yourself (bank transfer / cash), or give store credit.</p>{% endif %}
+        {% else %}{% if r.status == 'refunded' %}<p class="muted small" style="margin-top:6px;">Refunded{% if r.card_refund_amount %} {{ r.card_refund_amount|money }} to card{% endif %}{% if r.credit_refund_amount %} {{ r.credit_refund_amount|money }} as store credit{% endif %}.</p>{% endif %}{% if r.admin_note %}<p class="muted small" style="margin-top:6px;">Note: {{ r.admin_note }}</p>{% endif %}{% endif %}
     </section>
     {% empty %}
     <section class="panel empty"><h2>Nothing here</h2><p>{% if status == 'requested' %}No new return requests. Nice.{% else %}No returns with this status.{% endif %}</p></section>

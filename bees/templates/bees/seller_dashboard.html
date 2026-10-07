@@ -113,7 +113,22 @@
             </section>
             {% endif %}
 
-            {% if seller.account_type == "organization" and role == "owner" %}
+            <section class="panel" id="questions">
+                <h2>Customer questions{% if open_questions %} <span class="badge badge-warn">{{ open_questions|length }}</span>{% endif %}</h2>
+                {% for q in open_questions %}
+                <form method="post" action="{% url 'seller_answer_question' q.id %}" style="display:grid;gap:8px;padding:12px 0;border-top:1px solid var(--line);">
+                    {% csrf_token %}
+                    <div><a class="link small" href="{% url 'product_detail' q.product_id %}#questions">{{ q.product.name|truncatechars:50 }}</a><p style="margin-top:4px;">“{{ q.question }}”</p><span class="muted small">{{ q.username }} · {{ q.created_at|timesince }} ago</span></div>
+                    <label class="sr-only" for="ans{{ q.id }}">Your answer</label>
+                    <textarea class="input" id="ans{{ q.id }}" name="answer" rows="2" required maxlength="2000" placeholder="Your answer (shown on the product page)"></textarea>
+                    <button type="submit" class="btn btn-secondary btn-sm" style="justify-self:start;">Publish answer</button>
+                </form>
+                {% empty %}
+                <p class="muted">No unanswered questions.</p>
+                {% endfor %}
+            </section>
+
+            {% if seller.account_type == "organization" and role == "owner" or seller.account_type == "organization" and role == "admin" %}
             <section class="panel">
                 <h2>Team</h2>
                 <p class="muted small" style="margin-bottom:10px;">Give colleagues access to products and orders without sharing your password. They need an account first.</p>

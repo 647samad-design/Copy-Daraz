@@ -2,8 +2,23 @@ from .translations import TRANSLATIONS, LANGUAGE_NAMES
 
 
 def cart_count(request):
+    """Counts only items the cart page will actually show (products that
+    still exist and are live), so the badge and the cart agree."""
     cart = request.session.get("cart", {})
-    return {"cart_count": sum(cart.values())}
+    ids = [int(pid) for pid in cart if str(pid).isdigit()]
+    if not ids:
+        return {"cart_count": 0}
+    from .models import Product
+    live = set(Product.objects.live().filter(id__in=ids).values_list("id", flat=True))
+    total = 0
+    for pid, qty in cart.items():
+        try:
+            qty = int(qty)
+        except (TypeError, ValueError):
+            continue
+        if str(pid).isdigit() and int(pid) in live and qty > 0:
+            total += qty
+    return {"cart_count": total}
 
 
 def wishlist_ids(request):

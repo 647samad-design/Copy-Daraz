@@ -212,8 +212,8 @@ def home(request):
     query = request.GET.get("q", "").strip()
     if query:
         return redirect(f"{reverse('search_products')}?{urlencode({'q': query})}")
-    flash_sale_products = with_ratings(Product.objects.filter(is_flash_sale=True, approval_status="approved"))[:10]
-    just_for_you_products = with_ratings(Product.objects.filter(approval_status="approved")).order_by("-created_at")[:15]
+    flash_sale_products = with_ratings(Product.objects.live().filter(is_flash_sale=True))[:10]
+    just_for_you_products = with_ratings(Product.objects.live()).order_by("-created_at")[:15]
     return render(request, "bees/index.html", {
         "flash_sale_products": flash_sale_products,
         "just_for_you_products": just_for_you_products,
@@ -228,7 +228,7 @@ def _category_tiles():
     if tiles is None:
         images = {}
         for category, image in (
-            Product.objects.filter(approval_status="approved").exclude(image_url="")
+            Product.objects.live().exclude(image_url="")
             .order_by("category", "id").values_list("category", "image_url")
         ):
             images.setdefault(category, image)
@@ -245,7 +245,7 @@ def _category_tiles():
 def product_detail(request, pk):
     product = get_object_or_404(Product, pk=pk)
 
-    if product.approval_status != "approved" and not _can_view_unapproved(request.user, product):
+    if not product.is_live and not _can_view_unapproved(request.user, product):
         raise Http404("This product is not available.")
 
     if request.method == "POST":
@@ -254,12 +254,14 @@ def product_detail(request, pk):
     reviews = product.reviews.all()
     in_wishlist = False
     can_review = False
+    review_block = ""
     if request.user.is_authenticated:
         in_wishlist = Wishlist.objects.filter(user=request.user, product=product).exists()
-        can_review = True
+        review_block = _review_block_reason(request.user, product)
+        can_review = not review_block
 
     gallery = [product.image_url] + list(product.extra_images.values_list("image_url", flat=True))
-    related_products = with_ratings(Product.objects.filter(category=product.category, approval_status="approved").exclude(pk=product.pk))[:6]
+    related_products = with_ratings(Product.objects.live().filter(category=product.category).exclude(pk=product.pk))[:6]
     questions = product.questions.all()
 
     recent_ids = request.session.get("recently_viewed", [])
@@ -270,18 +272,31 @@ def product_detail(request, pk):
         request.session.modified = True
     else:
         recent_ids = [product.id] + [i for i in recent_ids if i != product.id]
-    recently_viewed = with_ratings(Product.objects.filter(id__in=recent_ids[1:7], approval_status="approved"))
+    recently_viewed = with_ratings(Product.objects.live().filter(id__in=recent_ids[1:7]))
 
     return render(request, "bees/product_detail.html", {
         "product": product,
         "reviews": reviews,
         "in_wishlist": in_wishlist,
         "can_review": can_review,
+        "review_block": review_block,
         "gallery": gallery,
         "related_products": related_products,
         "questions": questions,
         "recently_viewed": recently_viewed,
     })
+
+
+def _review_block_reason(user, product):
+    """Why ``user`` can't review ``product`` (empty string if they can).
+    Only customers who received the product can review it, and sellers
+    can't review their own listings."""
+    seller, _ = get_seller_account_for_user(user)
+    if seller and product.seller_account_id == seller.id:
+        return "You can't review your own product."
+    if not OrderItem.objects.filter(order__user=user, product=product, order__status="delivered").exists():
+        return "Only customers who bought this product can review it. You'll be able to once your order is delivered."
+    return ""
 
 
 def _submit_review(request, product):
@@ -299,9 +314,11 @@ def _submit_review(request, product):
     if not comment:
         messages.error(request, "Please write a few words about the product.")
         return redirect("product_detail", pk=product.pk)
-    verified = OrderItem.objects.filter(
-        order__user=request.user, product=product, order__status="delivered",
-    ).exists()
+    blocked = _review_block_reason(request.user, product)
+    if blocked:
+        messages.error(request, blocked)
+        return redirect("product_detail", pk=product.pk)
+    verified = True
     Review.objects.update_or_create(
         product=product, user=request.user,
         defaults={
@@ -329,7 +346,7 @@ def category_products(request, category):
     labels = dict(Product.CATEGORY_CHOICES)
     if category not in labels:
         raise Http404("Unknown category.")
-    context = _listing(request, Product.objects.filter(category=category, approval_status="approved"), 12)
+    context = _listing(request, Product.objects.live().filter(category=category), 12)
     context.update({"category": category, "category_label": labels[category]})
     return render(request, "bees/category.html", context)
 
@@ -341,7 +358,7 @@ def search_products(request):
         if not created:
             SearchLog.objects.filter(pk=log.pk).update(count=F("count") + 1)
     base_qs = (
-        Product.objects.filter(Q(name__icontains=query) | Q(description__icontains=query), approval_status="approved")
+        Product.objects.live().filter(Q(name__icontains=query) | Q(description__icontains=query))
         if query else Product.objects.none()
     )
     context = _listing(request, base_qs, 12)
@@ -350,13 +367,13 @@ def search_products(request):
 
 
 def all_products(request):
-    context = _listing(request, Product.objects.filter(approval_status="approved"), 16)
+    context = _listing(request, Product.objects.live(), 16)
     return render(request, "bees/all_products.html", context)
 
 
 def product_quick_view(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    if product.approval_status != "approved" and not _can_view_unapproved(request.user, product):
+    if not product.is_live and not _can_view_unapproved(request.user, product):
         raise Http404("This product is not available.")
     return render(request, "bees/partials/quick_view.html", {"product": product})
 
@@ -365,12 +382,12 @@ def search_suggest(request):
     q = request.GET.get("q", "").strip()
     if not q or len(q) < 2:
         return JsonResponse({"results": []})
-    names = list(Product.objects.filter(name__icontains=q, approval_status="approved").values_list("name", flat=True)[:6])
+    names = list(Product.objects.live().filter(name__icontains=q).values_list("name", flat=True)[:6])
     return JsonResponse({"results": names})
 
 
 def store_page(request, seller_name):
-    products = with_ratings(Product.objects.filter(seller_name=seller_name, approval_status="approved"))
+    products = with_ratings(Product.objects.live().filter(seller_name=seller_name))
     seller_account = SellerAccount.objects.filter(
         Q(business_name=seller_name) | Q(organization_name=seller_name),
         status="approved",
@@ -384,15 +401,20 @@ def store_page(request, seller_name):
 
 @ratelimit("ask_question", rate_limit=10, window_seconds=600, redirect_to="home")
 def ask_question(request, pk):
-    product = get_object_or_404(Product, pk=pk, approval_status="approved")
+    product = get_object_or_404(Product.objects.live(), pk=pk)
     if request.method == "POST":
         if not request.user.is_authenticated:
             messages.error(request, "Please sign in to ask a question.")
             return redirect(f"{reverse('login')}?{urlencode({'next': reverse('product_detail', args=[pk])})}")
         text = request.POST.get("question", "").strip()[:1000]
         if text:
-            Question.objects.create(product=product, username=request.user.username, question=text)
-            messages.success(request, "Your question has been posted. The seller will answer soon.")
+            Question.objects.create(product=product, user=request.user, username=request.user.username, question=text)
+            if product.seller_account_id:
+                Notification.objects.create(
+                    user_id=product.seller_account.user_id, link="/seller/dashboard/#questions",
+                    message=f"New customer question on '{product.name[:120]}'.",
+                )
+            messages.success(request, "Your question has been posted. We'll notify you when it's answered.")
     return redirect("product_detail", pk=pk)
 
 
@@ -488,28 +510,28 @@ def signup_view(request):
                 return redirect("seller_dashboard")
 
             messages.success(request, f"Welcome to {_store_name()}! We've emailed you a code to verify your address.")
-            return redirect("home")
+            return redirect(safe_next_url(request, request.POST.get("next") or request.GET.get("next"), reverse("home")))
 
     return render(request, "bees/signup.html", {
-        "ref_code": request.GET.get("ref", ""),
+        "next": safe_next_url(request, request.POST.get("next") or request.GET.get("next"), ""),
+        "ref_code": request.GET.get("ref", "") or request.POST.get("ref", ""),
         "categories": Product.CATEGORY_CHOICES,
         "form": form,
     })
 
 
 def _reward_referral(ref, new_user):
-    referrer_profile = Profile.objects.filter(referral_code=ref).select_related("user").first()
+    """New customer who signed up with a referral link gets a single-use
+    welcome coupon. The referrer is rewarded later, when this customer's
+    first order is delivered (see models._reward_referrer_for)."""
+    from datetime import timedelta
+    from django.utils import timezone
+    referrer_profile = Profile.objects.filter(referral_code=ref).exclude(user=new_user).first()
     if not referrer_profile:
         return
-    referrer_coupon_code = "REF-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     new_user_coupon_code = "WELCOME-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    Coupon.objects.create(code=referrer_coupon_code, percent_off=10)
-    Coupon.objects.create(code=new_user_coupon_code, percent_off=10)
-    Notification.objects.create(
-        user=referrer_profile.user,
-        message=f"{new_user.username} joined using your referral link! Here's 10% off for you: {referrer_coupon_code}",
-        link="/profile/",
-    )
+    Coupon.objects.create(code=new_user_coupon_code, percent_off=10, usage_limit=1, per_user_limit=1,
+                          expiry_date=timezone.localdate() + timedelta(days=60))
     Notification.objects.create(
         user=new_user,
         message=f"Welcome! Here's 10% off your first order: {new_user_coupon_code}",
@@ -608,6 +630,23 @@ def logout_view(request):
 
 
 @login_required
+@require_POST
+def redeem_points(request):
+    """Converts reward points into store credit in whole units."""
+    with transaction.atomic():
+        profile = Profile.objects.select_for_update().filter(user=request.user).first()
+        units = profile.loyalty_points // Profile.POINTS_PER_UNIT if profile else 0
+        if not units:
+            messages.error(request, f"You need at least {Profile.POINTS_PER_UNIT} points to redeem.")
+            return redirect("profile")
+        profile.loyalty_points -= units * Profile.POINTS_PER_UNIT
+        profile.store_credit += Decimal(units)
+        profile.save(update_fields=["loyalty_points", "store_credit"])
+    messages.success(request, f"{money(Decimal(units))} added to your store credit. It'll be applied at your next checkout.")
+    return redirect("profile")
+
+
+@login_required
 def profile_view(request):
     profile, _ = Profile.objects.get_or_create(user=request.user, defaults={"referral_code": secrets.token_hex(4).upper()})
     if request.method == "POST":
@@ -636,8 +675,12 @@ def profile_view(request):
         return redirect("profile")
     addresses = Address.objects.filter(user=request.user)
     orders_count = Order.objects.filter(user=request.user).count()
+    redeemable_points = profile.loyalty_points - profile.loyalty_points % Profile.POINTS_PER_UNIT
     return render(request, "bees/profile.html", {
         "profile": profile,
+        "points_per_unit": Profile.POINTS_PER_UNIT,
+        "redeemable_points": redeemable_points,
+        "redeemable_credit": Decimal(redeemable_points // Profile.POINTS_PER_UNIT),
         "addresses": addresses,
         "orders_count": orders_count,
     })
@@ -669,8 +712,9 @@ def delete_address(request, pk):
 
 @login_required
 def notifications_list(request):
-    notifications = request.user.notifications.all()[:30]
-    request.user.notifications.filter(is_read=False).update(is_read=True)
+    notifications = list(request.user.notifications.all()[:30])
+    if not is_speculative(request):  # a hover-prefetch isn't the user reading them
+        request.user.notifications.filter(is_read=False).update(is_read=True)
     return render(request, "bees/notifications.html", {"notifications": notifications})
 
 
@@ -690,13 +734,13 @@ def _get_cart_items(request):
     Unavailable products and invalid quantities are dropped."""
     cart = request.session.get("cart", {})
     ids = [pid for pid in cart if str(pid).isdigit()]
-    products = Product.objects.in_bulk([int(pid) for pid in ids])
+    products = Product.objects.select_related("seller_account").in_bulk([int(pid) for pid in ids])
     items = []
     total = Decimal("0")
     count = 0
     for pid, qty in cart.items():
         product = products.get(int(pid)) if str(pid).isdigit() else None
-        if not product or product.approval_status != "approved":
+        if not product or not product.is_live:
             continue
         try:
             qty = int(qty)
@@ -712,8 +756,8 @@ def _get_cart_items(request):
 
 
 def cart_count(request):
-    cart = request.session.get("cart", {})
-    return sum(cart.values())
+    from .context_processors import cart_count as _count
+    return _count(request)["cart_count"]
 
 
 def _is_ajax(request):
@@ -723,8 +767,9 @@ def _is_ajax(request):
     )
 
 
+@require_POST
 def add_to_cart(request, pk):
-    product = get_object_or_404(Product, pk=pk, approval_status="approved")
+    product = get_object_or_404(Product.objects.live(), pk=pk)
 
     if product.stock <= 0:
         msg = f"{product.name} is out of stock."
@@ -736,7 +781,7 @@ def add_to_cart(request, pk):
     cart = request.session.get("cart", {})
     key = str(pk)
     try:
-        qty = int(request.POST.get("quantity", 1)) if request.method == "POST" else 1
+        qty = int(request.POST.get("quantity", 1))
     except (TypeError, ValueError):
         qty = 1
     qty = max(1, min(qty, 99))
@@ -754,7 +799,7 @@ def add_to_cart(request, pk):
             "ok": True,
             "message": f"{product.name} added to cart.",
             "warning": warning,
-            "cart_count": sum(cart.values()),
+            "cart_count": cart_count(request),
             "product_id": product.id,
             "product_qty": new_qty,
         })
@@ -840,7 +885,7 @@ def toggle_compare(request, pk):
 
 def compare_page(request):
     compare_ids = request.session.get("compare", [])
-    products = with_ratings(Product.objects.filter(id__in=compare_ids, approval_status="approved"))
+    products = with_ratings(Product.objects.live().filter(id__in=compare_ids))
     return render(request, "bees/compare.html", {"products": products})
 
 
@@ -883,7 +928,9 @@ def _price_cart(subtotal, coupon=None):
     if coupon:
         discount = (subtotal * Decimal(coupon.percent_off) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     discounted = max(subtotal - discount, Decimal("0"))
-    shipping = brand.shipping_for(subtotal) if subtotal else Decimal("0")
+    # Free-shipping threshold is checked against what the customer actually
+    # pays for the goods (after the coupon).
+    shipping = brand.shipping_for(discounted) if subtotal else Decimal("0")
     tax = (discounted * Decimal(brand.tax_percent or 0) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
         "subtotal": subtotal,
@@ -948,7 +995,7 @@ def checkout_view(request):
             return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods, data))
 
         try:
-            order = _place_order(request, items, data, payment_method)
+            order = _place_order(request, items, data, payment_method, use_credit=request.POST.get("use_credit") == "1")
         except CheckoutError as exc:
             messages.error(request, str(exc))
             return redirect("cart")
@@ -966,7 +1013,7 @@ def checkout_view(request):
                 messages.error(request, str(exc))
                 return redirect("cart")
 
-        if payment_method == "card":  # fully discounted order, nothing to charge
+        if order.total_cents == 0:  # covered by coupon / store credit, nothing to charge
             order.payment_status = "paid"
             order.status = "confirmed"
             order._skip_status_email = True  # the confirmation email below covers it
@@ -979,10 +1026,20 @@ def checkout_view(request):
     return render(request, "bees/checkout.html", _checkout_context(request, items, pricing, coupon, methods))
 
 
+def _store_credit(user):
+    profile = Profile.objects.filter(user=user).only("store_credit").first()
+    return profile.store_credit if profile else Decimal("0")
+
+
 def _checkout_context(request, items, pricing, coupon, methods, form=None):
     if form is None:
         form = {"email": request.user.email, "full_name": request.user.get_full_name()}
+    credit = _store_credit(request.user)
+    credit_applicable = min(credit, pricing["total"])
     return {
+        "store_credit": credit,
+        "credit_applicable": credit_applicable,
+        "total_after_credit": pricing["total"] - credit_applicable,
         "items": items,
         "pricing": pricing,
         "total": pricing["subtotal"],
@@ -995,7 +1052,7 @@ def _checkout_context(request, items, pricing, coupon, methods, form=None):
     }
 
 
-def _place_order(request, items, data, payment_method):
+def _place_order(request, items, data, payment_method, use_credit=False):
     """Creates the order atomically: locks the product rows so two buyers
     can't both take the last unit, re-checks stock and the coupon inside
     the transaction, then decrements stock."""
@@ -1007,7 +1064,7 @@ def _place_order(request, items, data, payment_method):
         lines = []
         for item in items:
             product = locked.get(item["product"].id)
-            if not product or product.approval_status != "approved":
+            if not product or not product.is_live:
                 raise CheckoutError(f"{item['product'].name} is no longer available.")
             if item["qty"] > product.stock:
                 raise CheckoutError(f"Sorry, only {product.stock} of {product.name} left in stock. Please update your cart.")
@@ -1056,6 +1113,14 @@ def _place_order(request, items, data, payment_method):
             item.save()
             product.stock -= qty
             product.save(update_fields=["stock"])  # save() sends low-stock alerts
+        if use_credit:
+            profile = Profile.objects.select_for_update().filter(user=request.user).first()
+            if profile and profile.store_credit > 0:
+                credit = min(profile.store_credit, order.grand_total)
+                profile.store_credit -= credit
+                profile.save(update_fields=["store_credit"])
+                order.credit_used = credit
+                order.save(update_fields=["credit_used"])
     return order
 
 
@@ -1065,6 +1130,8 @@ def _restore_cart_from_order(request, order):
         if item.product_id:
             cart[str(item.product_id)] = cart.get(str(item.product_id), 0) + item.quantity
     request.session["cart"] = cart
+    if order.coupon_code and not request.session.get("coupon_code"):
+        request.session["coupon_code"] = order.coupon_code
     request.session.modified = True
 
 
@@ -1125,8 +1192,9 @@ def cancel_order(request, pk):
                 messages.error(request, "We couldn't process the refund automatically. Please contact support and we'll sort it out.")
                 return redirect("my_orders")
             order.payment_status = "refunded"
+        payments.void_pending_payment(order)
         order.status = "cancelled"
-        order.save(update_fields=["status", "payment_status"])
+        order.save(update_fields=["status", "payment_status", "payment_method", "cod_fallback"])
         payments.restock(order)
     if order.payment_status == "refunded":
         messages.success(request, f"Order #{order.id} has been cancelled and a full refund issued to your card.")
@@ -1140,6 +1208,9 @@ def request_return(request, item_id):
     item = get_object_or_404(OrderItem, pk=item_id, order__user=request.user)
     if item.order.status != "delivered":
         messages.error(request, "Returns can only be requested for delivered orders.")
+        return redirect("my_orders")
+    if not item.order.can_return:
+        messages.error(request, f"The {_brand().return_days}-day return window for order #{item.order_id} has closed. Please contact support if something is wrong.")
         return redirect("my_orders")
     if item.return_requests.exclude(status="rejected").exists():
         messages.error(request, "A return request already exists for this item.")
@@ -1159,16 +1230,23 @@ def request_return(request, item_id):
             messages.success(request, "Return request submitted. We'll review it shortly.")
             return redirect("my_orders")
 
-    return render(request, "bees/request_return.html", {"item": item})
+    order = item.order
+    return render(request, "bees/request_return.html", {
+        "item": item,
+        "refund_value": order.refund_value(item),
+        "card_order": order.payment_status == "paid" and bool(order.stripe_payment_intent),
+        "deadline": order.return_deadline(),
+    })
 
 
 @login_required
+@require_POST
 def buy_again(request, order_id):
     order = get_object_or_404(Order, pk=order_id, user=request.user)
     cart = request.session.get("cart", {})
     added, skipped = 0, 0
     for item in order.items.select_related("product"):
-        if not item.product or item.product.stock <= 0 or item.product.approval_status != "approved":
+        if not item.product or item.product.stock <= 0 or not item.product.is_live:
             skipped += 1
             continue
         key = str(item.product.id)
@@ -1254,6 +1332,8 @@ def invoice_pdf(request, order_id):
     summary.append(("Shipping", order.shipping_amount))
     if order.tax_amount:
         summary.append(("Tax", order.tax_amount))
+    if order.credit_used:
+        summary.append(("Store credit", -order.credit_used))
     for label, value in summary:
         p.drawString(370, y, f"{label}:")
         p.drawString(460, y, money(value))
@@ -1606,6 +1686,7 @@ def seller_dashboard(request):
         "top_products": top_products,
         "low_stock_products": low_stock_products,
         "out_of_stock_products": out_of_stock_products,
+        "open_questions": Question.objects.filter(product__seller_account=seller, answer="").select_related("product").order_by("created_at")[:20],
     })
 
 
@@ -1631,8 +1712,8 @@ def _product_fields_from_post(request):
     discount = _parse_int(request.POST.get("discount_percent"), "Discount", minimum=0, maximum=95)
     stock = _parse_int(request.POST.get("stock"), "Stock", minimum=0, maximum=1_000_000)
     image_url = request.POST.get("image_url", "").strip()[:500]
-    if image_url and not image_url.startswith("https://"):
-        raise ValidationError("Image URL must start with https://")
+    if image_url and not (image_url.startswith("https://") or image_url.startswith(settings.MEDIA_URL)):
+        raise ValidationError("Image link must start with https://")
     uploaded = request.FILES.get("image_file")
     if uploaded:
         validate_image_upload(uploaded)
@@ -1657,7 +1738,7 @@ def seller_add_product(request):
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return render(request, "bees/seller_add_product.html", {
-                "categories": Product.CATEGORY_CHOICES, "form": request.POST,
+                "categories": Product.CATEGORY_CHOICES, "p": request.POST,
             })
         Product.objects.create(
             **fields,
@@ -1668,7 +1749,7 @@ def seller_add_product(request):
         messages.success(request, "Product submitted for review. It will go live once approved by an admin.")
         return redirect("seller_dashboard")
     return render(request, "bees/seller_add_product.html", {
-        "categories": Product.CATEGORY_CHOICES,
+        "categories": Product.CATEGORY_CHOICES, "p": {"stock": 10, "discount_percent": 0},
     })
 
 
@@ -1686,7 +1767,9 @@ def seller_edit_product(request, pk):
             fields = _product_fields_from_post(request)
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
-            return redirect("seller_edit_product", pk=pk)
+            return render(request, "bees/seller_add_product.html", {
+                "categories": Product.CATEGORY_CHOICES, "product": product, "p": request.POST,
+            })
         if not fields["image_url"]:
             fields["image_url"] = product.image_url
         needs_review = any(getattr(product, f) != fields[f] for f in REVIEWED_FIELDS)
@@ -1701,7 +1784,7 @@ def seller_edit_product(request, pk):
         return redirect("seller_dashboard")
     return render(request, "bees/seller_add_product.html", {
         "categories": Product.CATEGORY_CHOICES,
-        "product": product,
+        "product": product, "p": product,
     })
 
 
@@ -1718,8 +1801,8 @@ def seller_delete_product(request, pk):
 @require_POST
 def add_team_member(request):
     seller, role = get_seller_account_for_user(request.user)
-    if not seller or role != "owner":
-        messages.error(request, "Only the account owner can manage team members.")
+    if not seller or role not in ("owner", "admin"):
+        messages.error(request, "Only the account owner or a team admin can manage team members.")
         return redirect("seller_dashboard")
     if seller.account_type != "organization":
         messages.error(request, "Team members are only available for organization accounts.")
@@ -1735,6 +1818,8 @@ def add_team_member(request):
         messages.error(request, "That's already the account owner.")
     elif OrganizationMember.objects.filter(organization=seller, user=user).exists():
         messages.error(request, f"{user.username} is already on the team.")
+    elif SellerAccount.objects.filter(user=user).exists() or OrganizationMember.objects.filter(user=user).exists():
+        messages.error(request, f"{user.username} already sells or works with another store. One account can only belong to one store.")
     else:
         OrganizationMember.objects.create(organization=seller, user=user, role=member_role)
         Notification.objects.create(
@@ -1746,12 +1831,38 @@ def add_team_member(request):
     return redirect("seller_dashboard")
 
 
+def notify_question_answered(question):
+    if question.user_id and question.answer:
+        Notification.objects.create(
+            user_id=question.user_id, link=f"/product/{question.product_id}/#questions",
+            message=f"Your question about '{question.product.name[:120]}' has been answered.",
+        )
+
+
+@login_required
+@require_POST
+def seller_answer_question(request, pk):
+    seller, role = _approved_seller_or_404(request.user)
+    question = get_object_or_404(Question.objects.select_related("product"), pk=pk, product__seller_account=seller)
+    answer = request.POST.get("answer", "").strip()[:2000]
+    if not answer:
+        messages.error(request, "Please write an answer.")
+    else:
+        had_answer = bool(question.answer)
+        question.answer = answer
+        question.save(update_fields=["answer"])
+        if not had_answer:
+            notify_question_answered(question)
+        messages.success(request, "Answer published on the product page.")
+    return redirect(reverse("seller_dashboard") + "#questions")
+
+
 @login_required
 @require_POST
 def remove_team_member(request, member_id):
     seller, role = get_seller_account_for_user(request.user)
-    if not seller or role != "owner":
-        messages.error(request, "Only the account owner can manage team members.")
+    if not seller or role not in ("owner", "admin"):
+        messages.error(request, "Only the account owner or a team admin can manage team members.")
         return redirect("seller_dashboard")
     member = get_object_or_404(OrganizationMember, pk=member_id, organization=seller)
     member.delete()
@@ -1796,13 +1907,26 @@ def owner_dashboard(request):
 
 def _get_or_create_chat_thread(request):
     if request.user.is_authenticated:
-        thread, _ = ChatThread.objects.get_or_create(user=request.user)
+        guest_id = request.session.pop("guest_chat_thread", None)
+        guest = ChatThread.objects.filter(pk=guest_id, user__isnull=True).first() if guest_id else None
+        thread = ChatThread.objects.filter(user=request.user).first()
+        if guest and not thread:
+            # Keep the conversation the visitor started before signing in.
+            guest.user = request.user
+            guest.save(update_fields=["user"])
+            return guest
+        if not thread:
+            thread = ChatThread.objects.create(user=request.user)
+        if guest:
+            guest.messages.update(thread=thread)
+            guest.delete()
         return thread
     if not request.session.session_key:
         request.session.create()
     thread, _ = ChatThread.objects.get_or_create(
         user=None, session_key=request.session.session_key,
     )
+    request.session["guest_chat_thread"] = thread.id
     return thread
 
 

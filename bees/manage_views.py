@@ -27,7 +27,7 @@ from django.views.decorators.http import require_POST
 from . import payments
 from .models import (
     AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
-    Product, ProductImage, Question, ReturnRequest, Review, SellerAccount, SiteSettings,
+    Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, SiteSettings,
 )
 from .templatetags.bees_extras import money
 from .security import safe_next_url
@@ -535,9 +535,13 @@ def reviews(request):
             r.delete()
             messages.success(request, "Review deleted.")
         elif action == "answer":
-            qn = get_object_or_404(Question, pk=request.POST.get("id"))
+            qn = get_object_or_404(Question.objects.select_related("product"), pk=request.POST.get("id"))
+            had_answer = bool(qn.answer)
             qn.answer = request.POST.get("answer", "").strip()[:2000]
             qn.save(update_fields=["answer"])
+            if qn.answer and not had_answer:
+                from .views import notify_question_answered
+                notify_question_answered(qn)
             messages.success(request, "Answer published." if qn.answer else "Answer removed.")
         elif action == "delete_question":
             get_object_or_404(Question, pk=request.POST.get("id")).delete()
@@ -579,19 +583,41 @@ def returns(request):
             rr.status = "rejected"
             rr.save()
             messages.success(request, "Return rejected. The customer has been notified.")
-        elif action == "refund":
-            order = rr.order_item.order
-            refunded_online = False
-            if rr.refund_method == "original_payment" and order.payment_status == "paid" and order.stripe_payment_intent:
-                if not payments.refund_amount(order, rr.order_item.subtotal, f"return-{rr.id}"):
+        elif action in ("refund", "refund_credit"):
+            with transaction.atomic():
+                rr = ReturnRequest.objects.select_for_update().select_related("order_item__order").get(pk=rr.pk)
+                if rr.status == "refunded":
+                    messages.error(request, "This return has already been refunded.")
+                    return redirect("manage_returns")
+                if note:
+                    rr.admin_note = note
+                order = rr.order_item.order
+                plan = rr.refund_plan(as_credit=action == "refund_credit")
+                if plan["card"] and not payments.refund_amount(order, plan["card"], f"return-{rr.id}"):
                     messages.error(request, "Stripe couldn't process the refund. Try again, or refund from the Stripe dashboard and then mark it refunded.")
                     return redirect("manage_returns")
-                refunded_online = True
-            rr.status = "refunded"
-            rr.save()
-            if rr.order_item.product_id:
-                Product.objects.filter(pk=rr.order_item.product_id).update(stock=F("stock") + rr.order_item.quantity)
-            messages.success(request, f"Marked refunded{' and ' + money(rr.order_item.subtotal) + ' sent back to the card' if refunded_online else ''}. Stock returned.")
+                if plan["credit"]:
+                    Profile.objects.get_or_create(user=rr.user)
+                    Profile.objects.filter(user=rr.user).update(store_credit=F("store_credit") + plan["credit"])
+                if plan["manual"] and not rr.admin_note:
+                    rr.admin_note = f"Paid back {money(plan['manual'])} directly (cash on delivery order)."
+                # Take back the reward points this item earned.
+                Profile.objects.filter(user=rr.user, loyalty_points__gte=int(plan["value"])).update(
+                    loyalty_points=F("loyalty_points") - int(plan["value"]))
+                rr.card_refund_amount = plan["card"]
+                rr.credit_refund_amount = plan["credit"]
+                rr.status = "refunded"
+                rr.save()
+                if rr.order_item.product_id:
+                    Product.objects.filter(pk=rr.order_item.product_id).update(stock=F("stock") + rr.order_item.quantity)
+            parts = []
+            if plan["card"]:
+                parts.append(f"{money(plan['card'])} sent back to the card")
+            if plan["credit"]:
+                parts.append(f"{money(plan['credit'])} added as store credit")
+            if plan["manual"]:
+                parts.append(f"remember to pay the customer {money(plan['manual'])} yourself (cash on delivery order)")
+            messages.success(request, "Refunded: " + ", ".join(parts) + ". Stock returned.")
         _log(request, f"Return #{rr.id}: {action}")
         _refresh_attention()
         return redirect("manage_returns")
@@ -599,7 +625,11 @@ def returns(request):
     qs = ReturnRequest.objects.select_related("order_item", "order_item__order", "user").order_by("-created_at")
     if status in dict(ReturnRequest.STATUS_CHOICES):
         qs = qs.filter(status=status)
-    return _render(request, "returns.html", {"section": "returns", "page_obj": _page(request, qs), "status": status, "status_choices": ReturnRequest.STATUS_CHOICES})
+    page_obj = _page(request, qs)
+    for r in page_obj:
+        if r.status in ("requested", "approved"):
+            r.plan = r.refund_plan()
+    return _render(request, "returns.html", {"section": "returns", "page_obj": page_obj, "status": status, "status_choices": ReturnRequest.STATUS_CHOICES})
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +695,7 @@ class SiteSettingsForm(forms.ModelForm):
          ["site_name", "tagline", "logo_file", "logo_url", "favicon_url", "primary_color", "accent_color"]),
         ("Homepage", "The large banner at the top of the homepage.", ["hero_title", "hero_subtitle", "hero_image_url"]),
         ("Announcement bar", "A message across the top of every page, e.g. a sale.", ["banner_active", "banner_text", "banner_link"]),
-        ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "allow_cash_on_delivery"]),
+        ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "return_days", "allow_cash_on_delivery"]),
         ("Contact & social", "Shown in the footer, emails and help page.",
          ["support_email", "support_phone", "company_address", "facebook_url", "instagram_url", "twitter_url", "youtube_url"]),
         ("Language", "", ["show_language_menu"]),

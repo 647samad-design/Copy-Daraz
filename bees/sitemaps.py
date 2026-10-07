@@ -8,7 +8,7 @@ class ProductSitemap(Sitemap):
     priority = 0.8
 
     def items(self):
-        return Product.objects.filter(approval_status="approved")
+        return Product.objects.live()
 
     def location(self, obj):
         return reverse("product_detail", args=[obj.id])

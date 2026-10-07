@@ -1,0 +1,52 @@
+<div class="variant-editor" id="variant-editor">
+    <p class="hint" style="margin-bottom:10px;">Sell this product in sizes and/or colours, each with its own stock (and price, if it differs). Leave empty if there's only one version. With options, stock is the total of the rows below.</p>
+    <div class="table-scroll">
+    <table class="table ve-table" style="min-width:560px;">
+        <thead><tr><th>Size</th><th>Colour</th><th>Price <span class="muted">(optional)</span></th><th>Stock</th><th>SKU <span class="muted">(optional)</span></th><th></th></tr></thead>
+        <tbody id="ve-rows">
+        {% for v in variant_rows %}
+        <tr>
+            <td><input type="hidden" name="variant_id" value="{{ v.id|default:'' }}"><input class="input" name="variant_size" value="{{ v.size }}" maxlength="40" placeholder="e.g. M" aria-label="Size"></td>
+            <td><input class="input" name="variant_color" value="{{ v.color }}" maxlength="40" placeholder="e.g. Black" aria-label="Colour"></td>
+            <td><input class="input" type="number" name="variant_price" value="{{ v.price|default_if_none:'' }}" min="0.01" step="0.01" aria-label="Price"></td>
+            <td><input class="input" type="number" name="variant_stock" value="{{ v.stock }}" min="0" step="1" required aria-label="Stock"></td>
+            <td><input class="input" name="variant_sku" value="{{ v.sku }}" maxlength="60" aria-label="SKU"></td>
+            <td><button type="button" class="btn btn-ghost btn-sm ve-remove" aria-label="Remove option">✕</button></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" id="ve-add" style="margin-top:10px;">+ Add size / colour</button>
+    <template id="ve-template">
+        <tr>
+            <td><input type="hidden" name="variant_id" value=""><input class="input" name="variant_size" maxlength="40" placeholder="e.g. M" aria-label="Size"></td>
+            <td><input class="input" name="variant_color" maxlength="40" placeholder="e.g. Black" aria-label="Colour"></td>
+            <td><input class="input" type="number" name="variant_price" min="0.01" step="0.01" aria-label="Price"></td>
+            <td><input class="input" type="number" name="variant_stock" value="0" min="0" step="1" required aria-label="Stock"></td>
+            <td><input class="input" name="variant_sku" maxlength="60" aria-label="SKU"></td>
+            <td><button type="button" class="btn btn-ghost btn-sm ve-remove" aria-label="Remove option">✕</button></td>
+        </tr>
+    </template>
+</div>
+<script>
+(function () {
+    const rows = document.getElementById('ve-rows');
+    const stock = document.querySelector('input[name="stock"]');
+    function sync() {
+        const has = rows.children.length > 0;
+        if (stock) {
+            stock.readOnly = has;
+            if (has) stock.value = [...rows.querySelectorAll('input[name="variant_stock"]')].reduce((n, i) => n + (parseInt(i.value, 10) || 0), 0);
+        }
+    }
+    document.getElementById('ve-add').addEventListener('click', () => {
+        rows.appendChild(document.getElementById('ve-template').content.cloneNode(true));
+        rows.lastElementChild.querySelector('input[name="variant_size"]').focus();
+        sync();
+    });
+    rows.addEventListener('click', e => { if (e.target.closest('.ve-remove')) { e.target.closest('tr').remove(); sync(); } });
+    rows.addEventListener('input', sync);
+    sync();
+})();
+</script>

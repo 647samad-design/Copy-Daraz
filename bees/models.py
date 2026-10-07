@@ -101,6 +101,19 @@ class Product(models.Model):
 
 
     objects = ProductQuerySet.as_manager()
+    # True when the product is sold in sizes/colours (see ProductVariant);
+    # ``stock`` is then the total of all variants.
+    has_variants = models.BooleanField(default=False)
+
+    def sync_variants(self):
+        """Keeps ``stock`` and ``has_variants`` in line with the variants."""
+        from django.db.models import Sum
+        total = self.variants.aggregate(n=Sum("stock"))["n"]
+        has = total is not None
+        Product.objects.filter(pk=self.pk).update(has_variants=has, **({"stock": total} if has else {}))
+        self.has_variants = has
+        if has:
+            self.stock = total
 
     @property
     def is_live(self):
@@ -149,6 +162,50 @@ class Product(models.Model):
         if hasattr(self, "review_count"):
             return self.review_count
         return self.reviews.count()
+
+
+class ProductVariant(models.Model):
+    """One buyable version of a product, e.g. size M in red. Each has its
+    own stock and, optionally, its own price."""
+    product = models.ForeignKey(Product, related_name="variants", on_delete=models.CASCADE)
+    size = models.CharField(max_length=40, blank=True)
+    color = models.CharField(max_length=40, blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                help_text="Leave empty to use the product price.")
+    stock = models.PositiveIntegerField(default=0)
+    sku = models.CharField("SKU", max_length=60, blank=True)
+    position = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.product.name} ({self.label})"
+
+    @property
+    def label(self):
+        return " / ".join(part for part in (self.size, self.color) if part) or "Standard"
+
+    @property
+    def unit_price(self):
+        return self.price if self.price is not None else self.product.price
+
+
+class StockAlert(models.Model):
+    """"Email me when it's back" request for a sold-out product (or one
+    size/colour of it)."""
+    product = models.ForeignKey(Product, related_name="stock_alerts", on_delete=models.CASCADE)
+    variant = models.ForeignKey(ProductVariant, null=True, blank=True, related_name="stock_alerts", on_delete=models.CASCADE)
+    email = models.EmailField()
+    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+    notified_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} -> {self.product.name}"
 
 
 class Review(models.Model):
@@ -373,6 +430,7 @@ class OrderItem(models.Model):
     )
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     commission_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    variant = models.ForeignKey("ProductVariant", null=True, blank=True, on_delete=models.SET_NULL, related_name="order_items")
 
     objects = OrderItemQuerySet.as_manager()
     FULFILLMENT_CHOICES = [
@@ -967,6 +1025,17 @@ class ChatMessage(models.Model):
 # membership changes.
 from django.db.models.signals import post_delete, post_save  # noqa: E402
 from django.dispatch import receiver  # noqa: E402
+
+
+@receiver(post_save, sender=Product)
+@receiver(post_save, sender=ProductVariant)
+def _back_in_stock(sender, instance, **kwargs):
+    if instance.stock > 0:
+        from .stock_alerts import notify_restocked
+        if sender is Product:
+            notify_restocked(instance.pk, None)
+        else:
+            notify_restocked(instance.product_id, instance.pk)
 
 
 @receiver([post_save, post_delete], sender=ShippingZone)

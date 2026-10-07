@@ -326,11 +326,12 @@ def products_bulk(request):
 
 @staff_required
 def product_form(request, pk=None):
-    from .views import _product_fields_from_post
+    from .views import _product_fields_from_post, parse_variant_rows, apply_variant_rows, variant_rows_for_form
     product = get_object_or_404(Product, pk=pk) if pk else None
     if request.method == "POST":
         try:
             fields = _product_fields_from_post(request)
+            variant_rows = parse_variant_rows(request)
             if not fields["image_url"]:
                 if product:
                     fields["image_url"] = product.image_url
@@ -340,7 +341,7 @@ def product_form(request, pk=None):
             messages.error(request, " ".join(exc.messages))
             return _render(request, "product_form.html", {
                 "section": "products", "product": product, "form": request.POST, "categories": Product.CATEGORY_CHOICES,
-                "approval_choices": Product.APPROVAL_CHOICES,
+                "approval_choices": Product.APPROVAL_CHOICES, "variant_rows": variant_rows_for_form(request, product),
             })
         approval = request.POST.get("approval_status", "approved")
         if approval not in dict(Product.APPROVAL_CHOICES):
@@ -353,7 +354,9 @@ def product_form(request, pk=None):
         product.seller_name = (request.POST.get("seller_name", "").strip() or product.seller_name or "Official Store")[:100]
         product.is_flash_sale = bool(request.POST.get("is_flash_sale"))
         product.approval_status = approval
-        product.save()
+        with transaction.atomic():
+            product.save()
+            apply_variant_rows(product, variant_rows)
         extra = [u.strip() for u in request.POST.get("extra_images", "").splitlines() if u.strip().startswith("https://")]
         product.extra_images.all().delete()
         ProductImage.objects.bulk_create([ProductImage(product=product, image_url=u[:500]) for u in extra[:8]])
@@ -367,6 +370,7 @@ def product_form(request, pk=None):
         "section": "products", "product": product, "categories": Product.CATEGORY_CHOICES,
         "approval_choices": Product.APPROVAL_CHOICES,
         "extra_images": "\n".join(product.extra_images.values_list("image_url", flat=True)) if product else "",
+        "variant_rows": variant_rows_for_form(request, product),
     })
 
 
@@ -678,8 +682,7 @@ def returns(request):
                 rr.credit_refund_amount = plan["credit"]
                 rr.status = "refunded"
                 rr.save()
-                if rr.order_item.product_id:
-                    Product.objects.filter(pk=rr.order_item.product_id).update(stock=F("stock") + rr.order_item.quantity)
+                payments.restock_item(rr.order_item, rr.order_item.quantity)
             parts = []
             if plan["card"]:
                 parts.append(f"{money(plan['card'])} sent back to the card")

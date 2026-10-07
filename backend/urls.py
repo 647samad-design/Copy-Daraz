@@ -51,7 +51,7 @@ urlpatterns = [
 
     path('cart/', views.cart_view, name='cart'),
     path('cart/add/<int:pk>/', views.add_to_cart, name='add_to_cart'),
-    path('cart/update/<int:pk>/', views.update_cart_item, name='update_cart_item'),
+    path('cart/update/<str:key>/', views.update_cart_item, name='update_cart_item'),
     path('checkout/', views.checkout_view, name='checkout'),
     path('checkout/coupon/', views.apply_coupon, name='apply_coupon'),
     path('order/success/<int:order_id>/', views.order_success, name='order_success'),
@@ -85,6 +85,7 @@ urlpatterns = [
     path('store/<path:seller_name>/', views.store_page, name='store_page'),
     path('newsletter/subscribe/', views.newsletter_subscribe, name='newsletter_subscribe'),
     path('product/<int:pk>/ask/', views.ask_question, name='ask_question'),
+    path('product/<int:pk>/notify/', views.stock_alert, name='stock_alert'),
 
     path('verify-email/', views.verify_email_code, name='verify_email'),
     path('resend-verification/', views.resend_verification, name='resend_verification'),

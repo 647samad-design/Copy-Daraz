@@ -437,6 +437,20 @@ def release_unpaid_order(order_id, reason="failed"):
     return order
 
 
+def restock_item(item, quantity):
+    """Puts ``quantity`` units of an order line back on sale (its size/
+    colour too), then lets back-in-stock alerts go out."""
+    from django.db.models import F
+    from .models import Product, ProductVariant
+    if not item.product_id:
+        return
+    if item.variant_id:
+        ProductVariant.objects.filter(pk=item.variant_id).update(stock=F("stock") + quantity)
+    Product.objects.filter(pk=item.product_id).update(stock=F("stock") + quantity)
+    from .stock_alerts import notify_restocked
+    notify_restocked(item.product_id, item.variant_id)
+
+
 def restock(order):
     """Undoes a cancelled order: puts the stock back and returns any store
     credit the customer spent on it (once)."""
@@ -444,8 +458,7 @@ def restock(order):
     from .models import Order, Product, Profile
 
     for item in order.items.all():
-        if item.product_id:
-            Product.objects.filter(pk=item.product_id).update(stock=F("stock") + item.quantity)
+        restock_item(item, item.quantity)
     if order.credit_used and order.user_id:
         returned = Order.objects.filter(pk=order.pk, credit_returned=False).update(credit_returned=True)
         if returned:

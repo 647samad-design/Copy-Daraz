@@ -904,7 +904,7 @@ class WhiteLabelTests(TestCase):
 # ---------------------------------------------------------------------------
 from django.core import mail
 
-from .models import ChatMessage, ChatThread, Profile, Question, ReturnRequest
+from .models import ChatMessage, ChatThread, Profile, ProductVariant, Question, ReturnRequest
 
 
 class ManageAccessTests(TestCase):
@@ -1925,3 +1925,129 @@ class ShippingZoneTests(TestCase):
         self.client.post(reverse("manage_shipping"), {"action": "starter"})
         self.assertEqual(ShippingZone.objects.count(), 3)
         self.assertEqual(self.client.get(reverse("manage_shipping")).status_code, 200)
+
+
+class VariantTests(TestCase):
+    def setUp(self):
+        self.seller_user = User.objects.create_user("vs", "vs@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=self.seller_user, status="approved", business_name="Hood Co")
+        self.buyer = User.objects.create_user("vb", "vb@example.com", "pass12345")
+
+    def _form(self, **extra):
+        data = {"name": "Hoodie", "category": "hoodies", "price": "40.00", "stock": "0", "image_url": "https://example.com/h.jpg",
+                "variant_id": ["", ""], "variant_size": ["M", "L"], "variant_color": ["Black", "Black"],
+                "variant_price": ["", "45.00"], "variant_stock": ["3", "0"], "variant_sku": ["H-M", "H-L"]}
+        data.update(extra)
+        return data
+
+    def _product(self):
+        self.client.force_login(self.seller_user)
+        self.client.post(reverse("seller_add_product"), self._form())
+        p = Product.objects.get(name="Hoodie")
+        Product.objects.filter(pk=p.pk).update(approval_status="approved")
+        p.refresh_from_db()
+        return p
+
+    def test_seller_creates_variants(self):
+        p = self._product()
+        self.assertTrue(p.has_variants)
+        self.assertEqual(p.stock, 3)
+        self.assertEqual([v.label for v in p.variants.all()], ["M / Black", "L / Black"])
+        self.assertEqual(self.client.get(reverse("seller_edit_product", args=[p.id])).status_code, 200)
+
+    def test_duplicate_options_rejected(self):
+        self.client.force_login(self.seller_user)
+        r = self.client.post(reverse("seller_add_product"), self._form(variant_size=["M", "m"]))
+        self.assertContains(r, "listed twice")
+        self.assertFalse(Product.objects.exists())
+
+    def test_buy_variant_and_cancel_restocks(self):
+        p = self._product()
+        m, large = p.variants.all()
+        self.client.force_login(self.buyer)
+        page = self.client.get(reverse("product_detail", args=[p.id]))
+        self.assertContains(page, 'data-value="M"')
+        self.client.post(reverse("add_to_cart", args=[p.id]))  # no size chosen
+        self.assertEqual(self.client.session.get("cart", {}), {})
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": large.id})  # sold out
+        self.assertEqual(self.client.session.get("cart", {}), {})
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": m.id, "quantity": 5})
+        self.assertEqual(self.client.session["cart"], {f"{p.id}-{m.id}": 3})  # capped at stock
+        self.assertContains(self.client.get(reverse("cart")), "M / Black")
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        item = OrderItem.objects.get()
+        self.assertEqual((item.product_name, item.variant, item.quantity, item.price), ("Hoodie (M / Black)", m, 3, Decimal("40.00")))
+        m.refresh_from_db(); p.refresh_from_db()
+        self.assertEqual((m.stock, p.stock), (0, 0))
+        self.client.post(reverse("cancel_order", args=[item.order_id]))
+        m.refresh_from_db(); p.refresh_from_db()
+        self.assertEqual((m.stock, p.stock), (3, 3))
+
+    def test_variant_price_used(self):
+        p = self._product()
+        large = p.variants.get(size="L")
+        ProductVariant.objects.filter(pk=large.pk).update(stock=2)
+        p.sync_variants()
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": large.id})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(OrderItem.objects.get().price, Decimal("45.00"))
+
+    def test_admin_removes_variant(self):
+        p = self._product()
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(staff)
+        m = p.variants.get(size="M")
+        self.client.post(reverse("manage_product_edit", args=[p.id]), {
+            "name": "Hoodie", "category": "hoodies", "price": "40", "stock": "0", "image_url": p.image_url,
+            "approval_status": "approved", "variant_id": [m.id], "variant_size": ["M"], "variant_color": ["Black"],
+            "variant_price": [""], "variant_stock": ["7"], "variant_sku": [""],
+        })
+        p.refresh_from_db()
+        self.assertEqual(p.variants.count(), 1)
+        self.assertEqual(p.stock, 7)
+
+    def test_buy_again_keeps_size(self):
+        p = self._product()
+        m = p.variants.get(size="M")
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"variant": m.id})
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.client.post(reverse("buy_again", args=[Order.objects.get().id]))
+        self.assertEqual(list(self.client.session["cart"]), [f"{p.id}-{m.id}"])
+
+
+class StockAlertTests(TestCase):
+    def test_notified_once_when_back_in_stock(self):
+        from .models import StockAlert
+        product = make_product(name="Rare Serum", stock=0)
+        self.client.post(reverse("stock_alert", args=[product.id]), {"email": "Fan@Example.com"})
+        self.client.post(reverse("stock_alert", args=[product.id]), {"email": "fan@example.com"})
+        self.assertEqual(StockAlert.objects.count(), 1)
+        self.assertContains(self.client.get(reverse("product_detail", args=[product.id])), "Notify me")
+        with self.captureOnCommitCallbacks(execute=True):
+            product.stock = 4
+            product.save()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("back in stock", mail.outbox[0].subject)
+        self.assertEqual(mail.outbox[0].to, ["fan@example.com"])
+        with self.captureOnCommitCallbacks(execute=True):
+            product.stock = 5
+            product.save()
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_variant_alert_waits_for_that_variant(self):
+        product = make_product(name="Tee", stock=0)
+        small = ProductVariant.objects.create(product=product, size="S", stock=0)
+        large = ProductVariant.objects.create(product=product, size="L", stock=0)
+        product.sync_variants()
+        self.client.post(reverse("stock_alert", args=[product.id]), {"email": "a@example.com", "variant": small.id})
+        with self.captureOnCommitCallbacks(execute=True):
+            large.stock = 3
+            large.save()
+        self.assertEqual(len(mail.outbox), 0)
+        with self.captureOnCommitCallbacks(execute=True):
+            small.stock = 1
+            small.save()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Tee (S)", mail.outbox[0].subject)

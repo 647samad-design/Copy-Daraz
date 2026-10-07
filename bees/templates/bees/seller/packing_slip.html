@@ -1,0 +1,52 @@
+{% load bees_extras %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Packing slip · order #{{ order.id }}</title>
+<style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #141A1F; margin: 0; padding: 32px 16px; background: #F4F6F7; }
+    .sheet { max-width: 760px; margin: 0 auto; background: #fff; padding: 36px; border: 1px solid #DDE2E6; border-radius: 12px; }
+    header { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; border-bottom: 2px solid #141A1F; padding-bottom: 16px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 26px; }
+    .muted { color: #56606B; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 28px; }
+    .cols h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #56606B; margin: 0 0 8px; }
+    .cols p { margin: 0; line-height: 1.6; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #DDE2E6; vertical-align: top; }
+    th { font-size: 13px; color: #56606B; }
+    td.qty, th.qty { text-align: center; width: 60px; }
+    td.check, th.check { width: 60px; text-align: center; }
+    .box { display: inline-block; width: 18px; height: 18px; border: 2px solid #141A1F; border-radius: 3px; }
+    footer { margin-top: 32px; font-size: 13px; color: #56606B; }
+    .print { display: block; margin: 0 auto 18px; padding: 12px 22px; font-size: 16px; font-weight: bold; border: 0; border-radius: 8px; background: #141A1F; color: #fff; cursor: pointer; }
+    @media print { body { background: #fff; padding: 0; } .sheet { border: 0; padding: 0; } .print { display: none; } }
+    @media (max-width: 560px) { .sheet { padding: 20px; } .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<button class="print" type="button" onclick="window.print()">Print</button>
+<div class="sheet">
+    <header>
+        <div><h1>Packing slip</h1><div class="muted">Order #{{ order.id }} · {{ order.created_at|date:"M j, Y" }}</div></div>
+        <div style="text-align:right;"><strong>{{ seller.display_name }}</strong><div class="muted">via {% site_brand as b %}{{ b.site_name }}</div></div>
+    </header>
+    <div class="cols">
+        <div><h2>Ship to</h2><p><strong>{{ order.full_name }}</strong><br>{{ order.address }}<br>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}<br>{{ order.country|country_name }}<br>{{ order.phone }}</p></div>
+        <div><h2>Payment</h2><p>{% if order.payment_method == "cod" and order.payment_status != "paid" %}<strong>Cash on delivery</strong> - the courier collects payment{% else %}Paid online{% endif %}</p>{% if order.courier_name or order.tracking_number %}<h2 style="margin-top:14px;">Shipping</h2><p>{{ order.courier_name }} {{ order.tracking_number }}</p>{% endif %}</div>
+    </div>
+    <table>
+        <thead><tr><th class="check">Packed</th><th>Item</th><th>Option / SKU</th><th class="qty">Qty</th></tr></thead>
+        <tbody>
+        {% for item in items %}
+        <tr><td class="check"><span class="box"></span></td><td>{{ item.product_name }}</td><td>{% if item.variant %}{{ item.variant.label }}{% if item.variant.sku %}<br><span class="muted">{{ item.variant.sku }}</span>{% endif %}{% else %}—{% endif %}</td><td class="qty"><strong>{{ item.quantity }}</strong></td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <footer>Thank you for your order! Questions about this delivery? Contact {{ b.support_email|default:b.site_name }}.</footer>
+</div>
+</body>
+</html>

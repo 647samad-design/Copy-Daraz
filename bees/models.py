@@ -44,7 +44,8 @@ class ProductQuerySet(models.QuerySet):
         """Products customers can see and buy: approved by the store, and
         the seller (if any) isn't pending, rejected or suspended."""
         return self.filter(approval_status="approved").filter(
-            models.Q(seller_account__isnull=True) | models.Q(seller_account__status="approved")
+            models.Q(seller_account__isnull=True)
+            | models.Q(seller_account__status="approved", seller_account__vacation_mode=False)
         )
 
 
@@ -119,7 +120,9 @@ class Product(models.Model):
     def is_live(self):
         if self.approval_status != "approved":
             return False
-        return not self.seller_account_id or self.seller_account.status == "approved"
+        if not self.seller_account_id:
+            return True
+        return self.seller_account.status == "approved" and not self.seller_account.vacation_mode
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -136,13 +139,13 @@ class Product(models.Model):
                 Notification.objects.create(
                     user=self.seller_account.user,
                     message=f"'{self.name}' is now out of stock. Restock it to keep selling.",
-                    link="/seller/dashboard/",
+                    link="/seller/products/?tab=out",
                 )
             elif crossed_low:
                 Notification.objects.create(
                     user=self.seller_account.user,
                     message=f"'{self.name}' is running low ({self.stock} left). Consider restocking soon.",
-                    link="/seller/dashboard/",
+                    link="/seller/products/?tab=low",
                 )
 
     def __str__(self):
@@ -278,6 +281,9 @@ class Order(models.Model):
     credit_returned = models.BooleanField(default=False)
     # Secret for the tracking link emailed to guest customers.
     access_token = models.CharField(max_length=32, blank=True, db_index=True)
+    # Set once the sellers in this order have been told to ship it (when a
+    # cash-on-delivery order is placed, or a card order is paid).
+    sellers_notified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     CANCELLABLE_STATUSES = ("pending", "confirmed")
@@ -371,8 +377,9 @@ class Order(models.Model):
                 kwargs["update_fields"] = list(kwargs["update_fields"]) + ["delivered_at"]
         super().save(*args, **kwargs)
         if not is_new and old_status and old_status != self.status:
-            from . import order_emails
+            from . import order_emails, seller_center
             order_emails.status_changed(self, old_status, self.status)
+            seller_center.order_status_changed(self, old_status, self.status)
         if self.user and not is_new and old_status and old_status != self.status:
             Notification.objects.create(
                 user=self.user,
@@ -580,6 +587,21 @@ class Profile(models.Model):
 
     POINTS_PER_UNIT = 100  # 100 reward points = 1.00 of store credit
 
+    def save(self, *args, **kwargs):
+        # The referral code is unique, so a blank one would clash as soon as
+        # a second profile is created without one (e.g. when points are
+        # awarded on delivery to a customer who never opened their profile).
+        if not self.referral_code:
+            import secrets
+            while True:
+                code = secrets.token_hex(4).upper()
+                if not Profile.objects.filter(referral_code=code).exists():
+                    break
+            self.referral_code = code
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = list(kwargs["update_fields"]) + ["referral_code"]
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.user.username}'s profile"
 
@@ -697,6 +719,11 @@ class SellerAccount(models.Model):
 
     admin_note = models.CharField(max_length=255, blank=True, help_text="Internal note, e.g. reason for rejection or requested info")
 
+    # Holiday mode: the store's products are hidden from the shop until the
+    # seller switches it off again.
+    vacation_mode = models.BooleanField(default=False)
+    vacation_message = models.CharField(max_length=200, blank=True)
+
     def save(self, *args, **kwargs):
         if self.pk is None and not kwargs.get("update_fields"):
             self.commission_rate = 20 if self.account_type == "organization" else 10
@@ -762,6 +789,39 @@ class SellerAccount(models.Model):
 
     def __str__(self):
         return f"{self.display_name} ({self.get_account_type_display()}, {self.status})"
+
+
+class Payout(models.Model):
+    """Money sent (or asked for) from the store to a seller. Paid payouts add
+    up to SellerAccount.total_paid_out."""
+    STATUS_CHOICES = [
+        ("requested", "Requested"),
+        ("paid", "Paid"),
+        ("cancelled", "Cancelled"),
+    ]
+    METHOD_CHOICES = [
+        ("bank", "Bank transfer"),
+        ("paypal", "PayPal"),
+        ("wise", "Wise"),
+        ("payoneer", "Payoneer"),
+        ("other", "Other"),
+    ]
+    seller = models.ForeignKey(SellerAccount, related_name="payouts", on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="requested", db_index=True)
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES, blank=True)
+    reference = models.CharField("Transfer reference", max_length=120, blank=True)
+    note = models.CharField(max_length=255, blank=True)
+    requested_by = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    recorded_by = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Payout {self.amount} to {self.seller.display_name} ({self.status})"
 
 
 class OrganizationMember(models.Model):

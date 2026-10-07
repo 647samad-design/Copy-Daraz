@@ -1,0 +1,75 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Products{% endblock %}
+{% block page_css %}
+    .qe { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
+    .qe input { width: 92px; min-height: 36px; padding: 0 8px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }
+    .qe input.stock { width: 72px; }
+    .qe .lock { font-size: .8rem; color: var(--muted); width: 72px; }
+    .acts { display: flex; gap: 4px; justify-content: flex-end; flex-wrap: wrap; }
+    .pname { font-weight: 700; color: var(--ink); text-decoration: none; }
+    .pname:hover { text-decoration: underline; }
+{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Products</h1><p>Change price and stock right here - it goes live instantly. Name, photo or description changes go through a quick review.</p></div>
+    {% if seller.status == "approved" %}<div class="actions"><a class="btn btn-primary btn-sm" href="{% url 'seller_add_product' %}">+ Add product</a></div>{% endif %}
+</div>
+<div class="tabs" role="group" aria-label="Filter products">
+    {% for key, label, n in tabs %}<a href="?tab={{ key }}{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if tab == key %}on{% endif %}">{{ label }} <span class="n">({{ n }})</span></a>{% endfor %}
+</div>
+<form method="get" class="toolbar" role="search">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label for="pq" class="sr-only">Search products</label>
+    <input class="input grow" id="pq" type="search" name="q" value="{{ q }}" placeholder="Product name or SKU">
+    <label for="psort" class="sr-only">Sort</label>
+    <select class="input" id="psort" name="sort" onchange="this.form.submit()">
+        <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
+        <option value="name" {% if sort == "name" %}selected{% endif %}>Name A-Z</option>
+        <option value="price" {% if sort == "price" %}selected{% endif %}>Highest price</option>
+        <option value="stock" {% if sort == "stock" %}selected{% endif %}>Lowest stock</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" type="submit">Search</button>
+</form>
+<section class="panel" style="padding:0;overflow:hidden;">
+    <div class="table-scroll">
+        <table class="table">
+            <thead><tr><th>Product</th><th>Status</th><th>Price &amp; stock</th><th class="num">Sold</th><th class="num">Revenue</th><th class="num"><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody>
+            {% for p in page_obj %}
+            <tr>
+                <td><div style="display:flex;gap:12px;align-items:center;min-width:220px;"><img class="thumb" src="{{ p.image_url }}" alt="" loading="lazy"><div><a class="pname" href="{% url 'product_detail' p.id %}" target="_blank" rel="noopener">{{ p.name|truncatechars:48 }}</a><div class="muted small">{{ p.get_category_display }}{% if p.rating_n %} · {{ p.rating_avg|floatformat:1 }} ★ ({{ p.rating_n }}){% endif %}{% if p.has_variants %} · {{ p.variant_count }} options{% endif %}</div></div></div></td>
+                <td>{% if p.approval_status == "pending" %}<span class="pill warn">In review</span>{% elif p.approval_status == "rejected" %}<span class="pill bad">Rejected</span>{% elif seller.vacation_mode or seller.status != "approved" %}<span class="pill">Hidden</span>{% elif p.stock <= 0 %}<span class="pill bad">Out of stock</span>{% else %}<span class="pill ok">Live</span>{% endif %}
+                    {% if p.stock > 0 and p.stock <= 5 %}<div class="small" style="color:var(--warn);font-weight:700;margin-top:4px;">{{ p.stock }} left</div>{% endif %}</td>
+                <td>
+                    {% if seller.status == "approved" %}
+                    <form method="post" action="{% url 'seller_quick_update' p.id %}" class="qe">
+                        {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <label class="sr-only" for="qp{{ p.id }}">Price of {{ p.name }}</label>
+                        <input id="qp{{ p.id }}" type="number" name="price" min="0.01" step="0.01" value="{{ p.price|floatformat:2 }}" required>
+                        {% if p.has_variants %}<span class="lock" title="Set stock per size/colour on the edit page">{{ p.stock }} total</span>{% else %}<label class="sr-only" for="qs{{ p.id }}">Stock of {{ p.name }}</label><input id="qs{{ p.id }}" class="stock" type="number" name="stock" min="0" step="1" value="{{ p.stock }}" required>{% endif %}
+                        <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+                    </form>
+                    {% else %}{{ p.price|money }} · {{ p.stock }} in stock{% endif %}
+                </td>
+                <td class="num">{{ p.units_sold }}</td>
+                <td class="num">{{ p.revenue|money }}</td>
+                <td class="num">
+                    {% if seller.status == "approved" %}
+                    <div class="acts">
+                        <a class="btn btn-secondary btn-sm" href="{% url 'seller_edit_product' p.id %}">Edit</a>
+                        <form method="post" action="{% url 'seller_duplicate_product' p.id %}">{% csrf_token %}<button class="btn btn-ghost btn-sm" type="submit" title="Make a copy to list a similar product">Copy</button></form>
+                        <form method="post" action="{% url 'seller_delete_product' p.id %}" onsubmit="return confirm('Remove “{{ p.name|escapejs }}” from your store?')">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-ghost btn-sm" type="submit" aria-label="Delete {{ p.name }}">Delete</button></form>
+                    </div>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr class="empty-row"><td colspan="6">{% if q %}No products match “{{ q }}”.{% elif tab == "all" %}You haven't listed anything yet.{% if seller.status == "approved" %} <a class="link" href="{% url 'seller_add_product' %}">Add your first product</a>.{% endif %}{% else %}Nothing here.{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

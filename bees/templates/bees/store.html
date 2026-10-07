@@ -1,32 +1,79 @@
 {% extends "bees/base.html" %}
+{% load bees_extras %}
 {% block title %}{{ seller_name }} — {{ brand.site_name }}{% endblock %}
-{% block meta_description %}Shop every product from {{ seller_name }} on {{ brand.site_name }}.{% endblock %}
+{% block meta_description %}{% if seller_account.store_description %}{{ seller_account.store_description|truncatechars:150 }}{% else %}Shop every product from {{ seller_name }} on {{ brand.site_name }}.{% endif %}{% endblock %}
+{% block og_title %}{{ seller_name }} on {{ brand.site_name }}{% endblock %}
 {% block extra_css %}
-    .store-hero { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--brand); color: var(--on-brand); margin-bottom: 32px; }
-    .store-hero img.banner { width: 100%; height: 220px; object-fit: cover; opacity: .45; }
-    .store-hero-body { padding: 28px; display: flex; gap: 18px; align-items: center; }
-    .store-hero.has-banner .store-hero-body { position: absolute; inset: auto 0 0 0; }
-    .store-hero h1 { color: var(--on-brand); }
-    .store-hero p { color: color-mix(in srgb, var(--on-brand) 85%, transparent); margin-top: 6px; }
-    .store-logo { width: 72px; height: 72px; border-radius: 999px; object-fit: cover; background: var(--surface); border: 3px solid var(--surface); flex-shrink: 0; }
+    .store-hero { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--brand); color: var(--on-brand); margin-bottom: 24px; min-height: 200px; display: flex; align-items: flex-end; }
+    .store-hero img.banner { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .store-hero.has-banner::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 20%, rgba(0,0,0,.65)); }
+    .store-hero-body { position: relative; z-index: 1; padding: 28px; display: flex; gap: 20px; align-items: center; width: 100%; flex-wrap: wrap; }
+    .store-hero h1 { color: #fff; margin: 0; }
+    .store-hero:not(.has-banner) h1 { color: var(--on-brand); }
+    .store-hero p { color: inherit; opacity: .9; margin-top: 6px; max-width: 70ch; }
+    .store-hero.has-banner { color: #fff; }
+    .store-logo { width: 84px; height: 84px; border-radius: 999px; object-fit: cover; background: var(--surface); border: 3px solid var(--surface); flex-shrink: 0; }
+    .store-initial { width: 84px; height: 84px; border-radius: 999px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; flex-shrink: 0; border: 3px solid var(--surface); }
+    .store-facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .store-facts span { padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.16); font-weight: 700; font-size: .88rem; backdrop-filter: blur(4px); }
+    .store-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .store-bar form.search { display: flex; gap: 8px; flex: 1 1 280px; max-width: 460px; }
+    .store-bar form.search input { flex: 1; min-width: 0; }
+    .store-reviews { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 36px; }
+    .store-reviews .panel p { margin: 6px 0; }
+    @media (max-width: 600px) { .store-hero-body { padding: 20px; } .store-logo, .store-initial { width: 64px; height: 64px; font-size: 1.6rem; } }
 {% endblock %}
 {% block content %}
 <div class="wrap page">
     <section class="store-hero {% if seller_account.store_banner %}has-banner{% endif %}">
         {% if seller_account.store_banner %}<img class="banner" src="{{ seller_account.store_banner.url }}" alt="">{% endif %}
         <div class="store-hero-body">
-            {% if seller_account.store_logo %}<img class="store-logo" src="{{ seller_account.store_logo.url }}" alt="">{% endif %}
-            <div>
+            {% if seller_account.store_logo %}<img class="store-logo" src="{{ seller_account.store_logo.url }}" alt="">{% else %}<span class="store-initial" aria-hidden="true">{{ seller_name|first|upper }}</span>{% endif %}
+            <div style="min-width:0;flex:1;">
                 <h1>{{ seller_name }}</h1>
                 {% if seller_account.store_description %}<p>{{ seller_account.store_description|truncatewords:40 }}</p>{% endif %}
-                <p>{{ products|length }} product{{ products|length|pluralize }}{% if seller_account.city %} · {{ seller_account.city }}{% endif %}{% if seller_account.account_type == "organization" %} · Registered business{% endif %}</p>
+                <div class="store-facts">
+                    {% if stats.n %}<span>★ {{ stats.avg|floatformat:1 }} ({{ stats.n }} review{{ stats.n|pluralize }})</span>{% endif %}
+                    {% if stats.sold %}<span>{{ stats.sold }}+ sold</span>{% endif %}
+                    <span>{{ total_count }} product{{ total_count|pluralize }}</span>
+                    {% if seller_account.account_type == "organization" %}<span>✓ Registered business</span>{% endif %}
+                    {% if seller_account.country %}<span>Ships from {{ seller_account.city|default:"" }}{% if seller_account.city %}, {% endif %}{{ seller_account.country }}</span>{% endif %}
+                    {% if seller_account %}<span>Selling since {{ seller_account.created_at|date:"Y" }}</span>{% endif %}
+                </div>
             </div>
         </div>
     </section>
+
+    {% if seller_account.vacation_mode %}
+    <div class="callout warn"><strong>{{ seller_name }} is away right now.</strong> {{ seller_account.vacation_message|default:"Their products will be back soon." }}</div>
+    {% endif %}
+
+    {% if total_count %}
+    <div class="store-bar">
+        <form method="get" class="search" role="search">
+            <label for="store-q" class="sr-only">Search this store</label>
+            <input class="input" id="store-q" type="search" name="q" value="{{ q }}" placeholder="Search {{ seller_name|truncatechars:30 }}">
+            {% if current_sort %}<input type="hidden" name="sort" value="{{ current_sort }}">{% endif %}
+            <button class="btn btn-secondary" type="submit">Search</button>
+        </form>
+        {% include "bees/partials/sort_bar.html" %}
+    </div>
+    {% endif %}
+
     {% if products %}
     <div class="grid-products">{% for product in products %}{% include "bees/partials/product_card.html" %}{% endfor %}</div>
-    {% else %}
+    {% include "bees/partials/pagination.html" %}
+    {% elif q %}
+    <div class="panel empty"><h2>Nothing matches “{{ q }}”</h2><p><a class="link" href="?">See all products from {{ seller_name }}</a></p></div>
+    {% elif not seller_account.vacation_mode %}
     <div class="panel empty"><h2>No products listed yet</h2><p>This seller hasn't published anything yet.</p></div>
+    {% endif %}
+
+    {% if stats.store_reviews %}
+    <h2 style="margin-top:40px;">What customers say about {{ seller_name }}</h2>
+    <div class="store-reviews">
+        {% for r in stats.store_reviews %}<div class="panel"><span style="color:var(--warn);">{{ r.rating|stars }}</span>{% if r.comment %}<p>{{ r.comment|truncatechars:220 }}</p>{% endif %}<span class="muted small">{{ r.user.username }} · {{ r.created_at|date:"M Y" }}</span></div>{% endfor %}
+    </div>
     {% endif %}
 </div>
 {% endblock %}

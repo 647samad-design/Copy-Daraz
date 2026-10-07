@@ -230,11 +230,12 @@ class OrganizationTeamAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Test Org")
 
-    def test_outsider_gets_404_on_seller_dashboard(self):
+    def test_outsider_is_sent_to_seller_signup(self):
         client = Client()
         client.force_login(self.outsider)
         response = client.get(reverse("seller_dashboard"))
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(response, reverse("become_seller"), fetch_redirect_response=False)
+        self.assertEqual(client.get(reverse("seller_order", args=[999])).status_code, 302)
 
     def test_only_owner_can_add_team_members(self):
         client = Client()
@@ -1134,10 +1135,15 @@ class MarketplaceFlowTests(TestCase):
         seller.refresh_from_db()
         self.assertEqual(seller.lifetime_sales, Decimal("100.00"))
         self.assertEqual(seller.net_earnings, 80.0)
-        # 6. The seller sees the sale, the address and their earning
+        # 6. The seller is alerted and sees the sale, the address and their earning
+        self.assertTrue(Notification.objects.filter(user=seller.user, message__icontains=f"New order #{item.order_id}").exists())
         self.client.force_login(seller.user)
         page = self.client.get(reverse("seller_dashboard"))
         self.assertContains(page, "Acme Lamp")
+        self.assertContains(page, "$80.00")
+        page = self.client.get(reverse("seller_orders"))
+        self.assertContains(page, "Austin")
+        page = self.client.get(reverse("seller_order", args=[item.order_id]))
         self.assertContains(page, "Austin")
         self.assertContains(page, "$80.00")
         # 7. Cancelled orders don't count toward earnings
@@ -1492,7 +1498,7 @@ class AuditFixTests(TestCase):
         self.assertTrue(Notification.objects.filter(user=seller.user, message__icontains="question").exists())
         q = Question.objects.get()
         self.client.force_login(seller.user)
-        self.assertContains(self.client.get(reverse("seller_dashboard")), "Is it vegan?")
+        self.assertContains(self.client.get(reverse("seller_reviews")), "Is it vegan?")
         self.client.post(reverse("seller_answer_question", args=[q.id]), {"answer": "Yes, 100%."})
         q.refresh_from_db()
         self.assertEqual(q.answer, "Yes, 100%.")
@@ -2401,3 +2407,239 @@ class PaymentPageExpiryTests(TestCase):
             self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
         # Stripe rejects sessions that expire in under 30 minutes when they arrive.
         self.assertGreaterEqual(create.call_args.kwargs["expires_at"] - int(_time.time()), 45 * 60)
+
+
+class SellerCenterTests(TestCase):
+    """The Seller Center: numbers, orders, products, payouts and team access."""
+
+    def setUp(self):
+        from django.core import mail as _mail
+        self.mail = _mail
+        owner = User.objects.create_user("shop", "shop@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=owner, account_type="organization", business_name="Shop Co",
+                                                   bank_details="IBAN GB00 TEST")
+        self.seller.status = "approved"
+        self.seller.save()
+        self.product = make_product(name="Lamp", price=Decimal("50.00"), stock=20,
+                                    seller_account=self.seller, seller_name="Shop Co")
+        self.buyer = User.objects.create_user("buyer", "buyer@example.com", "pass12345")
+
+    def _order(self, qty=2, method="cod"):
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": qty})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": method})
+        order = Order.objects.filter(user=self.buyer).latest("id")
+        self.client.force_login(self.seller.user)
+        return order
+
+    def test_new_cod_order_alerts_seller_once(self):
+        order = self._order()
+        alerts = Notification.objects.filter(user=self.seller.user, message__icontains=f"New order #{order.id}")
+        self.assertEqual(alerts.count(), 1)
+        self.assertTrue(any("new order" in m.subject.lower() and "shop@example.com" in m.to for m in self.mail.outbox))
+        from . import seller_center
+        seller_center.notify_new_order(order)  # already done: no second alert
+        self.assertEqual(alerts.count(), 1)
+        order.refresh_from_db()
+        self.assertTrue(order.sellers_notified)
+
+    def test_unpaid_card_order_does_not_alert_seller_until_paid(self):
+        from . import seller_center
+        order = self._order()
+        Notification.objects.filter(user=self.seller.user).delete()
+        Order.objects.filter(pk=order.pk).update(payment_method="card", payment_status="pending", sellers_notified=False)
+        order.refresh_from_db()
+        seller_center.notify_new_order(order)
+        self.assertFalse(Notification.objects.filter(user=self.seller.user, message__icontains="New order").exists())
+        Order.objects.filter(pk=order.pk).update(payment_status="paid", status="confirmed")
+        order.refresh_from_db()
+        seller_center.notify_new_order(order)
+        self.assertTrue(Notification.objects.filter(user=self.seller.user, message__icontains=f"New order #{order.id}").exists())
+
+    def test_cancelling_tells_seller_not_to_ship(self):
+        order = self._order()
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("cancel_order", args=[order.id]))
+        self.assertTrue(Notification.objects.filter(user=self.seller.user, message__icontains="cancelled").exists())
+
+    def test_overview_shows_sales_commission_and_earnings(self):
+        self._order(qty=2)  # $100 sale, 20% commission -> $80
+        page = self.client.get(reverse("seller_dashboard") + "?range=7")
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "$100.00")
+        self.assertContains(page, "$20.00")
+        self.assertContains(page, "$80.00")
+        self.assertContains(page, "United States")
+        for key in ("30", "90", "365", "bogus"):
+            self.assertEqual(self.client.get(reverse("seller_dashboard") + f"?range={key}").status_code, 200)
+
+    def test_every_seller_center_page_loads(self):
+        order = self._order()
+        for name, args in [
+            ("seller_dashboard", []), ("seller_orders", []), ("seller_order", [order.id]),
+            ("seller_packing_slip", [order.id]), ("seller_products", []), ("seller_earnings", []),
+            ("seller_returns", []), ("seller_reviews", []), ("seller_team", []), ("seller_store_settings", []),
+            ("seller_add_product", []), ("seller_edit_product", [self.product.id]), ("store_page", ["Shop Co"]),
+        ]:
+            with self.subTest(page=name):
+                self.assertEqual(self.client.get(reverse(name, args=args)).status_code, 200)
+        for tab in ("to_pack", "packed", "in_transit", "delivered", "unpaid", "cancelled", "all"):
+            self.assertEqual(self.client.get(reverse("seller_orders") + f"?tab={tab}&q=Jane").status_code, 200)
+        for tab in ("all", "live", "review", "rejected", "low", "out"):
+            self.assertEqual(self.client.get(reverse("seller_products") + f"?tab={tab}&sort=stock").status_code, 200)
+        for tab in ("questions", "answered", "reviews", "store"):
+            self.assertEqual(self.client.get(reverse("seller_reviews") + f"?tab={tab}").status_code, 200)
+
+    def test_ship_order_with_tracking_moves_order_and_emails_customer(self):
+        order = self._order()
+        self.mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("seller_ship_order", args=[order.id]), {
+                "status": "handed_to_courier", "courier_name": "DHL", "tracking_number": "JD0001",
+            })
+        order.refresh_from_db()
+        self.assertEqual(order.status, "shipped")
+        self.assertEqual(order.tracking_number, "JD0001")
+        self.assertTrue(order.items.filter(fulfillment_status="handed_to_courier").exists())
+        self.assertTrue(any("on its way" in m.subject for m in self.mail.outbox))
+
+    def test_bulk_mark_packed(self):
+        o1, o2 = self._order(qty=1), self._order(qty=1)
+        self.client.post(reverse("seller_bulk_fulfilment"), {"status": "packed", "order": [o1.id, o2.id]})
+        self.assertEqual(OrderItem.objects.filter(order__in=[o1, o2], fulfillment_status="packed").count(), 2)
+        OrderItem.objects.filter(order=o1).update(fulfillment_status="delivered")
+        self.client.post(reverse("seller_bulk_fulfilment"), {"status": "packed", "order": [o1.id]})
+        self.assertTrue(OrderItem.objects.filter(order=o1, fulfillment_status="delivered").exists())  # never moved back
+
+    def test_cannot_touch_another_sellers_order(self):
+        order = self._order()
+        other = User.objects.create_user("other", "o@example.com", "pass12345")
+        acct = SellerAccount.objects.create(user=other, business_name="Other")
+        acct.status = "approved"
+        acct.save()
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(reverse("seller_order", args=[order.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("seller_packing_slip", args=[order.id])).status_code, 404)
+        self.client.post(reverse("seller_ship_order", args=[order.id]), {"status": "delivered"})
+        self.client.post(reverse("seller_bulk_fulfilment"), {"status": "delivered", "order": [order.id]})
+        self.assertFalse(OrderItem.objects.filter(order=order).exclude(fulfillment_status="pending").exists())
+        self.client.post(reverse("seller_quick_update", args=[self.product.id]), {"price": "1", "stock": "0"})
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price, Decimal("50.00"))
+
+    def test_csv_exports(self):
+        self._order()
+        r = self.client.get(reverse("seller_orders") + "?tab=all&export=csv")
+        self.assertEqual(r["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("Lamp", r.content.decode())
+        r = self.client.get(reverse("seller_earnings") + "?export=csv")
+        body = r.content.decode()
+        self.assertIn("Statement for Shop Co", body)
+        self.assertIn("80.00", body)
+
+    def test_csv_neutralises_formulas(self):
+        self.product.name = "=HYPERLINK(\"http://x\")"
+        self.product.save()
+        self._order()
+        body = self.client.get(reverse("seller_orders") + "?tab=all&export=csv").content.decode()
+        self.assertIn("'=HYPERLINK", body)
+
+    def test_quick_update_price_and_stock(self):
+        self.client.force_login(self.seller.user)
+        self.client.post(reverse("seller_quick_update", args=[self.product.id]), {"price": "42.50", "stock": "3"})
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price, Decimal("42.50"))
+        self.assertEqual(self.product.stock, 3)
+        self.client.post(reverse("seller_quick_update", args=[self.product.id]), {"price": "-1", "stock": "3"})
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price, Decimal("42.50"))
+
+    def test_duplicate_product_goes_to_review(self):
+        self.client.force_login(self.seller.user)
+        r = self.client.post(reverse("seller_duplicate_product", args=[self.product.id]))
+        copy = Product.objects.exclude(pk=self.product.pk).get()
+        self.assertRedirects(r, reverse("seller_edit_product", args=[copy.pk]), fetch_redirect_response=False)
+        self.assertEqual(copy.approval_status, "pending")
+        self.assertEqual(copy.seller_account, self.seller)
+
+    def test_payout_request_and_staff_records_it(self):
+        from .models import Payout
+        order = self._order(qty=2)
+        # Not delivered yet: nothing available
+        self.client.post(reverse("seller_request_payout"), {"amount": "80"})
+        self.assertFalse(Payout.objects.exists())
+        OrderItem.objects.filter(order=order).update(fulfillment_status="delivered")
+        o = Order.objects.get(pk=order.pk)
+        o.status = "delivered"
+        o.save()
+        self.client.post(reverse("seller_request_payout"), {"amount": "500"})  # too much
+        self.assertFalse(Payout.objects.exists())
+        self.client.post(reverse("seller_request_payout"), {"amount": "80"})
+        payout = Payout.objects.get()
+        self.assertEqual(payout.status, "requested")
+        self.client.post(reverse("seller_request_payout"), {"amount": "10"})  # one at a time
+        self.assertEqual(Payout.objects.count(), 1)
+        staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.client.force_login(staff)
+        self.assertContains(self.client.get(reverse("manage_sellers") + "?status=payout"), "Shop Co")
+        self.assertContains(self.client.get(reverse("manage_seller", args=[self.seller.id])), "asked for $80.00")
+        self.client.post(reverse("manage_seller", args=[self.seller.id]), {"action": "payout", "amount": "80", "method": "wise", "reference": "TX-1"})
+        payout.refresh_from_db()
+        self.seller.refresh_from_db()
+        self.assertEqual(payout.status, "paid")
+        self.assertEqual(payout.method, "wise")
+        self.assertEqual(self.seller.total_paid_out, Decimal("80.00"))
+        self.assertEqual(self.seller.amount_owed, 0)
+        self.client.force_login(self.seller.user)
+        self.assertContains(self.client.get(reverse("seller_earnings")), "TX-1")
+
+    def test_staff_team_member_cannot_see_money_pages(self):
+        helper = User.objects.create_user("helper", "h@example.com", "pass12345")
+        OrganizationMember.objects.create(organization=self.seller, user=helper, role="staff")
+        self.client.force_login(helper)
+        self.assertEqual(self.client.get(reverse("seller_dashboard")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("seller_orders")).status_code, 200)
+        for name in ("seller_earnings", "seller_team", "seller_store_settings"):
+            self.assertRedirects(self.client.get(reverse(name)), reverse("seller_dashboard"), fetch_redirect_response=False)
+        self.client.post(reverse("seller_request_payout"), {"amount": "10"})
+        from .models import Payout
+        self.assertFalse(Payout.objects.exists())
+
+    def test_holiday_mode_hides_products(self):
+        self.client.force_login(self.seller.user)
+        self.client.post(reverse("seller_vacation"), {"vacation_mode": "on", "vacation_message": "Back Monday"})
+        self.seller.refresh_from_db()
+        self.assertTrue(self.seller.vacation_mode)
+        self.assertFalse(Product.objects.live().filter(pk=self.product.pk).exists())
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("product_detail", args=[self.product.id])).status_code, 404)
+        self.assertContains(self.client.get(reverse("store_page", args=["Shop Co"])), "Back Monday")
+        self.client.force_login(self.seller.user)
+        self.client.post(reverse("seller_vacation"), {"vacation_mode": "off"})
+        self.assertTrue(Product.objects.live().filter(pk=self.product.pk).exists())
+
+    def test_pending_seller_sees_center_but_cannot_sell(self):
+        u = User.objects.create_user("newbie", "n@example.com", "pass12345")
+        SellerAccount.objects.create(user=u, business_name="Newbie")
+        self.client.force_login(u)
+        page = self.client.get(reverse("seller_dashboard"))
+        self.assertContains(page, "under review")
+        self.assertEqual(self.client.get(reverse("seller_add_product")).status_code, 404)
+
+    def test_store_page_search_and_stats(self):
+        self._order()
+        self.client.logout()
+        page = self.client.get(reverse("store_page", args=["Shop Co"]) + "?q=lamp&sort=price_asc")
+        self.assertContains(page, "Lamp")
+        self.assertContains(page, "Registered business")
+        self.assertContains(page, "2+ sold")
+
+
+class ProfileReferralCodeTests(TestCase):
+    def test_profiles_created_without_a_code_get_a_unique_one(self):
+        from .models import Profile
+        a = Profile.objects.create(user=User.objects.create_user("pa", "pa@example.com", "x"))
+        b, _ = Profile.objects.get_or_create(user=User.objects.create_user("pb", "pb@example.com", "x"))
+        self.assertTrue(a.referral_code and b.referral_code)
+        self.assertNotEqual(a.referral_code, b.referral_code)

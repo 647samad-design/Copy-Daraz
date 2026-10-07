@@ -1,0 +1,32 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Returns{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Returns</h1><p>Return requests for your products. {{ brand.site_name }} reviews each one and handles the refund; refunded items are taken out of your earnings automatically.</p></div>
+</div>
+<div class="tabs" role="group" aria-label="Filter returns">
+    <a href="?" class="{% if not status %}on{% endif %}">All <span class="n">({{ total }})</span></a>
+    {% for key, label, n in tabs %}<a href="?status={{ key }}" class="{% if status == key %}on{% endif %}">{{ label }} <span class="n">({{ n }})</span></a>{% endfor %}
+</div>
+<section class="panel" style="padding:0;overflow:hidden;">
+    <div class="table-scroll">
+        <table class="table">
+            <thead><tr><th>Requested</th><th>Order</th><th>Product</th><th>Reason</th><th>Status</th><th class="num">Refunded</th></tr></thead>
+            <tbody>
+            {% for r in page_obj %}
+            <tr>
+                <td>{{ r.created_at|date:"M j, Y" }}</td>
+                <td><a class="rowlink" href="{% url 'seller_order' r.order_item.order_id %}">#{{ r.order_item.order_id }}</a></td>
+                <td>{{ r.order_item.product_name|truncatechars:34 }} <span class="muted small">× {{ r.order_item.quantity }}</span></td>
+                <td style="max-width:320px;">{{ r.reason|truncatechars:120 }}{% if r.admin_note %}<div class="muted small">Store note: {{ r.admin_note }}</div>{% endif %}</td>
+                <td>{% if r.status == "requested" %}<span class="pill warn">Being reviewed</span>{% elif r.status == "approved" %}<span class="pill info">Approved</span>{% elif r.status == "refunded" %}<span class="pill bad">Refunded</span>{% else %}<span class="pill">Rejected</span>{% endif %}</td>
+                <td class="num">{% if r.status == "refunded" %}{{ r.refund_total|money }}{% else %}—{% endif %}</td>
+            </tr>
+            {% empty %}<tr class="empty-row"><td colspan="6">No return requests. Happy customers!</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

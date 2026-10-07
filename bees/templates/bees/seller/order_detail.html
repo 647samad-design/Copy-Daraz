@@ -1,0 +1,106 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Order #{{ order.id }}{% endblock %}
+{% block page_css %}
+    .steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+    .steps li { list-style: none; text-align: center; font-size: .85rem; color: var(--muted); font-weight: 700; position: relative; padding-top: 30px; }
+    .steps li::before { content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 22px; height: 22px; border-radius: 999px; border: 2px solid var(--line); background: var(--surface); }
+    .steps li::after { content: ""; position: absolute; top: 10px; left: calc(50% + 14px); right: calc(-50% + 14px); height: 2px; background: var(--line); }
+    .steps li:last-child::after { display: none; }
+    .steps li.done { color: var(--ink); }
+    .steps li.done::before { background: var(--ok); border-color: var(--ok); }
+    .steps li.done::after { background: var(--ok); }
+    .item-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+    .item-row:first-of-type { border-top: 0; }
+    .item-row img { width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-2); }
+    .item-row select { min-height: 38px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); }
+    .addr { white-space: pre-line; line-height: 1.6; }
+    @media (max-width: 560px) { .item-row { grid-template-columns: 48px minmax(0, 1fr); } .item-row > form { grid-column: 1 / -1; } .steps li { font-size: .72rem; } }
+{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'seller_orders' %}">← All orders</a>
+        <h1 style="margin-top:6px;">Order #{{ order.id }}</h1>
+        <p>Placed {{ order.created_at|date:"M j, Y, H:i" }} · {{ order.get_payment_method_display }} ·
+        {% if order.status == "cancelled" %}<span class="pill bad">Cancelled</span>{% elif order.payment_status == "pending" %}<span class="pill warn">Awaiting payment</span>{% elif order.payment_status == "failed" %}<span class="pill bad">Payment failed</span>{% elif order.payment_status == "refunded" %}<span class="pill bad">Refunded</span>{% elif order.payment_status == "paid" %}<span class="pill ok">Paid</span>{% else %}<span class="pill info">Collect cash on delivery</span>{% endif %}</p>
+    </div>
+    <div class="actions no-print"><a class="btn btn-secondary btn-sm" href="{% url 'seller_packing_slip' order.id %}" target="_blank" rel="noopener">Print packing slip</a></div>
+</div>
+
+{% if order.status == "cancelled" %}<div class="callout bad" style="margin:0;"><strong>This order was cancelled.</strong> Don't ship it. If you already sent it, contact support.</div>
+{% elif order.payment_status == "pending" or order.payment_status == "failed" %}<div class="callout warn" style="margin:0;"><strong>Not paid yet.</strong> Wait until the payment comes through before packing - we'll alert you.</div>{% endif %}
+
+<section class="panel">
+    <ol class="steps" aria-label="Progress">{% for label, done, when in steps %}<li class="{% if done %}done{% endif %}">{{ label }}{% if when and done %}<div class="muted small" style="font-weight:400;">{{ when|date:"M j" }}</div>{% endif %}</li>{% endfor %}</ol>
+</section>
+
+<div class="two-col">
+    <div class="col-stack">
+        <section class="panel">
+            <div class="ph"><h2>Your items</h2>{% if other_sellers %}<span class="muted small">This order also has items from other sellers.</span>{% endif %}</div>
+            {% for item in items %}
+            <div class="item-row">
+                {% if item.product %}<img src="{{ item.product.image_url }}" alt="">{% else %}<span class="thumb" style="width:56px;height:56px;"></span>{% endif %}
+                <div>
+                    <strong>{{ item.product_name }}</strong>{% if item.variant_id %} <span class="muted">({{ item.variant.label }})</span>{% endif %}
+                    <div class="muted small">{% if item.variant.sku %}SKU {{ item.variant.sku }} · {% endif %}{{ item.quantity }} × {{ item.price|money }} = {{ item.subtotal|money }}</div>
+                    <div class="small">Commission {{ item.commission_rate|floatformat:"-1" }}% ({{ item.commission_amount|money }}) · <strong>you earn {{ item.seller_earning|money }}</strong></div>
+                    {% if item.open_return %}<div style="margin-top:4px;"><span class="pill warn">Return {{ item.open_return.get_status_display|lower }}</span></div>{% elif item.was_refunded %}<div style="margin-top:4px;"><span class="pill bad">Refunded after return</span></div>{% endif %}
+                </div>
+                {% if can_ship and seller.status == "approved" %}
+                <form method="post" action="{% url 'update_fulfillment_status' item.id %}" class="no-print">
+                    {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+                    <label class="sr-only" for="fs{{ item.id }}">Status of {{ item.product_name }}</label>
+                    <select id="fs{{ item.id }}" name="fulfillment_status" onchange="this.form.submit()">
+                        {% for value, label in fulfilment_choices %}<option value="{{ value }}" {% if item.fulfillment_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </form>
+                {% else %}<span class="pill st-{{ item.state }}">{{ item.state_label }}</span>{% endif %}
+            </div>
+            {% endfor %}
+            <div class="list-row" style="border-top:1.5px solid var(--line);margin-top:6px;"><span>Sale ({{ totals.units }} item{{ totals.units|pluralize }})</span><strong>{{ totals.sales|money }}</strong></div>
+            <div class="list-row"><span>Commission</span><span>− {{ totals.commission|money }}</span></div>
+            <div class="list-row"><span><strong>You earn</strong></span><strong>{{ totals.earning|money }}</strong></div>
+        </section>
+
+        {% if can_ship and seller.status == "approved" %}
+        <section class="panel no-print">
+            <h2>Ship it</h2>
+            <form method="post" action="{% url 'seller_ship_order' order.id %}" class="stack-sm">
+                {% csrf_token %}
+                {% if only_seller %}
+                <div class="form-grid">
+                    <div class="field"><label for="courier">Courier</label><input id="courier" type="text" name="courier_name" maxlength="60" value="{{ order.courier_name }}" placeholder="e.g. DHL, FedEx, UPS"></div>
+                    <div class="field"><label for="tracking">Tracking number</label><input id="tracking" type="text" name="tracking_number" maxlength="60" value="{{ order.tracking_number }}" placeholder="Shown to the customer"></div>
+                </div>
+                {% else %}<p class="muted small">This order has several sellers, so the store adds the tracking number. Just update your items.</p>{% endif %}
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-secondary btn-sm" type="submit" name="status" value="packed">Mark all packed</button>
+                    <button class="btn btn-primary btn-sm" type="submit" name="status" value="handed_to_courier">Mark all handed to courier</button>
+                </div>
+            </form>
+        </section>
+        {% endif %}
+    </div>
+    <div class="col-stack">
+        <section class="panel">
+            <h2>Ship to</h2>
+            <p class="addr" id="ship-addr">{{ order.full_name }}
+{{ order.address }}
+{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}
+{{ order.country|country_name }}
+{{ order.phone }}</p>
+            <button type="button" class="btn btn-ghost btn-sm no-print" style="margin-top:8px;" onclick="navigator.clipboard.writeText(document.getElementById('ship-addr').innerText).then(function(){ if (window.showToast) showToast('Address copied', 'success'); })">Copy address</button>
+        </section>
+        <section class="panel">
+            <h2>Delivery</h2>
+            <dl class="kv">
+                <dt>Expected by</dt><dd>{{ order.estimated_delivery|date:"M j, Y"|default:"—" }}</dd>
+                <dt>Courier</dt><dd>{{ order.courier_name|default:"—" }}</dd>
+                <dt>Tracking</dt><dd>{{ order.tracking_number|default:"—" }}</dd>
+                {% if order.delivered_at %}<dt>Delivered</dt><dd>{{ order.delivered_at|date:"M j, Y" }}</dd>{% endif %}
+            </dl>
+        </section>
+    </div>
+</div>
+{% endblock %}

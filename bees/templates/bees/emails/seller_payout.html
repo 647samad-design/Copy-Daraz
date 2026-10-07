@@ -1,0 +1,7 @@
+{% extends "bees/emails/_base_email.html" %}
+{% load bees_extras %}
+{% block email_body %}{% site_brand as b %}
+    <h1 style="margin:0 0 8px;font-size:24px;">Your payout is on its way</h1>
+    <p style="margin:0 0 20px;color:#56606B;">Hi {{ seller.display_name }}, we've sent <strong style="color:#141A1F;">{{ payout.amount|money }}</strong> to your payout account by {{ payout.get_method_display }}.{% if payout.reference %} Reference: <strong style="color:#141A1F;">{{ payout.reference }}</strong>.{% endif %} Depending on your bank it can take 1-5 business days to arrive.</p>
+    <a href="{{ url }}" style="display:inline-block;background:{{ b.primary_color }};color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;">See your earnings</a>
+{% endblock %}

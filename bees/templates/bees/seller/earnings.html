@@ -1,0 +1,101 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Earnings & payouts{% endblock %}
+{% block page_css %}
+    .flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+    .flow > div { padding: 16px 18px; border-left: 1px solid var(--line); }
+    .flow > div:first-child { border-left: 0; }
+    .flow > div > span { display: block; color: var(--muted); font-size: .88rem; font-weight: 700; }
+    .flow strong { font-family: var(--font-display); font-size: 1.45rem; }
+    .flow .op { color: var(--muted); font-weight: 700; margin-right: 4px; }
+    .flow .total { background: color-mix(in srgb, var(--ok) 8%, var(--surface)); }
+    .big { font-family: var(--font-display); font-size: 2rem; line-height: 1.1; }
+    tr.not-counted td { color: var(--muted); }
+    tr.not-counted td.num { text-decoration: line-through; }
+{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Earnings &amp; payouts</h1><p>Every sale, the commission taken and what you keep - for the last {{ period.label }}.</p></div>
+    <div class="actions">
+        <div class="tabs" role="group" aria-label="Period">{% for key, label in ranges %}<a href="?range={{ key }}" class="{% if period.key == key %}on{% endif %}">{{ label }}</a>{% endfor %}</div>
+        <a class="btn btn-secondary btn-sm" href="?range={{ period.key }}&export=csv" data-no-prerender>Download statement</a>
+    </div>
+</div>
+
+<div class="flow" aria-label="How your earnings add up">
+    <div><span>Sales</span><strong>{{ stats.sales|money }}</strong><div class="muted small">{{ stats.units }} unit{{ stats.units|pluralize }} · {{ stats.orders }} order{{ stats.orders|pluralize }}</div></div>
+    <div><span>Commission</span><strong class="nowrap"><span class="op">−</span>{{ stats.commission|money }}</strong><div class="muted small">{% if stats.sales %}{% widthratio stats.commission stats.sales 100 %}% of sales{% else %}—{% endif %}</div></div>
+    <div class="total"><span>You earned</span><strong>{{ stats.net|money }}</strong><div class="muted small">in the last {{ period.label }}</div></div>
+</div>
+
+<div class="trio">
+        <section class="panel">
+            <h2>Balance</h2>
+            <span class="muted small">Available for payout</span>
+            <div class="big">{{ balance.available|money }}</div>
+            <dl class="kv" style="margin-top:14px;">
+                <dt>On the way</dt><dd>{{ balance.pending|money }} <span class="muted small">from orders not delivered yet</span></dd>
+                <dt>Paid to you</dt><dd>{{ balance.paid|money }}</dd>
+                <dt>Earned all time</dt><dd>{{ balance.earned|money }}</dd>
+            </dl>
+            {% if open_request %}
+            <div class="callout warn" style="margin:16px 0 0;display:grid;gap:10px;"><span><strong>Payout of {{ open_request.amount|money }} requested</strong> on {{ open_request.created_at|date:"M j" }}. We'll send it to your payout account soon.</span>
+                <form method="post" action="{% url 'seller_cancel_payout' open_request.id %}" onsubmit="return confirm('Cancel this payout request?')">{% csrf_token %}<button class="btn btn-ghost btn-sm" type="submit">Cancel request</button></form></div>
+            {% elif seller.status == "approved" %}
+                {% if not seller.bank_details %}
+                <p class="small" style="margin-top:16px;">Add your bank or PayPal details in <a class="link" href="{% url 'seller_store_settings' %}">Store settings</a> to get paid.</p>
+                {% elif balance.available >= min_payout %}
+                <form method="post" action="{% url 'seller_request_payout' %}" class="stack-sm" style="margin-top:16px;">
+                    {% csrf_token %}
+                    <label for="pa" class="label">Request a payout</label>
+                    <div class="toolbar"><input class="input grow" id="pa" type="number" name="amount" min="{{ min_payout }}" max="{{ balance.available|floatformat:2 }}" step="0.01" value="{{ balance.available|floatformat:2 }}" required><button class="btn btn-primary btn-sm" type="submit">Request</button></div>
+                    <p class="muted small">Sent to: {{ seller.bank_details|truncatechars:40 }}</p>
+                </form>
+                {% else %}
+                <p class="muted small" style="margin-top:16px;">You can request a payout once at least {{ min_payout|money }} is available.</p>
+                {% endif %}
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <h2>Your commission</h2>
+            <div class="list-row"><span>Current rate</span><strong>{{ tier.current|floatformat:"-1" }}%</strong></div>
+            <div class="list-row"><span>Base rate ({% if seller.account_type == "organization" %}business{% else %}individual{% endif %})</span><span>{{ tier.base|floatformat:"-1" }}%</span></div>
+            {% if tier.next %}
+            <p class="small" style="margin-top:10px;">Sell <strong>{{ tier.next.remaining|money }}</strong> more (lifetime) to drop to <strong>{{ tier.next.rate|floatformat:"-1" }}%</strong>.</p>
+            <div class="meter" aria-hidden="true"><i style="width:{{ tier.next.pct }}%"></i></div>
+            {% else %}<p class="small" style="margin-top:10px;">You're on our lowest rate. Thanks for selling with us!</p>{% endif %}
+            <p class="muted small" style="margin-top:10px;">The rate is locked on each sale when the order is placed, so changes never affect past orders.</p>
+        </section>
+
+        <section class="panel">
+            <h2>Payout history</h2>
+            {% for p in payouts %}
+            <div class="list-row"><span>{{ p.paid_at|default:p.created_at|date:"M j, Y" }}<div class="muted small">{% if p.status == "paid" %}{{ p.get_method_display|default:"Paid" }}{% if p.reference %} · {{ p.reference }}{% endif %}{% elif p.status == "requested" %}Requested{% else %}Cancelled{% if p.note %} · {{ p.note|truncatechars:40 }}{% endif %}{% endif %}</div></span>
+                <span style="text-align:right;"><strong>{{ p.amount|money }}</strong><div>{% if p.status == "paid" %}<span class="pill ok">Paid</span>{% elif p.status == "requested" %}<span class="pill warn">Requested</span>{% else %}<span class="pill">Cancelled</span>{% endif %}</div></span></div>
+            {% empty %}<p class="muted">No payouts yet.</p>{% endfor %}
+        </section>
+</div>
+
+    <section class="panel">
+        <div class="ph"><h2>Sales ledger</h2><span class="muted small">Struck-through rows were cancelled, unpaid or refunded and don't count.</span></div>
+        <div class="table-scroll">
+            <table class="table">
+                <thead><tr><th>Date</th><th>Order</th><th>Product</th><th class="num">Sale</th><th class="num">Commission</th><th class="num">You earn</th></tr></thead>
+                <tbody>
+                {% for item in page_obj %}
+                <tr class="{% if not item.counts %}not-counted{% endif %}">
+                    <td class="nowrap">{{ item.order.created_at|date:"M j" }}</td>
+                    <td><a class="rowlink" href="{% url 'seller_order' item.order_id %}">#{{ item.order_id }}</a><div><span class="pill st-{{ item.state }}" style="font-size:.75rem;">{{ item.state_label }}</span></div></td>
+                    <td>{{ item.product_name|truncatechars:30 }}{% if item.variant_id %} <span class="muted small">({{ item.variant.label }})</span>{% endif %} <span class="muted small">× {{ item.quantity }}</span></td>
+                    <td class="num">{{ item.subtotal|money }}</td>
+                    <td class="num">{{ item.commission_amount|money }}<div class="muted small">{{ item.commission_rate|floatformat:"-1" }}%</div></td>
+                    <td class="num"><strong>{{ item.seller_earning|money }}</strong></td>
+                </tr>
+                {% empty %}<tr class="empty-row"><td colspan="6">No sales in the last {{ period.label }}.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "bees/manage/_pagination.html" %}
+    </section>
+{% endblock %}

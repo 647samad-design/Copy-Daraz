@@ -8,6 +8,7 @@ from django.views.generic import TemplateView
 from bees import views
 from bees import account_views
 from bees import manage_views as mv
+from bees import seller_views as sv
 from bees.sitemaps import ProductSitemap, CategorySitemap, StaticViewSitemap
 from bees.ratelimit import ratelimit
 
@@ -102,7 +103,24 @@ urlpatterns = [
     path('api/search-suggest/', views.search_suggest, name='search_suggest'),
 
     path('become-seller/', views.become_seller, name='become_seller'),
-    path('seller/dashboard/', views.seller_dashboard, name='seller_dashboard'),
+    # Seller Center
+    path('seller/', sv.overview),
+    path('seller/dashboard/', sv.overview, name='seller_dashboard'),
+    path('seller/orders/', sv.orders, name='seller_orders'),
+    path('seller/orders/bulk/', sv.bulk_fulfilment, name='seller_bulk_fulfilment'),
+    path('seller/orders/<int:order_id>/', sv.order_detail, name='seller_order'),
+    path('seller/orders/<int:order_id>/ship/', sv.ship_order, name='seller_ship_order'),
+    path('seller/orders/<int:order_id>/packing-slip/', sv.packing_slip, name='seller_packing_slip'),
+    path('seller/products/', sv.products, name='seller_products'),
+    path('seller/products/<int:pk>/quick-update/', sv.quick_update, name='seller_quick_update'),
+    path('seller/products/<int:pk>/duplicate/', sv.duplicate_product, name='seller_duplicate_product'),
+    path('seller/earnings/', sv.earnings, name='seller_earnings'),
+    path('seller/payouts/request/', sv.request_payout, name='seller_request_payout'),
+    path('seller/payouts/<int:pk>/cancel/', sv.cancel_payout_request, name='seller_cancel_payout'),
+    path('seller/returns/', sv.returns, name='seller_returns'),
+    path('seller/reviews/', sv.reviews, name='seller_reviews'),
+    path('seller/team/', sv.team, name='seller_team'),
+    path('seller/holiday/', sv.vacation, name='seller_vacation'),
     path('seller/order-item/<int:item_id>/status/', views.update_fulfillment_status, name='update_fulfillment_status'),
     path('seller/product/add/', views.seller_add_product, name='seller_add_product'),
     path('seller/question/<int:pk>/answer/', views.seller_answer_question, name='seller_answer_question'),

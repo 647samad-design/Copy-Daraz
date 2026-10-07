@@ -1,0 +1,60 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Reviews & questions{% endblock %}
+{% block page_css %}
+    .rating-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: center; }
+    .rating-summary .big { font-family: var(--font-display); font-size: 2.6rem; line-height: 1; }
+    .star-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 36px; gap: 10px; align-items: center; font-size: .9rem; }
+    .star-row .meter { margin: 0; }
+    .entry { padding: 14px 0; border-top: 1px solid var(--line); }
+    .entry:first-child { border-top: 0; }
+    .stars { color: var(--warn); letter-spacing: 1px; }
+    @media (max-width: 560px) { .rating-summary { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Reviews &amp; questions</h1><p>Answer questions quickly - shoppers who get answers are far more likely to buy.</p></div>
+</div>
+<section class="panel">
+    <div class="rating-summary">
+        <div><div class="big">{% if agg.n %}{{ agg.avg|floatformat:1 }}{% else %}—{% endif %}</div><div class="stars" aria-hidden="true">{{ agg.avg|stars }}</div><div class="muted small">{{ agg.n }} product review{{ agg.n|pluralize }}{% if store_count %} · store {{ store_rating }} ★ ({{ store_count }}){% endif %}</div></div>
+        <div style="display:grid;gap:6px;">{% for s in stars %}<div class="star-row"><span>{{ s.stars }} ★</span><div class="meter" aria-hidden="true"><i style="width:{{ s.pct }}%"></i></div><span class="muted">{{ s.n }}</span></div>{% endfor %}</div>
+    </div>
+</section>
+<div class="tabs" role="group" aria-label="Show">
+    <a href="?tab=questions" class="{% if tab == 'questions' %}on{% endif %}">To answer <span class="n">({{ open_count }})</span></a>
+    <a href="?tab=answered" class="{% if tab == 'answered' %}on{% endif %}">Answered</a>
+    <a href="?tab=reviews" class="{% if tab == 'reviews' %}on{% endif %}">Product reviews</a>
+    <a href="?tab=store" class="{% if tab == 'store' %}on{% endif %}">Store reviews</a>
+</div>
+<section class="panel">
+    {% for obj in page_obj %}
+    <div class="entry">
+        {% if tab == "reviews" %}
+            <div class="ph" style="margin-bottom:4px;"><a class="link small" href="{% url 'product_detail' obj.product_id %}" target="_blank" rel="noopener">{{ obj.product.name|truncatechars:60 }}</a><span class="stars" aria-label="{{ obj.rating }} out of 5">{{ obj.rating|stars }}</span></div>
+            <p>{{ obj.comment }}</p>
+            <span class="muted small">{{ obj.username }}{% if obj.is_verified_purchase %} · <span class="pill ok" style="font-size:.75rem;">Verified purchase</span>{% endif %} · {{ obj.created_at|date:"M j, Y" }}</span>
+        {% elif tab == "store" %}
+            <div class="ph" style="margin-bottom:4px;"><strong>{{ obj.user.username }}</strong><span class="stars" aria-label="{{ obj.rating }} out of 5">{{ obj.rating|stars }}</span></div>
+            {% if obj.comment %}<p>{{ obj.comment }}</p>{% endif %}
+            <span class="muted small">{{ obj.created_at|date:"M j, Y" }}</span>
+        {% else %}
+            <a class="link small" href="{% url 'product_detail' obj.product_id %}#questions" target="_blank" rel="noopener">{{ obj.product.name|truncatechars:60 }}</a>
+            <p style="margin-top:4px;"><strong>“{{ obj.question }}”</strong></p>
+            <span class="muted small">{{ obj.username }} · {{ obj.created_at|timesince }} ago</span>
+            {% if seller.status == "approved" %}
+            <form method="post" action="{% url 'seller_answer_question' obj.id %}" style="display:grid;gap:8px;margin-top:10px;">
+                {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <label class="sr-only" for="ans{{ obj.id }}">Your answer</label>
+                <textarea class="input" id="ans{{ obj.id }}" name="answer" rows="2" style="min-height:70px;" required maxlength="2000" placeholder="Your answer (shown on the product page)">{{ obj.answer }}</textarea>
+                <button type="submit" class="btn {% if obj.answer %}btn-ghost{% else %}btn-primary{% endif %} btn-sm" style="justify-self:start;">{% if obj.answer %}Update answer{% else %}Publish answer{% endif %}</button>
+            </form>
+            {% elif obj.answer %}<p class="small" style="margin-top:6px;">{{ obj.answer }}</p>{% endif %}
+        {% endif %}
+    </div>
+    {% empty %}
+    <p class="muted">{% if tab == "questions" %}No questions waiting. You're all caught up!{% elif tab == "answered" %}No answered questions yet.{% else %}No reviews yet. They'll appear after customers receive their orders.{% endif %}</p>
+    {% endfor %}
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

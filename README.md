@@ -158,3 +158,35 @@ python manage.py test bees
 
 Covers order totals, shipping/tax, coupons, stock locking, Stripe flows (mocked), refunds,
 permissions, rate limiting, open-redirect protection, upload validation and white-label rendering.
+
+## Daily maintenance (PythonAnywhere scheduled task)
+
+One command does everything the store needs once a day — cancel unpaid
+card orders, send cart reminders, back up the database and images, and
+clear old sessions:
+
+```
+cd ~/Lumen-Market && venv/bin/python manage.py daily_tasks
+```
+
+On PythonAnywhere: **Tasks** tab → *Scheduled tasks* → paste the line above,
+pick a time (e.g. 03:00) → **Create**.
+
+Backups go to the Supabase `private` bucket (folder `backups/`) when
+Supabase Storage is configured, otherwise to `backups/` next to
+`manage.py`. The newest 14 are kept.
+
+```
+python manage.py restore_backup --list     # see backups
+python manage.py restore_backup            # restore the newest (then Reload the web app)
+```
+
+## Two-step sign-in
+
+Staff must set up an authenticator app before opening the store admin
+(Store settings → Security). If someone loses their phone *and* backup
+codes:
+
+```
+python manage.py reset_two_factor <username or email>
+```

@@ -91,8 +91,11 @@ def security(request):
                 }, user)
             messages.success(request, "Password changed. You've been signed out on your other devices.")
             return redirect("account_security")
+    profile = _profile(request.user)
     return render(request, "bees/account/security.html", {
         "tab": "security", "form": form, "other_sessions": len(_other_sessions(request)),
+        "totp_enabled": profile.totp_enabled, "backup_left": len(profile.backup_codes or []),
+        "twofa_required": _staff_must_use_2fa(request.user),
     })
 
 
@@ -374,3 +377,151 @@ def store_settings(request):
         messages.success(request, "Store settings saved.")
         return redirect("seller_store_settings")
     return render(request, "bees/account/store_settings.html", {"seller": seller, "role": role})
+
+
+# ---------------------------------------------------------------------------
+# Two-step sign-in
+# ---------------------------------------------------------------------------
+
+def _staff_must_use_2fa(user):
+    from .models import SiteSettings
+    return user.is_staff and SiteSettings.load().require_staff_2fa
+
+
+@login_required
+def two_factor_setup(request):
+    from . import twofactor
+    from .models import SiteSettings
+    profile = _profile(request.user)
+    if profile.totp_enabled:
+        return redirect("account_security")
+    secret = request.session.get("totp_setup_secret")
+    if not secret:
+        secret = twofactor.new_secret()
+        request.session["totp_setup_secret"] = secret
+    if request.method == "POST":
+        step = twofactor.verify(secret, request.POST.get("code", ""))
+        if step is None:
+            messages.error(request, "That code didn't match. Check the time on your phone is set automatically, then try the newest code.")
+        else:
+            codes, hashes = twofactor.new_backup_codes()
+            Profile.objects.filter(pk=profile.pk).update(
+                totp_secret=secret, totp_enabled=True, totp_last_step=step, backup_codes=hashes)
+            request.session.pop("totp_setup_secret", None)
+            request.session["2fa_verified"] = True
+            AuditLog.objects.create(user=request.user, action="Turned on two-step sign-in")
+            if request.user.email:
+                _send("Two-step sign-in is on", "bees/emails/security_notice.html", {
+                    "user": request.user, "event": "Two-step sign-in was turned on for your account",
+                    "detail": "From now on you'll enter a code from your authenticator app when you sign in. If this wasn't you, contact us straight away.",
+                    "reset_url": request.build_absolute_uri(reverse("password_reset")),
+                }, request.user)
+            return render(request, "bees/account/backup_codes.html", {"tab": "security", "codes": codes, "first_time": True})
+    account = request.user.email or request.user.username
+    uri = twofactor.provisioning_uri(secret, account, SiteSettings.load().site_name)
+    return render(request, "bees/account/two_factor_setup.html", {
+        "tab": "security", "secret": secret, "qr": twofactor.qr_svg(uri),
+        "required": _staff_must_use_2fa(request.user),
+        "secret_spaced": " ".join(secret[i:i + 4] for i in range(0, len(secret), 4)),
+    })
+
+
+def _check_password_and_code(request, profile):
+    from . import twofactor
+    if not request.user.check_password(request.POST.get("password", "")):
+        return "That password isn't right."
+    code = request.POST.get("code", "")
+    step = twofactor.verify(profile.totp_secret, code, profile.totp_last_step)
+    if step is not None:
+        Profile.objects.filter(pk=profile.pk).update(totp_last_step=step)
+        return ""
+    remaining = twofactor.use_backup_code(profile.backup_codes, code)
+    if remaining is not None:
+        Profile.objects.filter(pk=profile.pk).update(backup_codes=remaining)
+        return ""
+    return "That code didn't match."
+
+
+@login_required
+@require_POST
+@ratelimit("2fa_manage", rate_limit=10, window_seconds=600, redirect_to="account_security")
+def two_factor_disable(request):
+    profile = _profile(request.user)
+    if not profile.totp_enabled:
+        return redirect("account_security")
+    error = _check_password_and_code(request, profile)
+    if error:
+        messages.error(request, error)
+        return redirect("account_security")
+    Profile.objects.filter(pk=profile.pk).update(totp_enabled=False, totp_secret="", backup_codes=[], totp_last_step=0)
+    AuditLog.objects.create(user=request.user, action="Turned off two-step sign-in")
+    if _staff_must_use_2fa(request.user):
+        messages.info(request, "Two-step sign-in is off. Set it up again (for example on your new phone) before opening the store admin.")
+        return redirect("two_factor_setup")
+    messages.success(request, "Two-step sign-in is off.")
+    return redirect("account_security")
+
+
+@login_required
+@require_POST
+@ratelimit("2fa_manage", rate_limit=10, window_seconds=600, redirect_to="account_security")
+def two_factor_new_codes(request):
+    from . import twofactor
+    profile = _profile(request.user)
+    if not profile.totp_enabled:
+        return redirect("account_security")
+    error = _check_password_and_code(request, profile)
+    if error:
+        messages.error(request, error)
+        return redirect("account_security")
+    codes, hashes = twofactor.new_backup_codes()
+    Profile.objects.filter(pk=profile.pk).update(backup_codes=hashes)
+    AuditLog.objects.create(user=request.user, action="Created new backup codes")
+    return render(request, "bees/account/backup_codes.html", {"tab": "security", "codes": codes})
+
+
+@ratelimit("2fa_login", rate_limit=10, window_seconds=300, redirect_to="login",
+           message="Too many code attempts. Please wait a few minutes and sign in again.")
+def login_code(request):
+    """Second sign-in step: the code from the authenticator app."""
+    from django.contrib.auth import get_user_model, login as auth_login
+    from . import twofactor
+    from .security import safe_next_url
+    pending = request.session.get("2fa_pending")
+    if not pending or pending.get("expires", 0) < timezone.now().timestamp():
+        request.session.pop("2fa_pending", None)
+        messages.error(request, "Please sign in again.")
+        return redirect("login")
+    user = get_user_model().objects.filter(pk=pending["uid"], is_active=True).first()
+    profile = Profile.objects.filter(user=user).first() if user else None
+    if not user or not profile or not profile.totp_enabled:
+        request.session.pop("2fa_pending", None)
+        return redirect("login")
+    if request.method == "POST":
+        code = request.POST.get("code", "")
+        ok = False
+        step = twofactor.verify(profile.totp_secret, code, profile.totp_last_step)
+        if step is not None:
+            ok = Profile.objects.filter(pk=profile.pk, totp_last_step__lt=step).update(totp_last_step=step) == 1
+        else:
+            remaining = twofactor.use_backup_code(profile.backup_codes, code)
+            if remaining is not None:
+                Profile.objects.filter(pk=profile.pk).update(backup_codes=remaining)
+                ok = True
+                if not remaining:
+                    messages.warning(request, "That was your last backup code. Create new ones under Password & security.")
+        if ok:
+            request.session.pop("2fa_pending", None)
+            auth_login(request, user, backend=pending["backend"])
+            request.session["2fa_verified"] = True
+            if not pending.get("remember"):
+                request.session.set_expiry(0)
+            return redirect(safe_next_url(request, pending.get("next"), reverse("home")))
+        pending["tries"] = pending.get("tries", 0) + 1
+        if pending["tries"] >= 5:
+            request.session.pop("2fa_pending", None)
+            messages.error(request, "Too many wrong codes. Please sign in again.")
+            return redirect("login")
+        request.session["2fa_pending"] = pending
+        messages.error(request, "That code didn't match. Use the newest code from your app, or a backup code.")
+    return render(request, "bees/auth/login_code.html", {})

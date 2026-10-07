@@ -572,6 +572,11 @@ class Profile(models.Model):
     cart_updated_at = models.DateTimeField(null=True, blank=True, db_index=True)
     cart_reminder_sent = models.BooleanField(default=False)
     cart_reminders = models.BooleanField(default=True, help_text="Email a reminder about items left in the cart.")
+    # Two-step sign-in (authenticator app).
+    totp_secret = models.CharField(max_length=64, blank=True)
+    totp_enabled = models.BooleanField(default=False)
+    totp_last_step = models.BigIntegerField(default=0)
+    backup_codes = models.JSONField(default=list, blank=True)
 
     POINTS_PER_UNIT = 100  # 100 reward points = 1.00 of store credit
 
@@ -953,6 +958,10 @@ class SiteSettings(models.Model):
     )
     delivery_days = models.PositiveSmallIntegerField(
         default=5, help_text="Usual delivery time in business days. Used for the 'Arrives by' date customers see and get emailed.",
+    )
+    require_staff_2fa = models.BooleanField(
+        "Require two-step sign-in for staff", default=True,
+        help_text="Staff must use an authenticator app code to open the store admin.",
     )
     allow_cash_on_delivery = models.BooleanField(default=True, help_text="Show 'Cash on delivery' at checkout. Card payments appear automatically once Stripe keys are set.")
     show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")

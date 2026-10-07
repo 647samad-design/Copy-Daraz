@@ -79,7 +79,11 @@ def persist(request, user=None):
     if not user or not user.is_authenticated:
         return
     cart = request.session.get("cart", {}) or {}
-    profile, _ = Profile.objects.get_or_create(user=user, defaults={"referral_code": _code()})
+    profile = Profile.objects.filter(user=user).only("saved_cart").first()
+    if profile is None:
+        if not cart:
+            return
+        profile, _ = Profile.objects.get_or_create(user=user, defaults={"referral_code": _code()})
     if profile.saved_cart == cart:
         return
     Profile.objects.filter(pk=profile.pk).update(

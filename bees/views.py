@@ -663,6 +663,15 @@ def login_view(request):
                 username = matches[0]
         user = authenticate(request, username=username, password=password)
         if user is not None:
+            if Profile.objects.filter(user=user, totp_enabled=True).exists():
+                # Password is right; now ask for the authenticator code.
+                from django.utils import timezone as _tz
+                request.session["2fa_pending"] = {
+                    "uid": user.pk, "backend": user.backend, "next": next_url,
+                    "remember": bool(request.POST.get("remember")), "tries": 0,
+                    "expires": _tz.now().timestamp() + 300,
+                }
+                return redirect("login_code")
             auth_login(request, user)
             if not request.POST.get("remember"):
                 request.session.set_expiry(0)  # signed out when the browser closes

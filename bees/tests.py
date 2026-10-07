@@ -28,6 +28,10 @@ class TestCase(DjangoTestCase):
         from unittest import mock as _mock
         self._stripe_customer = _mock.patch("stripe.Customer.create", return_value=_mock.MagicMock(id="cus_test"))
         self._stripe_customer.start()
+        # Older admin tests use staff without an authenticator app; the
+        # two-step tests switch this back on.
+        from .models import SiteSettings as _SS
+        _SS.objects.update_or_create(pk=1, defaults={"require_staff_2fa": False})
 
     def _post_teardown(self):
         self._stripe_customer.stop()
@@ -1828,7 +1832,7 @@ class AccountSettingsTests(TestCase):
         self.assertTrue(User.objects.get(pk=self.user.pk).is_active)
         Order.objects.filter(pk=open_order.pk).update(status="delivered")
         Address.objects.create(user=self.user, full_name="A", phone="1", address="x", city="y", country="US")
-        Profile.objects.create(user=self.user, referral_code="AC1", stripe_customer_id="cus_1")
+        Profile.objects.update_or_create(user=self.user, defaults={"referral_code": "AC1", "stripe_customer_id": "cus_1"})
         with mock.patch("stripe.Customer.delete") as delete:
             self.client.post(reverse("delete_account"), {"password": "Old-pass-123"})
         delete.assert_called_once_with("cus_1")
@@ -2183,7 +2187,13 @@ class SavedCartTests(TestCase):
         self.assertEqual(Profile.objects.get(user=self.user).saved_cart, {})
 
 
-class BackupTests(TestCase):
+from django.test import TransactionTestCase  # noqa: E402
+
+
+class BackupTests(TransactionTestCase):
+    """Not wrapped in a transaction: SQLite can't copy a database while the
+    test's own open transaction holds its write lock."""
+
     def test_backup_and_list(self):
         import tempfile
         from django.core.management import call_command
@@ -2193,3 +2203,80 @@ class BackupTests(TestCase):
             files = os.listdir(os.path.join(tmp, "backups"))
             self.assertTrue(1 <= len(files) <= 2)
             self.assertTrue(all(f.startswith("backup-") and f.endswith(".tar.gz") for f in files))
+
+
+class TwoStepSignInTests(TestCase):
+    def setUp(self):
+        SiteSettings.objects.update_or_create(pk=1, defaults={"require_staff_2fa": True})
+        cache.clear()
+        self.staff = User.objects.create_user("owner", "owner@example.com", "Owner-pass-1", is_staff=True)
+
+    def _now_code(self, secret, offset=0):
+        from . import twofactor
+        return twofactor.code_at(secret, twofactor.current_step() + offset)
+
+    def _enable(self, client):
+        client.get(reverse("two_factor_setup"))
+        secret = client.session["totp_setup_secret"]
+        r = client.post(reverse("two_factor_setup"), {"code": self._now_code(secret)})
+        return secret, r
+
+    def test_staff_must_set_up_before_admin(self):
+        self.client.force_login(self.staff)
+        self.assertRedirects(self.client.get(reverse("manage_dashboard")), reverse("two_factor_setup"), fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/admin/"), reverse("two_factor_setup"), fetch_redirect_response=False)
+        page = self.client.get(reverse("two_factor_setup"))
+        self.assertContains(page, "<svg")
+        r = self.client.post(reverse("two_factor_setup"), {"code": "000000"})
+        self.assertContains(r, "didn&#x27;t match")
+        secret, r = self._enable(self.client)
+        self.assertContains(r, "Save your backup codes")
+        self.assertEqual(self.client.get(reverse("manage_dashboard")).status_code, 200)
+        self.assertTrue(Profile.objects.get(user=self.staff).totp_enabled)
+
+    def test_sign_in_needs_code(self):
+        self.client.force_login(self.staff)
+        secret, r = self._enable(self.client)
+        codes = r.context["codes"]
+        self.client.logout()
+        r = self.client.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1", "next": "/manage/"})
+        self.assertRedirects(r, reverse("login_code"), fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)  # not signed in yet
+        self.client.post(reverse("login_code"), {"code": "123456"})
+        self.assertNotIn("_auth_user_id", self.client.session)
+        r = self.client.post(reverse("login_code"), {"code": self._now_code(secret, 1)})
+        self.assertRedirects(r, "/manage/", fetch_redirect_response=False)
+        self.assertEqual(self.client.get("/manage/").status_code, 200)
+        # The same code can't be used again
+        other = Client()
+        other.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1"})
+        other.post(reverse("login_code"), {"code": self._now_code(secret, 1)})
+        self.assertNotIn("_auth_user_id", other.session)
+        # A backup code works once
+        other.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1"})
+        other.post(reverse("login_code"), {"code": codes[0]})
+        self.assertIn("_auth_user_id", other.session)
+        third = Client()
+        third.post(reverse("login"), {"username": "owner", "password": "Owner-pass-1"})
+        third.post(reverse("login_code"), {"code": codes[0]})
+        self.assertNotIn("_auth_user_id", third.session)
+
+    def test_django_admin_login_goes_through_store_login(self):
+        r = self.client.get("/admin/login/?next=/admin/")
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(r.url.startswith("/login/"))
+
+    def test_reset_command(self):
+        from django.core.management import call_command
+        self.client.force_login(self.staff)
+        self._enable(self.client)
+        call_command("reset_two_factor", "owner@example.com", stdout=open(os.devnull, "w"))
+        self.assertFalse(Profile.objects.get(user=self.staff).totp_enabled)
+
+    def test_customers_can_opt_in_but_are_not_forced(self):
+        buyer = User.objects.create_user("cust", "cust@example.com", "Cust-pass-1")
+        self.client.force_login(buyer)
+        self.assertContains(self.client.get(reverse("account_security")), "Set up")
+        secret, _ = self._enable(self.client)
+        self.client.post(reverse("two_factor_disable"), {"password": "Cust-pass-1", "code": self._now_code(secret, 1)})
+        self.assertFalse(Profile.objects.get(user=buyer).totp_enabled)

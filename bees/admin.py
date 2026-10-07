@@ -584,3 +584,15 @@ def _bees_index(self, request, extra_context=None):
 
 
 admin.site.index = types.MethodType(_bees_index, admin.site)
+
+
+def _admin_login(request, extra_context=None):
+    """Django admin sign-in goes through the store's sign-in page, so
+    two-step sign-in can't be skipped."""
+    from urllib.parse import urlencode
+    from django.shortcuts import redirect
+    from .security import safe_next_url
+    return redirect(f"/login/?{urlencode({'next': safe_next_url(request, request.GET.get('next'), '/admin/')})}")
+
+
+admin.site.login = _admin_login

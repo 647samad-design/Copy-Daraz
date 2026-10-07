@@ -26,6 +26,27 @@
             </form>
         </section>
         <section class="panel">
+            <h2>Two-step sign-in {% if totp_enabled %}<span class="badge badge-ok">On</span>{% else %}<span class="badge">Off</span>{% endif %}</h2>
+            {% if totp_enabled %}
+            <p class="muted" style="margin:6px 0 14px;">You enter a code from your authenticator app after your password. {{ backup_left }} backup code{{ backup_left|pluralize }} left.</p>
+            <details>
+                <summary class="link" style="cursor:pointer;">Manage</summary>
+                <form method="post" style="display:grid;gap:10px;max-width:420px;margin-top:12px;">
+                    {% csrf_token %}
+                    <div class="field"><label for="tf_pw">Password</label><input type="password" id="tf_pw" name="password" required autocomplete="current-password"></div>
+                    <div class="field"><label for="tf_code">Code from your app (or a backup code)</label><input type="text" id="tf_code" name="code" inputmode="numeric" autocomplete="one-time-code" required></div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <button type="submit" class="btn btn-secondary" formaction="{% url 'two_factor_new_codes' %}">New backup codes</button>
+                        <button type="submit" class="btn btn-danger" formaction="{% url 'two_factor_disable' %}">{% if twofa_required %}Move to a new phone{% else %}Turn off{% endif %}</button>
+                    </div>
+                </form>
+            </details>
+            {% else %}
+            <p class="muted" style="margin:6px 0 14px;">{% if twofa_required %}Required for staff before opening the store admin. {% endif %}Adds a code from your phone after your password, so a stolen password alone can't get in.</p>
+            <a class="btn btn-primary" href="{% url 'two_factor_setup' %}">Set up</a>
+            {% endif %}
+        </section>
+        <section class="panel">
             <h2>Signed-in devices</h2>
             <p class="muted" style="margin:6px 0 14px;">
                 {% if other_sessions %}You're also signed in on {{ other_sessions }} other device{{ other_sessions|pluralize }} or browser{{ other_sessions|pluralize }}.{% else %}You're only signed in here.{% endif %}

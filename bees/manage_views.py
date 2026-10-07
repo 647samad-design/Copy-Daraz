@@ -771,6 +771,7 @@ class SiteSettingsForm(forms.ModelForm):
         ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "return_days", "allow_cash_on_delivery"]),
         ("Contact & social", "Shown in the footer, emails and help page.",
          ["support_email", "support_phone", "company_address", "facebook_url", "instagram_url", "twitter_url", "youtube_url"]),
+        ("Security", "Protects the admin even if a staff password is stolen.", ["require_staff_2fa"]),
         ("Language", "", ["show_language_menu"]),
     ]
 

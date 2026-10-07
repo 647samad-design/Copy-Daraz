@@ -1,0 +1,57 @@
+{% extends "bees/emails/_base_email.html" %}
+{% load bees_extras %}
+{% block email_body %}{% site_brand as b %}
+{% if kind == "confirmed" %}
+    <h1 style="margin:0 0 8px;font-size:24px;">Your order is confirmed</h1>
+    <p style="margin:0 0 20px;color:#56606B;">Hi {{ order.full_name }}, good news: we've confirmed order #{{ order.id }} and we're getting it ready. We'll email you again when it ships.</p>
+{% elif kind == "shipped" %}
+    <h1 style="margin:0 0 8px;font-size:24px;">Your order is on its way</h1>
+    <p style="margin:0 0 20px;color:#56606B;">Hi {{ order.full_name }}, order #{{ order.id }} has shipped.</p>
+{% elif kind == "delivered" %}
+    <h1 style="margin:0 0 8px;font-size:24px;">Your order has been delivered</h1>
+    <p style="margin:0 0 20px;color:#56606B;">Hi {{ order.full_name }}, order #{{ order.id }} has been delivered. We hope you love it! If something isn't right, you can request a return from My orders.</p>
+{% elif kind == "cancelled" %}
+    <h1 style="margin:0 0 8px;font-size:24px;">Your order has been cancelled</h1>
+    <p style="margin:0 0 20px;color:#56606B;">Hi {{ order.full_name }}, order #{{ order.id }} has been cancelled.
+    {% if order.payment_status == "refunded" %}A full refund of <strong style="color:#141A1F;">{{ order.total|money }}</strong> has been sent to your original payment method. Banks usually show it within 5&ndash;10 business days.
+    {% elif order.payment_status == "failed" %}The payment wasn't completed, so you have not been charged.
+    {% else %}You have not been charged.{% endif %}</p>
+{% endif %}
+
+{% if kind == "confirmed" or kind == "shipped" %}
+    {% if order.estimated_delivery or order.tracking_number %}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:#F4F6F7;border-radius:10px;width:100%;">
+        <tr><td style="padding:16px 18px;">
+            {% if order.estimated_delivery %}
+            <div style="color:#56606B;font-size:14px;">Estimated delivery</div>
+            <div style="font-size:20px;font-weight:bold;">{{ order.estimated_delivery|date:"l, F j" }}</div>
+            {% endif %}
+            {% if order.tracking_number %}
+            <div style="color:#56606B;font-size:14px;{% if order.estimated_delivery %}margin-top:10px;{% endif %}">{% if order.courier_name %}{{ order.courier_name }} tracking number{% else %}Tracking number{% endif %}</div>
+            <div style="font-size:18px;font-weight:bold;letter-spacing:1px;">{{ order.tracking_number }}</div>
+            {% endif %}
+        </td></tr>
+    </table>
+    {% endif %}
+{% endif %}
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+        {% for item in items %}
+        <tr>
+            <td style="padding:10px 0;border-bottom:1px solid #DDE2E6;">{{ item.name }} &times; {{ item.quantity }}
+                {% if kind == "delivered" and item.review_url %}<br><a href="{{ item.review_url }}#reviews" style="color:{{ b.primary_color }};font-size:14px;">Write a review</a>{% endif %}
+            </td>
+            <td style="padding:10px 0;border-bottom:1px solid #DDE2E6;text-align:right;vertical-align:top;">{{ item.subtotal|money }}</td>
+        </tr>
+        {% endfor %}
+        <tr><td style="padding:12px 0;font-weight:bold;">Order total</td><td style="padding:12px 0;font-weight:bold;text-align:right;">{{ order.total|money }}</td></tr>
+    </table>
+
+{% if kind != "cancelled" %}
+    <p style="margin:0 0 4px;font-weight:bold;">Delivering to</p>
+    <p style="margin:0 0 24px;color:#56606B;">{{ order.full_name }}<br>{{ order.address }}<br>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}<br>{{ order.country|country_name }}</p>
+    <p style="margin:0 0 6px;color:#56606B;font-size:14px;">Payment: {% if order.payment_status == "paid" %}paid online{% else %}{{ order.get_payment_method_display }}{% endif %}</p>
+{% endif %}
+
+    <a href="{% if kind == 'cancelled' %}{{ shop_url }}{% else %}{{ orders_url }}{% endif %}" style="display:inline-block;margin-top:12px;background:{{ b.primary_color }};color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;">{% if kind == "cancelled" %}Continue shopping{% elif kind == "delivered" %}View your order{% else %}Track your order{% endif %}</a>
+{% endblock %}

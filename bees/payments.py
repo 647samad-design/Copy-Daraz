@@ -230,7 +230,14 @@ def mark_order_paid(order_id, session):
         order.stripe_payment_intent = session.get("payment_intent") or ""
         if order.status == "pending":
             order.status = "confirmed"
-        order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent", "status"])
+        if not order.estimated_delivery:
+            from .order_emails import default_delivery_date
+            order.estimated_delivery = default_delivery_date(order)
+        # The caller sends the "payment received" email, which already says
+        # the order is confirmed - don't send a second one.
+        order._skip_status_email = True
+        order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent", "status", "estimated_delivery"])
+        order._skip_status_email = False
     return order, True
 
 

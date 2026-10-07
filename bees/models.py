@@ -238,6 +238,9 @@ class Order(models.Model):
         if not is_new:
             old_status = Order.objects.filter(pk=self.pk).values_list("status", flat=True).first()
         super().save(*args, **kwargs)
+        if not is_new and old_status and old_status != self.status:
+            from . import order_emails
+            order_emails.status_changed(self, old_status, self.status)
         if self.user and not is_new and old_status and old_status != self.status:
             Notification.objects.create(
                 user=self.user,
@@ -692,6 +695,9 @@ class SiteSettings(models.Model):
     tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Applied to the discounted subtotal at checkout. 0 = no tax line.")
     shipping_flat_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Flat shipping fee per order. 0 = free shipping.")
     free_shipping_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Orders at or above this subtotal ship free. 0 = disabled.")
+    delivery_days = models.PositiveSmallIntegerField(
+        default=5, help_text="Usual delivery time in business days. Used for the 'Arrives by' date customers see and get emailed.",
+    )
     allow_cash_on_delivery = models.BooleanField(default=True, help_text="Show 'Cash on delivery' at checkout. Card payments appear automatically once Stripe keys are set.")
     show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")
     banner_text = models.CharField(

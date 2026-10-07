@@ -274,6 +274,11 @@ if USE_SUPABASE_STORAGE:
         },
     }
 
+# Public address of the store, used for links in emails sent outside a
+# request (order shipped / delivered ...). Defaults to the first host in
+# ALLOWED_HOSTS, e.g. https://19bees.netlify.app
+SITE_URL = os.environ.get('SITE_URL', '').strip().rstrip('/')
+
 # Stripe (card payments). See bees/payments.py.
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')

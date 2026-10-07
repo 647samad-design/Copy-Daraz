@@ -27,7 +27,7 @@ from django.utils.html import strip_tags
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from . import payments
+from . import order_emails, payments
 from .models import (
     Product, Review, Order, OrderItem, Wishlist, Coupon,
     ProductImage, Profile, Address, Question, NewsletterSubscriber,
@@ -192,8 +192,12 @@ def _send_html_email(subject, template, context, recipient):
 
 def _send_order_confirmation(request, order):
     invoice_url = request.build_absolute_uri(reverse("invoice_pdf", args=[order.id]))
+    if order.status == "pending":
+        subject = f"We've received your {_store_name()} order #{order.id}"
+    else:
+        subject = f"Your {_store_name()} order #{order.id} is confirmed"
     _send_html_email(
-        f"Your {_store_name()} order #{order.id} is confirmed",
+        subject,
         "bees/emails/order_confirmation.html",
         {"order": order, "invoice_url": invoice_url},
         order.contact_email,
@@ -965,6 +969,7 @@ def checkout_view(request):
         if payment_method == "card":  # fully discounted order, nothing to charge
             order.payment_status = "paid"
             order.status = "confirmed"
+            order._skip_status_email = True  # the confirmation email below covers it
             order.save(update_fields=["payment_status", "status"])
 
         _send_order_confirmation(request, order)
@@ -1037,6 +1042,7 @@ def _place_order(request, items, data, payment_method):
             discount_amount=pricing["discount"],
             shipping_amount=pricing["shipping"],
             tax_amount=pricing["tax"],
+            estimated_delivery=order_emails.default_delivery_date(),
         )
         seller_cache = {}
         for product, qty in lines:
@@ -1506,10 +1512,42 @@ def update_fulfillment_status(request, item_id):
     item = get_object_or_404(OrderItem.objects.filter(Q(seller_account=seller) | Q(product__seller_account=seller)), pk=item_id)
     new_status = request.POST.get("fulfillment_status")
     if request.method == "POST" and new_status in dict(OrderItem.FULFILLMENT_CHOICES):
+        if item.order.status == "cancelled":
+            messages.error(request, f"Order #{item.order_id} was cancelled - don't ship '{item.product_name}'.")
+            return redirect("seller_dashboard")
+        if item.order.payment_status in ("pending", "failed"):
+            messages.error(request, f"Order #{item.order_id} hasn't been paid yet - wait before shipping.")
+            return redirect("seller_dashboard")
         item.fulfillment_status = new_status
         item.save(update_fields=["fulfillment_status"])
-        messages.success(request, f"Marked '{item.product_name}' as {item.get_fulfillment_status_display()}.")
+        moved = sync_order_status_from_items(item.order)
+        note = f" Order #{item.order_id} is now {moved} and the customer has been emailed." if moved else ""
+        messages.success(request, f"Marked '{item.product_name}' as {item.get_fulfillment_status_display()}.{note}")
     return redirect("seller_dashboard")
+
+
+def sync_order_status_from_items(order):
+    """Moves the order forward once every item has reached the next step
+    (one order can contain items from several sellers): all handed to the
+    courier -> shipped, all delivered -> delivered. Returns the new status
+    label, or None if nothing changed."""
+    with transaction.atomic():
+        order = Order.objects.select_for_update().get(pk=order.pk)
+        if order.status in ("cancelled", "delivered"):
+            return None
+        states = set(order.items.values_list("fulfillment_status", flat=True))
+        if not states:
+            return None
+        if states == {"delivered"}:
+            order.status = "delivered"
+        elif states <= {"handed_to_courier", "delivered"} and order.status in ("pending", "confirmed"):
+            order.status = "shipped"
+        else:
+            return None
+        if not order.estimated_delivery:
+            order.estimated_delivery = order_emails.default_delivery_date(order)
+        order.save(update_fields=["status", "estimated_delivery"])
+    return order.get_status_display().lower()
 
 
 @login_required

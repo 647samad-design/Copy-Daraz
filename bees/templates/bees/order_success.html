@@ -20,6 +20,7 @@
             <div class="done-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></div>
             <h1>Thank you, your order is confirmed</h1>
             <p class="muted" style="margin-top:8px;">Order #{{ order.id }}{% if order.contact_email %} · A receipt is on its way to {{ order.contact_email }}{% endif %}</p>
+            {% if order.estimated_delivery %}<p style="margin-top:6px;">Estimated delivery: <strong>{{ order.estimated_delivery|date:"l, M j" }}</strong>. We'll email you when it's confirmed, shipped and delivered.</p>{% endif %}
             {% endif %}
 
             <hr class="divider">

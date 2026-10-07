@@ -63,6 +63,20 @@ def _stripe():
     return stripe
 
 
+def _plain(obj):
+    """Stripe objects as plain dicts. Newer versions of the stripe library
+    (v15+) no longer behave like dicts, so ``obj.get(...)`` would crash."""
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    for method in ("to_dict_recursive", "to_dict"):
+        convert = getattr(obj, method, None)
+        if callable(convert):
+            return convert()
+    return dict(obj)
+
+
 def to_cents(amount, currency=None):
     """Amount in Stripe's smallest currency unit (cents for USD, whole yen
     for JPY ...)."""
@@ -232,20 +246,24 @@ def list_cards(customer_id):
     if not customer_id:
         return []
     try:
-        result = _stripe().Customer.list_payment_methods(customer_id, type="card", limit=20)
+        result = _plain(_stripe().Customer.list_payment_methods(customer_id, type="card", limit=20))
     except Exception as exc:
         logger.exception("Could not list cards for %s", customer_id)
         raise PaymentError("We couldn't load your saved cards right now. Please try again shortly.") from exc
     cards = []
-    for pm in result.get("data", []):
-        card = pm.get("card") or {}
-        cards.append({
-            "id": pm.get("id"),
-            "brand": (card.get("display_brand") or card.get("brand") or "card").replace("_", " ").title(),
-            "last4": card.get("last4", ""),
-            "exp_month": card.get("exp_month"),
-            "exp_year": card.get("exp_year"),
-        })
+    try:
+        for pm in result.get("data") or []:
+            card = pm.get("card") or {}
+            cards.append({
+                "id": pm.get("id"),
+                "brand": (card.get("display_brand") or card.get("brand") or "card").replace("_", " ").title(),
+                "last4": card.get("last4", ""),
+                "exp_month": card.get("exp_month"),
+                "exp_year": card.get("exp_year"),
+            })
+    except Exception as exc:  # unexpected response shape: show a message, never a crash
+        logger.exception("Unexpected card list for %s", customer_id)
+        raise PaymentError("We couldn't load your saved cards right now. Please try again shortly.") from exc
     return cards
 
 
@@ -255,7 +273,7 @@ def remove_card(customer_id, payment_method_id):
         return False
     stripe = _stripe()
     try:
-        pm = stripe.PaymentMethod.retrieve(payment_method_id)
+        pm = _plain(stripe.PaymentMethod.retrieve(payment_method_id))
         if pm.get("customer") != customer_id:
             return False
         stripe.PaymentMethod.detach(payment_method_id)
@@ -287,7 +305,7 @@ def finish_card_setup(session_id, customer_id):
     it again at checkout. Returns True if a card was saved."""
     stripe = _stripe()
     try:
-        session = stripe.checkout.Session.retrieve(session_id, expand=["setup_intent"])
+        session = _plain(stripe.checkout.Session.retrieve(session_id, expand=["setup_intent"]))
         if session.get("customer") != customer_id or session.get("status") != "complete":
             return False
         intent = session.get("setup_intent") or {}

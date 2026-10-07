@@ -121,6 +121,22 @@ gunicorn backend.wsgi --workers 3
 With more than one worker, also set `REDIS_URL` so rate limits are shared. `python manage.py check --deploy`
 should report no issues.
 
+## Using Netlify as the front door
+
+Netlify can't run Python, but it can sit in front of the Django host. `netlify.toml` and
+`netlify/edge-functions/proxy.ts` forward every request to the backend so visitors only see the
+Netlify domain.
+
+1. Host Django on a Python platform (PythonAnywhere free tier works).
+2. In Netlify, set the environment variable `BACKEND_URL=https://YOUR-USERNAME.pythonanywhere.com` and deploy.
+3. On the backend, add the Netlify domain:
+   ```
+   ALLOWED_HOSTS=YOUR-SITE.netlify.app,YOUR-USERNAME.pythonanywhere.com
+   CSRF_TRUSTED_ORIGINS=https://YOUR-SITE.netlify.app
+   USE_X_FORWARDED_HOST=True
+   NUM_PROXIES=2
+   ```
+
 ## Project layout
 
 ```

@@ -44,7 +44,7 @@
             <div class="row total"><span>{{ t.total }}</span><span>{{ order.total|money }}</span></div>
 
             <hr class="divider">
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(220px, 100%),1fr));gap:20px;">
                 <div><h3 style="font-size:1rem;margin-bottom:6px;">Shipping to</h3><p class="muted">{{ order.full_name }}<br>{{ order.address }}<br>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} {{ order.postal_code }}<br>{{ order.country|country_name }}</p></div>
                 <div><h3 style="font-size:1rem;margin-bottom:6px;">Payment</h3><p class="muted">{{ order.get_payment_method_display }}<br>{{ order.get_payment_status_display }}</p></div>
             </div>

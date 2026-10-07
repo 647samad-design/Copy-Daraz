@@ -2,7 +2,7 @@
 {% load bees_extras %}
 {% block extra_css %}
     .hero { background: var(--brand); color: var(--on-brand); }
-    .hero-inner { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(28px, 4vw, 48px); align-items: center; padding-top: 27px; padding-bottom: 40px; }
+    .hero-inner { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(28px, 4vw, 48px); align-items: center; padding-top: 17px; padding-bottom: 50px; }
     .hero h1 {
         color: var(--on-brand); font-size: clamp(2.5rem, 5.4vw, 4.4rem); line-height: 1.02;
         letter-spacing: -0.035em; font-weight: 800; max-width: 13ch;
@@ -19,14 +19,14 @@
     .hero-image { width: 100%; aspect-ratio: 5 / 4; object-fit: cover; border-radius: var(--radius-lg); }
 
     .promise { background: var(--surface); border-bottom: 1px solid var(--line); }
-    .promise ul { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 22px 0; }
+    .promise ul { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 22px 12px; }
     .promise li { display: flex; gap: 14px; align-items: flex-start; }
     .promise svg { width: 28px; height: 28px; color: var(--brand); flex-shrink: 0; margin-top: 2px; }
     html[data-theme="dark"] .promise svg { color: var(--accent); }
     .promise strong { display: block; }
     .promise span { color: var(--muted); font-size: 0.95rem; }
 
-    .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+    .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 14px; }
     .cat { display: flex; flex-direction: column; gap: 10px; text-decoration: none; }
     .cat img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius); background: var(--surface-2); }
     .cat span { font-weight: 700; }
@@ -38,18 +38,18 @@
     }
     /* Tablet: text on top, the three category tiles in one row below */
     @media (max-width: 900px) {
-        .hero-inner { grid-template-columns: 1fr; padding-top: 24px; padding-bottom: 36px; gap: 26px; }
+        .hero-inner { grid-template-columns: 1fr; padding-top: 17px; padding-bottom: 44px; gap: 26px; }
         .hero h1 { max-width: 18ch; font-size: clamp(2.1rem, 6.4vw, 3rem); }
         .hero p { margin-top: 14px; }
         .hero-cta { margin-top: 22px; }
         .hero-shelf { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
         .hero-shelf a, .hero-shelf a:first-child { grid-row: auto; aspect-ratio: 1 / 1; }
-        .promise ul { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 18px 0; }
+        .promise ul { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding-top: 18px; padding-bottom: 18px; }
         .promise li { flex-direction: column; gap: 8px; }
     }
     /* Phone */
     @media (max-width: 600px) {
-        .hero-inner { padding-top: 20px; padding-bottom: 30px; gap: 22px; }
+        .hero-inner { padding-top: 14px; padding-bottom: 36px; gap: 22px; }
         .hero h1 { font-size: clamp(1.9rem, 8.6vw, 2.4rem); line-height: 1.06; letter-spacing: -0.03em; }
         .hero p { font-size: 1rem; line-height: 1.55; }
         .hero-cta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
@@ -57,7 +57,7 @@
         .hero-shelf { gap: 8px; }
         .hero-shelf a { border-radius: var(--radius); }
         .hero-shelf span { left: 6px; right: 6px; bottom: 6px; padding: 4px 8px; font-size: 0.78rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .promise ul { grid-template-columns: 1fr; gap: 12px; padding: 16px 0; }
+        .promise ul { grid-template-columns: 1fr; gap: 12px; padding-top: 16px; padding-bottom: 16px; }
         .promise li { flex-direction: row; gap: 12px; }
     }
     /* Very small phones */

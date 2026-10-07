@@ -91,10 +91,10 @@
                 </div>
             </form>
             {% if payouts %}
-            <table class="table" style="margin-top:16px;">
+            <div class="table-scroll" style="margin-top:16px;"><table class="table">
                 <thead><tr><th>Date</th><th>Status</th><th class="num">Amount</th></tr></thead>
                 <tbody>{% for p in payouts %}<tr><td>{{ p.paid_at|default:p.created_at|date:"M j, Y" }}<div class="muted small">{{ p.get_method_display|default:"" }}{% if p.reference %} · {{ p.reference }}{% endif %}</div></td><td>{% if p.status == 'paid' %}<span class="pill ok">Paid</span>{% elif p.status == 'requested' %}<span class="pill warn">Requested</span>{% else %}<span class="pill">Cancelled</span>{% endif %}</td><td class="num">{{ p.amount|money }}</td></tr>{% endfor %}</tbody>
-            </table>
+            </table></div>
             {% endif %}
         </section>
     </div>

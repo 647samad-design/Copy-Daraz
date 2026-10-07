@@ -2,7 +2,7 @@
 {% load bees_extras %}
 {% block page_title %}Overview{% endblock %}
 {% block page_css %}
-    .todo { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .todo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 12px; }
     .todo a { display: block; padding: 14px 16px; border-radius: var(--radius); border: 1.5px solid var(--line); background: var(--surface); text-decoration: none; }
     .todo a strong { display: block; font-family: var(--font-display); font-size: 1.6rem; line-height: 1.1; }
     .todo a span { color: var(--muted); font-weight: 700; }

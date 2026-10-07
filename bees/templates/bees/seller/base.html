@@ -16,7 +16,7 @@
     .kpis.five .kpi strong { font-size: 1.45rem; }
     @media (max-width: 1180px) { .todo { grid-template-columns: repeat(3, minmax(0, 1fr)); } .kpis.five { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 560px) { .todo, .kpis.five { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    .trio { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 20px; align-items: start; }
+    .trio { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr)); gap: 20px; align-items: start; }
     td.nowrap, .nowrap { white-space: nowrap; }
     .todo a { display: block; padding: 14px 16px; border-radius: var(--radius); border: 1.5px solid var(--line); background: var(--surface); text-decoration: none; color: var(--ink); transition: border-color .15s, transform .15s; }
     .todo a strong { display: block; font-family: var(--font-display); font-size: 1.6rem; line-height: 1.1; }

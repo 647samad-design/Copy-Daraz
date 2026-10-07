@@ -812,6 +812,10 @@ class SecurityTests(TestCase):
         self.client.post(reverse("product_detail", args=[product.id]), {"rating": 5, "comment": "Spam"})
         self.assertFalse(Review.objects.exists())
         self.client.force_login(self.user)
+        self.client.post(reverse("product_detail", args=[product.id]), {"rating": 4, "comment": "Never bought it"})
+        self.assertFalse(Review.objects.exists())  # only customers who received it can review
+        order = Order.objects.create(user=self.user, full_name="R", address="x", city="y", phone="1", status="delivered")
+        OrderItem.objects.create(order=order, product=product, product_name=product.name, price=product.price, quantity=1)
         self.client.post(reverse("product_detail", args=[product.id]), {"rating": 999, "comment": "Great"})
         self.assertFalse(Review.objects.exists())
         self.client.post(reverse("product_detail", args=[product.id]), {"rating": 4, "comment": "Great"})
@@ -892,7 +896,7 @@ class WhiteLabelTests(TestCase):
 # ---------------------------------------------------------------------------
 from django.core import mail
 
-from .models import ChatMessage, ChatThread, Question, ReturnRequest
+from .models import ChatMessage, ChatThread, Profile, Question, ReturnRequest
 
 
 class ManageAccessTests(TestCase):
@@ -1055,7 +1059,7 @@ class ManageActionTests(TestCase):
         data = {f: v for f, v in {
             "site_name": "Nova Goods", "tagline": "Good things", "primary_color": "#112233", "accent_color": "#FFCC00",
             "hero_title": "Hello", "hero_subtitle": "World", "tax_percent": "0", "shipping_flat_fee": "0",
-            "free_shipping_threshold": "0", "delivery_days": "5", "allow_cash_on_delivery": "on",
+            "free_shipping_threshold": "0", "delivery_days": "5", "return_days": "14", "allow_cash_on_delivery": "on",
         }.items()}
         self.client.post(reverse("manage_settings"), data)
         self.assertContains(self.client.get(reverse("home")), "Nova Goods")
@@ -1386,3 +1390,301 @@ class OrderJourneyTests(TestCase):
         order = self._cod_order()
         from django.utils import timezone
         self.assertEqual(order.estimated_delivery, add_business_days(timezone.localdate(), 10))
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class AuditFixTests(TestCase):
+    """Regression tests for the problems found in the full-site review."""
+
+    def setUp(self):
+        self.buyer = User.objects.create_user("buyer", "buyer@example.com", "pass12345")
+        self.staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.product = make_product(name="Face Wash", price=Decimal("20.00"), stock=10)
+
+    # --- helpers -----------------------------------------------------------
+    def _seller(self, name="Sel Co", username="sel", **kw):
+        u = User.objects.create_user(username, f"{username}@example.com", "pass12345")
+        return SellerAccount.objects.create(user=u, status="approved", business_name=name, **kw)
+
+    def _delivered_order(self, user=None, product=None, qty=1, **kw):
+        product = product or self.product
+        order = Order.objects.create(user=user or self.buyer, email="buyer@example.com", full_name="B", address="1 St",
+                                     city="Austin", country="US", phone="1", status="delivered", **kw)
+        OrderItem.objects.create(order=order, product=product, product_name=product.name, price=product.price, quantity=qty)
+        return order
+
+    def _webhook(self, session):
+        payload = json.dumps({"type": "checkout.session.completed", "data": {"object": session}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}):
+            return self.client.post(reverse("stripe_webhook"), data=payload, content_type="application/json", HTTP_STRIPE_SIGNATURE="t=1,v1=x")
+
+    def _card_checkout(self, qty=1, **post):
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": qty})
+        fake = mock.MagicMock(id="cs_test_1", url="https://checkout.stripe.com/x")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create, \
+             mock.patch("stripe.Coupon.create", return_value=mock.MagicMock(id="co_1")) as coupon:
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card", **post})
+        return Order.objects.latest("id"), create, coupon
+
+    # --- sellers -----------------------------------------------------------
+    def test_seller_product_pages_open_and_keep_zero_stock(self):
+        seller = self._seller()
+        p = make_product(name="Sold Out", seller_account=seller, seller_name="Sel Co", stock=0)
+        self.client.force_login(seller.user)
+        self.assertEqual(self.client.get(reverse("seller_add_product")).status_code, 200)
+        page = self.client.get(reverse("seller_edit_product", args=[p.id]))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'name="stock" min="0" step="1" value="0"')
+
+    def test_seller_can_keep_uploaded_image_path(self):
+        seller = self._seller()
+        p = make_product(name="Local", seller_account=seller, seller_name="Sel Co", image_url="/media/products/a.png")
+        self.client.force_login(seller.user)
+        self.client.post(reverse("seller_edit_product", args=[p.id]), {
+            "name": "Local", "category": "skincare", "price": "11.00", "stock": "3", "image_url": "/media/products/a.png",
+        })
+        p.refresh_from_db()
+        self.assertEqual(p.price, Decimal("11.00"))
+
+    def test_store_name_with_slash_works(self):
+        seller = self._seller(name="A/B Goods")
+        p = make_product(name="Slashy", seller_account=seller, seller_name="A/B Goods")
+        self.assertEqual(self.client.get(reverse("product_detail", args=[p.id])).status_code, 200)
+        self.assertContains(self.client.get(reverse("store_page", args=["A/B Goods"])), "Slashy")
+
+    def test_suspended_seller_products_hidden_and_unbuyable(self):
+        seller = self._seller()
+        p = make_product(name="Gone", seller_account=seller, seller_name="Sel Co")
+        SellerAccount.objects.filter(pk=seller.pk).update(status="suspended")
+        self.assertEqual(self.client.get(reverse("product_detail", args=[p.id])).status_code, 404)
+        self.assertNotContains(self.client.get(reverse("all_products")), "Gone")
+        self.client.post(reverse("add_to_cart", args=[p.id]))
+        self.assertEqual(self.client.session.get("cart", {}), {})
+
+    def test_team_admin_can_manage_team(self):
+        org = self._seller(name="Org", username="orgo", account_type="organization")
+        admin = User.objects.create_user("adm", "adm@example.com", "pass12345")
+        OrganizationMember.objects.create(organization=org, user=admin, role="admin")
+        User.objects.create_user("newbie", "newbie@example.com", "pass12345")
+        self.client.force_login(admin)
+        self.client.post(reverse("add_team_member"), {"username_or_email": "newbie", "role": "staff"})
+        self.assertTrue(OrganizationMember.objects.filter(organization=org, user__username="newbie").exists())
+
+    def test_seller_answers_question_and_asker_is_notified(self):
+        seller = self._seller()
+        p = make_product(name="Q Product", seller_account=seller, seller_name="Sel Co")
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("ask_question", args=[p.id]), {"question": "Is it vegan?"})
+        self.assertTrue(Notification.objects.filter(user=seller.user, message__icontains="question").exists())
+        q = Question.objects.get()
+        self.client.force_login(seller.user)
+        self.assertContains(self.client.get(reverse("seller_dashboard")), "Is it vegan?")
+        self.client.post(reverse("seller_answer_question", args=[q.id]), {"answer": "Yes, 100%."})
+        q.refresh_from_db()
+        self.assertEqual(q.answer, "Yes, 100%.")
+        self.assertTrue(Notification.objects.filter(user=self.buyer, message__icontains="answered").exists())
+
+    # --- payments ----------------------------------------------------------
+    def test_cancelled_card_order_cannot_be_charged(self):
+        order, _, _ = self._card_checkout()
+        with mock.patch("stripe.checkout.Session.expire") as expire:
+            self.client.post(reverse("cancel_order", args=[order.id]))
+        expire.assert_called_once_with("cs_test_1")
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.payment_status), ("cancelled", "failed"))
+        # Even if the old Stripe tab is paid anyway, the money goes straight back.
+        order.payment_status = "pending"
+        order.save(update_fields=["payment_status"])
+        with mock.patch("stripe.Refund.create") as refund:
+            self._webhook(_fake_session(order))
+        refund.assert_called_once()
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.payment_status), ("cancelled", "refunded"))
+
+    def test_zero_decimal_currency_amounts(self):
+        from .payments import to_cents
+        self.assertEqual(to_cents(Decimal("1000"), "jpy"), 1000)
+        self.assertEqual(to_cents(Decimal("10.50"), "usd"), 1050)
+
+    def test_coupon_kept_when_payment_cancelled(self):
+        Coupon.objects.create(code="SAVE10", percent_off=10)
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.client.post(reverse("apply_coupon"), {"coupon_code": "SAVE10"})
+        fake = mock.MagicMock(id="cs_test_2", url="https://checkout.stripe.com/x")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake), \
+             mock.patch("stripe.Coupon.create", return_value=mock.MagicMock(id="co")):
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        order = Order.objects.get()
+        self.assertEqual(self.client.session["coupon_code"], "")
+        with mock.patch("stripe.checkout.Session.retrieve", side_effect=Exception("offline")), \
+             mock.patch("stripe.checkout.Session.expire"):
+            self.client.get(reverse("payment_cancel", args=[order.id]))
+        self.assertEqual(self.client.session["coupon_code"], "SAVE10")
+
+    def test_free_shipping_uses_price_after_coupon(self):
+        SiteSettings.objects.update_or_create(pk=1, defaults={"shipping_flat_fee": Decimal("5"), "free_shipping_threshold": Decimal("50")})
+        cache.clear()
+        from .views import _price_cart
+        coupon = Coupon(code="HALF", percent_off=50)
+        self.assertEqual(_price_cart(Decimal("60"), coupon)["shipping"], Decimal("5"))
+        self.assertEqual(_price_cart(Decimal("120"), coupon)["shipping"], Decimal("0"))
+
+    # --- store credit & points ---------------------------------------------
+    def test_store_credit_partly_pays_card_order_and_returns_on_cancel(self):
+        Profile.objects.create(user=self.buyer, referral_code="B1", store_credit=Decimal("5.00"))
+        order, create, coupon = self._card_checkout(use_credit="1")
+        self.assertEqual(order.credit_used, Decimal("5.00"))
+        self.assertEqual(order.total, Decimal("15.00"))
+        self.assertEqual(coupon.call_args.kwargs["amount_off"], 500)
+        self.assertEqual(Profile.objects.get(user=self.buyer).store_credit, 0)
+        with mock.patch("stripe.checkout.Session.expire"):
+            self.client.post(reverse("cancel_order", args=[order.id]))
+        self.assertEqual(Profile.objects.get(user=self.buyer).store_credit, Decimal("5.00"))
+
+    def test_store_credit_can_cover_whole_order(self):
+        Profile.objects.create(user=self.buyer, referral_code="B1", store_credit=Decimal("50.00"))
+        order, create, _ = self._card_checkout(use_credit="1")
+        create.assert_not_called()
+        self.assertEqual((order.payment_status, order.status), ("paid", "confirmed"))
+        self.assertEqual(Profile.objects.get(user=self.buyer).store_credit, Decimal("30.00"))
+        self.client.post(reverse("cancel_order", args=[order.id]))  # nothing on a card; credit comes back
+        order.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(Profile.objects.get(user=self.buyer).store_credit, Decimal("50.00"))
+
+    def test_credit_not_used_unless_ticked(self):
+        Profile.objects.create(user=self.buyer, referral_code="B1", store_credit=Decimal("5.00"))
+        order, _, _ = self._card_checkout()
+        self.assertEqual(order.credit_used, 0)
+
+    def test_redeem_points(self):
+        Profile.objects.create(user=self.buyer, referral_code="B1", loyalty_points=250)
+        self.client.force_login(self.buyer)
+        self.assertContains(self.client.get(reverse("profile")), "Turn 200 points into $2.00")
+        self.client.post(reverse("redeem_points"))
+        prof = Profile.objects.get(user=self.buyer)
+        self.assertEqual((prof.loyalty_points, prof.store_credit), (50, Decimal("2.00")))
+
+    # --- returns -----------------------------------------------------------
+    def _return(self, order, method="original_payment"):
+        return ReturnRequest.objects.create(order_item=order.items.get(), user=self.buyer, reason="Broken", refund_method=method)
+
+    def test_return_refund_respects_coupon_and_only_once(self):
+        order = self._delivered_order(qty=1, discount_amount=Decimal("10.00"), payment_status="paid",
+                                      payment_method="card", stripe_payment_intent="pi_1")
+        rr = self._return(order)
+        self.client.force_login(self.staff)
+        with mock.patch("stripe.Refund.create") as refund:
+            self.client.post(reverse("manage_returns"), {"id": rr.id, "action": "refund"})
+            self.client.post(reverse("manage_returns"), {"id": rr.id, "action": "refund"})
+        refund.assert_called_once()
+        self.assertEqual(refund.call_args.kwargs["amount"], 1000)  # paid $10 after coupon, not $20
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 11)  # restocked once
+
+    def test_store_credit_refund_and_cod_refund(self):
+        order = self._delivered_order(payment_method="cod")
+        rr = self._return(order, method="store_credit")
+        self.client.force_login(self.staff)
+        self.client.post(reverse("manage_returns"), {"id": rr.id, "action": "refund"})
+        self.assertEqual(Profile.objects.get(user=self.buyer).store_credit, Decimal("20.00"))
+        order2 = self._delivered_order(payment_method="cod")
+        rr2 = self._return(order2)
+        r = self.client.post(reverse("manage_returns"), {"id": rr2.id, "action": "refund"}, follow=True)
+        self.assertContains(r, "pay the customer $20.00 yourself")
+        rr2.refresh_from_db()
+        self.assertEqual(rr2.status, "refunded")
+
+    def test_return_window_enforced(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        order = self._delivered_order()
+        Order.objects.filter(pk=order.pk).update(delivered_at=timezone.now() - timedelta(days=20))
+        self.client.force_login(self.buyer)
+        item = order.items.get()
+        self.client.post(reverse("request_return", args=[item.id]), {"reason": "late"})
+        self.assertFalse(ReturnRequest.objects.exists())
+        self.assertContains(self.client.get(reverse("my_orders")), "Return window closed")
+
+    def test_delivered_at_recorded(self):
+        order = self._delivered_order()
+        order.status = "confirmed"; order.save()
+        order.status = "delivered"; order.save(update_fields=["status"])
+        order.refresh_from_db()
+        self.assertIsNotNone(order.delivered_at)
+
+    # --- accounts, reviews, misc -------------------------------------------
+    def test_seller_cannot_review_own_product(self):
+        seller = self._seller()
+        p = make_product(name="Mine", seller_account=seller, seller_name="Sel Co")
+        self._delivered_order(user=seller.user, product=p)
+        self.client.force_login(seller.user)
+        self.client.post(reverse("product_detail", args=[p.id]), {"rating": 5, "comment": "Best ever"})
+        self.assertFalse(Review.objects.exists())
+
+    def test_referral_rewarded_once_after_first_delivery(self):
+        referrer = Profile.objects.create(user=self.staff, referral_code="REFCODE1")
+        self.client.post(reverse("signup") + "?ref=REFCODE1", {
+            "username": "friend", "email": "friend@example.com", "password": "Strong-pass-123",
+            "confirm_password": "Strong-pass-123", "ref": "REFCODE1",
+        })
+        friend = User.objects.get(username="friend")
+        self.assertFalse(Coupon.objects.filter(code__startswith="REF-").exists())  # nothing for just signing up
+        welcome = Coupon.objects.get(code__startswith="WELCOME-")
+        self.assertEqual(welcome.usage_limit, 1)
+        order = self._delivered_order(user=friend)
+        order.status = "confirmed"; order.save()
+        order.status = "delivered"; order.save()
+        order2 = self._delivered_order(user=friend)
+        order2.status = "confirmed"; order2.save(); order2.status = "delivered"; order2.save()
+        self.assertEqual(Coupon.objects.filter(code__startswith="REF-").count(), 1)
+        self.assertTrue(Notification.objects.filter(user=referrer.user, message__icontains="first purchase").exists())
+
+    def test_signup_returns_to_next_page(self):
+        r = self.client.post(reverse("signup"), {
+            "username": "newone", "email": "newone@example.com", "password": "Strong-pass-123",
+            "confirm_password": "Strong-pass-123", "next": "/checkout/",
+        })
+        self.assertEqual(r.url, "/checkout/")
+        r = self.client.post(reverse("logout"))
+        r = self.client.post(reverse("signup"), {
+            "username": "evil", "email": "evil@example.com", "password": "Strong-pass-123",
+            "confirm_password": "Strong-pass-123", "next": "https://evil.example/",
+        })
+        self.assertEqual(r.url, "/")
+
+    def test_notifications_not_marked_read_by_prefetch(self):
+        Notification.objects.create(user=self.buyer, message="hi", link="/")
+        self.client.force_login(self.buyer)
+        self.client.get(reverse("notifications_list"), HTTP_SEC_PURPOSE="prefetch;prerender")
+        self.assertTrue(Notification.objects.filter(user=self.buyer, is_read=False).exists())
+        self.client.get(reverse("notifications_list"))
+        self.assertFalse(Notification.objects.filter(user=self.buyer, is_read=False).exists())
+
+    def test_add_to_cart_requires_post(self):
+        self.assertEqual(self.client.get(reverse("add_to_cart", args=[self.product.id])).status_code, 405)
+
+    def test_cart_badge_ignores_removed_products(self):
+        gone = make_product(name="Temp")
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.client.post(reverse("add_to_cart", args=[gone.id]))
+        gone.delete()
+        self.assertEqual(self.client.get(reverse("home")).context["cart_count"], 1)
+
+    def test_cancelled_order_success_page(self):
+        self.client.force_login(self.buyer)
+        order = self._delivered_order()
+        Order.objects.filter(pk=order.pk).update(status="cancelled")
+        page = self.client.get(reverse("order_success", args=[order.id]))
+        self.assertContains(page, "was cancelled")
+        self.assertNotContains(page, "your order is confirmed")
+
+    def test_guest_chat_kept_after_login(self):
+        self.client.get(reverse("chat_messages"))
+        self.client.post(reverse("chat_send"), {"message": "Where is my parcel?"})
+        self.client.post(reverse("login"), {"username": "buyer", "password": "pass12345"})
+        msgs = self.client.get(reverse("chat_messages")).json()["messages"]
+        self.assertTrue(any("parcel" in m["message"] for m in msgs))
+        self.assertEqual(ChatThread.objects.get(user=self.buyer).messages.filter(sender="user").count(), 1)

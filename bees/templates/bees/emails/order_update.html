@@ -15,7 +15,7 @@
     <p style="margin:0 0 20px;color:#56606B;">Hi {{ order.full_name }}, order #{{ order.id }} has been cancelled.
     {% if order.payment_status == "refunded" %}A full refund of <strong style="color:#141A1F;">{{ order.total|money }}</strong> has been sent to your original payment method. Banks usually show it within 5&ndash;10 business days.
     {% elif order.payment_status == "failed" %}The payment wasn't completed, so you have not been charged.
-    {% else %}You have not been charged.{% endif %}</p>
+    {% else %}You have not been charged.{% endif %}{% if order.credit_used %} The {{ order.credit_used|money }} of store credit you used is back in your account.{% endif %}</p>
 {% endif %}
 
 {% if kind == "confirmed" or kind == "shipped" %}
@@ -44,6 +44,7 @@
             <td style="padding:10px 0;border-bottom:1px solid #DDE2E6;text-align:right;vertical-align:top;">{{ item.subtotal|money }}</td>
         </tr>
         {% endfor %}
+        {% if order.credit_used %}<tr><td style="padding:8px 0;color:#1E7B4F;">Store credit</td><td style="padding:8px 0;text-align:right;color:#1E7B4F;">&minus;{{ order.credit_used|money }}</td></tr>{% endif %}
         <tr><td style="padding:12px 0;font-weight:bold;">Order total</td><td style="padding:12px 0;font-weight:bold;text-align:right;">{{ order.total|money }}</td></tr>
     </table>
 

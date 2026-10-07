@@ -63,8 +63,13 @@ def _stripe():
     return stripe
 
 
-def to_cents(amount):
-    return int((Decimal(str(amount)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+def to_cents(amount, currency=None):
+    """Amount in Stripe's smallest currency unit (cents for USD, whole yen
+    for JPY ...)."""
+    from .templatetags.bees_extras import ZERO_DECIMAL
+    currency = (currency or settings.STORE_CURRENCY).lower()
+    factor = 1 if currency in ZERO_DECIMAL else 100
+    return int((Decimal(str(amount)) * factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _absolute(request, path):
@@ -82,7 +87,7 @@ def create_checkout_session(request, order):
             "quantity": item.quantity,
             "price_data": {
                 "currency": currency,
-                "unit_amount": to_cents(item.price),
+                "unit_amount": to_cents(item.price, currency),
                 "product_data": {"name": item.product_name[:250]},
             },
         })
@@ -91,7 +96,7 @@ def create_checkout_session(request, order):
             "quantity": 1,
             "price_data": {
                 "currency": currency,
-                "unit_amount": to_cents(order.shipping_amount),
+                "unit_amount": to_cents(order.shipping_amount, currency),
                 "product_data": {"name": "Shipping"},
             },
         })
@@ -100,7 +105,7 @@ def create_checkout_session(request, order):
             "quantity": 1,
             "price_data": {
                 "currency": currency,
-                "unit_amount": to_cents(order.tax_amount),
+                "unit_amount": to_cents(order.tax_amount, currency),
                 "product_data": {"name": "Tax"},
             },
         })
@@ -120,12 +125,19 @@ def create_checkout_session(request, order):
         params["customer_email"] = email
 
     try:
-        if order.discount_amount:
+        reduction = order.discount_amount + order.credit_used
+        if reduction:
+            if order.discount_amount and order.credit_used:
+                label = "Discount & store credit"
+            elif order.credit_used:
+                label = "Store credit"
+            else:
+                label = f"Code {order.coupon_code}" if order.coupon_code else "Discount"
             coupon = stripe.Coupon.create(
-                amount_off=to_cents(order.discount_amount),
+                amount_off=to_cents(reduction, currency),
                 currency=currency,
                 duration="once",
-                name=(f"Code {order.coupon_code}" if order.coupon_code else "Discount")[:40],
+                name=label[:40],
                 max_redemptions=1,
             )
             params["discounts"] = [{"coupon": coupon.id}]
@@ -151,6 +163,27 @@ def retrieve_session(session_id):
         return None
 
 
+def void_pending_payment(order):
+    """Called when an order that is still waiting for online payment is
+    cancelled: closes its Stripe checkout page so it can't be paid any more
+    and updates the payment fields (the caller saves the order)."""
+    if order.payment_status != "pending":
+        return
+    if order.stripe_session_id and is_configured():
+        try:
+            _stripe().checkout.Session.expire(order.stripe_session_id)
+        except Exception:
+            # Already expired/completed, or Stripe unreachable. If it does
+            # get paid later, mark_order_paid refunds it automatically.
+            logger.info("Could not expire Stripe session for order %s", order.id)
+    if order.cod_fallback:
+        order.cod_fallback = False
+        order.payment_method = "cod"
+        order.payment_status = "not_applicable"
+    else:
+        order.payment_status = "failed"
+
+
 def parse_webhook(payload: bytes, signature: str):
     """Verifies the Stripe signature and returns the event as a plain dict.
     Raises ValueError if the payload or signature is invalid."""
@@ -164,6 +197,8 @@ def parse_webhook(payload: bytes, signature: str):
 
 def refund_order(order):
     """Refunds a paid card order in full. Returns True on success."""
+    if order.total_cents == 0:
+        return True  # paid entirely with store credit / coupon - nothing to send back to a card
     if not order.stripe_payment_intent:
         return False
     stripe = _stripe()
@@ -187,7 +222,7 @@ def refund_amount(order, amount, key):
     try:
         stripe.Refund.create(
             payment_intent=order.stripe_payment_intent,
-            amount=to_cents(amount),
+            amount=to_cents(amount, order.currency),
             idempotency_key=f"refund-{key}",
         )
     except Exception:
@@ -223,6 +258,25 @@ def mark_order_paid(order_id, session):
                 "Amount mismatch for order %s: Stripe %s %s, expected %s %s",
                 order.id, session.get("amount_total"), session.get("currency"), order.total_cents, order.currency,
             )
+            return order, False
+        if order.status == "cancelled":
+            # Paid on a checkout page that was still open after the order
+            # was cancelled: give the money straight back.
+            order.stripe_payment_intent = session.get("payment_intent") or ""
+            order.payment_method = "card"
+            order.cod_fallback = False
+            refunded = refund_order(order)
+            order.payment_status = "refunded" if refunded else "paid"
+            order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent"])
+            if not refunded:
+                logger.error("Order %s was paid after being cancelled and the automatic refund failed - refund it in Stripe.", order.id)
+            if order.user_id:
+                from .models import Notification
+                Notification.objects.create(
+                    user_id=order.user_id, link="/my-orders/",
+                    message=f"Order #{order.id} was already cancelled, so your payment has been refunded." if refunded
+                    else f"Order #{order.id} was already cancelled. We'll refund your payment shortly.",
+                )
             return order, False
         order.payment_status = "paid"
         order.payment_method = "card"
@@ -266,9 +320,17 @@ def release_unpaid_order(order_id, reason="failed"):
 
 
 def restock(order):
+    """Undoes a cancelled order: puts the stock back and returns any store
+    credit the customer spent on it (once)."""
     from django.db.models import F
-    from .models import Product
+    from .models import Order, Product, Profile
 
     for item in order.items.all():
         if item.product_id:
             Product.objects.filter(pk=item.product_id).update(stock=F("stock") + item.quantity)
+    if order.credit_used and order.user_id:
+        returned = Order.objects.filter(pk=order.pk, credit_returned=False).update(credit_returned=True)
+        if returned:
+            order.credit_returned = True
+            Profile.objects.get_or_create(user_id=order.user_id)
+            Profile.objects.filter(user_id=order.user_id).update(store_credit=F("store_credit") + order.credit_used)

@@ -73,8 +73,15 @@
                     <span><strong>{{ t.cash_on_delivery }}</strong><span class="muted">Pay the courier when your order arrives{% if "card" in payment_methods %}, or pay online any time before it ships from My orders{% endif %}.</span></span>
                 </label>
                 {% endif %}
-                <button type="submit" class="btn btn-primary btn-block place" id="place-btn">
-                    {% if "card" in payment_methods %}Continue to payment · {{ pricing.total|money }}{% else %}{{ t.place_order }} · {{ pricing.total|money }}{% endif %}
+                {% if credit_applicable > 0 %}
+                <label class="pay-option" style="margin-top:12px;">
+                    <input type="checkbox" name="use_credit" value="1" id="use-credit" checked>
+                    <span><strong>Use store credit</strong><span class="muted">{{ credit_applicable|money }} of your {{ store_credit|money }} balance will be applied.</span></span>
+                </label>
+                {% endif %}
+                <button type="submit" class="btn btn-primary btn-block place" id="place-btn"
+                        data-full="{{ pricing.total|money }}" data-credit="{{ total_after_credit|money }}" data-free="{% if total_after_credit == 0 %}1{% endif %}" data-card="{% if 'card' in payment_methods %}1{% endif %}">
+                    {% if credit_applicable > 0 and total_after_credit == 0 %}{{ t.place_order }} · {{ total_after_credit|money }}{% elif "card" in payment_methods %}Continue to payment · {% if credit_applicable > 0 %}{{ total_after_credit|money }}{% else %}{{ pricing.total|money }}{% endif %}{% else %}{{ t.place_order }} · {% if credit_applicable > 0 %}{{ total_after_credit|money }}{% else %}{{ pricing.total|money }}{% endif %}{% endif %}
                 </button>
                 {% else %}
                 <p class="muted">Checkout is temporarily unavailable. Please contact support{% if brand.support_email %} at <a class="link" href="mailto:{{ brand.support_email }}">{{ brand.support_email }}</a>{% endif %}.</p>
@@ -103,7 +110,8 @@
             {% if coupon %}<div class="sum-row" style="color:var(--ok);font-weight:700;"><span>Discount ({{ coupon.code }})</span><span>−{{ pricing.discount|money }}</span></div>{% endif %}
             <div class="sum-row"><span>Shipping</span><span>{% if pricing.shipping %}{{ pricing.shipping|money }}{% else %}Free{% endif %}</span></div>
             {% if pricing.tax %}<div class="sum-row"><span>Tax ({{ pricing.tax_percent|floatformat:"-2" }}%)</span><span>{{ pricing.tax|money }}</span></div>{% endif %}
-            <div class="sum-total"><span>{{ t.total }}</span><span>{{ pricing.total|money }} <span class="muted small" style="font-weight:400;">{{ store_currency }}</span></span></div>
+            {% if credit_applicable > 0 %}<div class="sum-row" id="credit-row" style="color:var(--ok);font-weight:700;"><span>Store credit</span><span>−{{ credit_applicable|money }}</span></div>{% endif %}
+            <div class="sum-total"><span>{{ t.total }}</span><span><span id="sum-total">{% if credit_applicable > 0 %}{{ total_after_credit|money }}{% else %}{{ pricing.total|money }}{% endif %}</span> <span class="muted small" style="font-weight:400;">{{ store_currency }}</span></span></div>
         </aside>
     </div>
 </div>
@@ -116,6 +124,20 @@ function fillAddress(sel) {
     const map = { id_full_name: 'name', id_phone: 'phone', id_address: 'address', id_city: 'city', id_state: 'state', id_postal_code: 'postal', id_country: 'country' };
     Object.entries(map).forEach(([id, key]) => { const el = document.getElementById(id); if (el && o.dataset[key]) el.value = o.dataset[key]; });
 }
+(function () {
+    const box = document.getElementById('use-credit');
+    const btn = document.getElementById('place-btn');
+    if (!box || !btn) return;
+    function update() {
+        const on = box.checked;
+        const amount = on ? btn.dataset.credit : btn.dataset.full;
+        const free = on && btn.dataset.free;
+        document.getElementById('credit-row').style.display = on ? '' : 'none';
+        document.getElementById('sum-total').textContent = amount;
+        btn.textContent = (btn.dataset.card && !free ? 'Continue to payment' : '{{ t.place_order|escapejs }}') + ' · ' + amount;
+    }
+    box.addEventListener('change', update);
+})();
 document.getElementById('checkout-form')?.addEventListener('submit', function () {
     const b = document.getElementById('place-btn');
     if (b) { b.disabled = true; b.textContent = 'Processing…'; }

@@ -110,7 +110,7 @@
 
         <div class="buybox">
             <h1>{{ product.name }}</h1>
-            <p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a></p>
+            {% if product.seller_name %}<p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a></p>{% endif %}
             {% if product.rating_count %}
             <div class="rating-line"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span><strong>{{ product.average_rating }}</strong><a href="#reviews">{{ product.rating_count }} review{{ product.rating_count|pluralize }}</a></div>
             {% endif %}
@@ -216,6 +216,8 @@
                     </div>
                     <button type="submit" class="btn btn-primary">{{ t.submit_review }}</button>
                 </form>
+                {% elif review_block %}
+                <p class="muted">{{ review_block }}</p>
                 {% else %}
                 <p class="muted"><a class="link" href="{% url 'login' %}?next={{ request.path|urlencode }}#reviews">Sign in</a> to write a review.</p>
                 {% endif %}

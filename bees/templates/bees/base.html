@@ -714,13 +714,20 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': getCsrfToken() },
                 body: 'message=' + encodeURIComponent(text),
-            }).then(r => r.json()).then(d => { if (d.reply) { addChatMsg(d.reply.message, false); chatSeen += 1; } }).catch(() => {});
+            }).then(r => {
+                if (!r.ok) throw new Error(r.status === 429 ? 'slow' : 'fail');
+                return r.json();
+            }).then(d => { if (d.reply) { addChatMsg(d.reply.message, false); chatSeen += 1; } })
+              .catch(e => {
+                  addChatMsg(e.message === 'slow' ? 'Message not sent: you\'re sending messages too quickly. Please wait a minute and try again.' : 'Message not sent. Please check your connection and try again.', false);
+                  input.value = text;
+              });
         }
     </script>
     <script type="speculationrules">
     {"prerender": [{"where": {"and": [
         {"href_matches": "/*"},
-        {"not": {"href_matches": ["/logout/*", "/admin/*", "/manage/*", "/payment/*", "/compare/toggle/*", "/wishlist/toggle/*", "/set-language/*", "/cart/*", "/checkout/*", "/order/*", "/resend-verification/*", "/media/*", "/static/*"]}},
+        {"not": {"href_matches": ["/logout/*", "/admin/*", "/manage/*", "/payment/*", "/compare/toggle/*", "/wishlist/toggle/*", "/set-language/*", "/cart/*", "/checkout/*", "/order/*", "/resend-verification/*", "/notifications/*", "/profile/redeem-points/*", "/media/*", "/static/*"]}},
         {"not": {"selector_matches": "[rel~=nofollow], [target=_blank], [data-no-prerender]"}}
     ]}, "eagerness": "moderate"}]}
     </script>

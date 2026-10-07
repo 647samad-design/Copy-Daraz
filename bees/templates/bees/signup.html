@@ -28,6 +28,7 @@
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 <input type="hidden" name="ref" value="{{ ref_code }}">
+                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
                 <fieldset class="roles">
                     <legend>I want to</legend>
@@ -77,7 +78,7 @@
                 </div>
             </form>
         </div>
-        <p class="auth-foot">{{ t.have_account }} <a class="link" href="{% url 'login' %}">{{ t.login }}</a></p>
+        <p class="auth-foot">{{ t.have_account }} <a class="link" href="{% url 'login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">{{ t.login }}</a></p>
     </div>
 </div>
 {% endblock %}

@@ -2,7 +2,6 @@
 {% block title %}{% if product %}Edit product{% else %}Add a product{% endif %} — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 {% block content %}
-{% with p=product|default:form %}
 <div class="wrap"><div class="auth-shell wide"><div class="panel">
     <h1>{% if product %}Edit product{% else %}Add a product{% endif %}</h1>
     <p class="lede">{% if product %}Price and stock changes go live right away. Changing the name, image, category or description sends the listing for a quick review.{% else %}New listings are reviewed by our team before they go live.{% endif %}</p>
@@ -13,12 +12,12 @@
             <div class="field"><label for="pf_cat">Category</label>
                 <select id="pf_cat" name="category" required>{% for value, label in categories %}<option value="{{ value }}" {% if p.category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
             </div>
-            <div class="field"><label for="pf_stock">Stock quantity</label><input type="number" id="pf_stock" name="stock" min="0" step="1" value="{{ p.stock|default:'10' }}" required></div>
+            <div class="field"><label for="pf_stock">Stock quantity</label><input type="number" id="pf_stock" name="stock" min="0" step="1" value="{{ p.stock }}" required></div>
             <div class="field"><label for="pf_price">Price ({{ store_currency }})</label><input type="number" id="pf_price" name="price" min="0.01" step="0.01" value="{{ p.price|default:'' }}" required></div>
             <div class="field"><label for="pf_old">Original price <span class="muted">(optional)</span></label><input type="number" id="pf_old" name="old_price" min="0" step="0.01" value="{{ p.old_price|default:'' }}"><span class="hint">Shown crossed out when higher than the price.</span></div>
             <div class="field"><label for="pf_disc">Discount badge %</label><input type="number" id="pf_disc" name="discount_percent" min="0" max="95" value="{{ p.discount_percent|default:'0' }}"></div>
             <div class="field"><label for="pf_file">Upload image</label><input type="file" id="pf_file" name="image_file" accept="image/jpeg,image/png,image/webp,image/gif" style="padding:9px;min-height:0;"><span class="hint">JPG, PNG, WebP or GIF up to 5 MB.</span></div>
-            <div class="field span-2"><label for="pf_url">…or image link</label><input type="url" id="pf_url" name="image_url" value="{{ p.image_url|default:'' }}" placeholder="https://"></div>
+            <div class="field span-2"><label for="pf_url">…or image link</label><input type="text" inputmode="url" id="pf_url" name="image_url" value="{{ p.image_url|default:'' }}" placeholder="https://"></div>
             {% if product.image_url %}<div class="span-2"><img src="{{ product.image_url }}" alt="Current image" style="width:120px;height:120px;object-fit:cover;border-radius:var(--radius);"></div>{% endif %}
             <div class="field span-2"><label for="pf_desc">Description</label><textarea id="pf_desc" name="description" rows="6" placeholder="Materials, size, what's in the box, care instructions">{{ p.description|default:'' }}</textarea></div>
         </div>
@@ -28,5 +27,4 @@
         </div>
     </form>
 </div></div></div>
-{% endwith %}
 {% endblock %}

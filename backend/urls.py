@@ -68,9 +68,10 @@ urlpatterns = [
     path('privacy/', views.privacy_page, name='privacy_page'),
 
     path('profile/', views.profile_view, name='profile'),
+    path('profile/redeem-points/', views.redeem_points, name='redeem_points'),
     path('profile/address/add/', views.add_address, name='add_address'),
     path('profile/address/delete/<int:pk>/', views.delete_address, name='delete_address'),
-    path('store/<str:seller_name>/', views.store_page, name='store_page'),
+    path('store/<path:seller_name>/', views.store_page, name='store_page'),
     path('newsletter/subscribe/', views.newsletter_subscribe, name='newsletter_subscribe'),
     path('product/<int:pk>/ask/', views.ask_question, name='ask_question'),
 
@@ -87,6 +88,7 @@ urlpatterns = [
     path('seller/dashboard/', views.seller_dashboard, name='seller_dashboard'),
     path('seller/order-item/<int:item_id>/status/', views.update_fulfillment_status, name='update_fulfillment_status'),
     path('seller/product/add/', views.seller_add_product, name='seller_add_product'),
+    path('seller/question/<int:pk>/answer/', views.seller_answer_question, name='seller_answer_question'),
     path('seller/team/add/', views.add_team_member, name='add_team_member'),
     path('seller/team/<int:member_id>/remove/', views.remove_team_member, name='remove_team_member'),
     path('seller/product/<int:pk>/edit/', views.seller_edit_product, name='seller_edit_product'),

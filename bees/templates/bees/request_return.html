@@ -8,7 +8,7 @@
     <p class="lede">Tell us what went wrong. We review requests within 1–2 business days.</p>
     <div style="display:flex;gap:14px;align-items:center;padding:14px;border-radius:var(--radius);background:var(--surface-2);margin-bottom:22px;">
         {% if item.product %}<img src="{{ item.product.image_url }}" alt="" style="width:64px;height:64px;border-radius:var(--radius-sm);object-fit:cover;">{% endif %}
-        <div><strong>{{ item.product_name }}</strong><div class="muted small">Order #{{ item.order.id }} · Qty {{ item.quantity }} · {{ item.subtotal|money }}</div></div>
+        <div><strong>{{ item.product_name }}</strong><div class="muted small">Order #{{ item.order.id }} · Qty {{ item.quantity }} · Refund {{ refund_value|money }} · Return by {{ deadline|date:"M j, Y" }}</div></div>
     </div>
     <form method="post">
         {% csrf_token %}
@@ -16,8 +16,8 @@
         <fieldset class="field" style="border:0;margin-top:18px;">
             <legend class="label" style="margin-bottom:8px;">Refund to</legend>
             <div class="choices">
-                <label class="choice"><input type="radio" name="refund_method" value="original_payment" checked><strong>Original payment method</strong><span>Back to your card, usually 5–10 days</span></label>
-                <label class="choice"><input type="radio" name="refund_method" value="store_credit"><strong>Store credit</strong><span>Available as soon as approved</span></label>
+                <label class="choice"><input type="radio" name="refund_method" value="original_payment" checked><strong>{% if card_order %}Original payment method{% else %}Money back{% endif %}</strong><span>{% if card_order %}Back to your card, usually 5–10 days after we process it{% else %}You paid cash on delivery, so we'll pay you back directly (bank transfer or cash){% endif %}</span></label>
+                <label class="choice"><input type="radio" name="refund_method" value="store_credit"><strong>Store credit</strong><span>Added to your account as soon as the refund is processed; use it on your next order</span></label>
             </div>
         </fieldset>
         <div class="field" style="margin-top:22px;"><button type="submit" class="btn btn-primary btn-block">Submit return request</button></div>

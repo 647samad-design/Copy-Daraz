@@ -39,6 +39,15 @@ def seller_banner_path(instance, filename):
     return _public_upload_path("seller_docs/banners")(instance, filename)
 
 
+class ProductQuerySet(models.QuerySet):
+    def live(self):
+        """Products customers can see and buy: approved by the store, and
+        the seller (if any) isn't pending, rejected or suspended."""
+        return self.filter(approval_status="approved").filter(
+            models.Q(seller_account__isnull=True) | models.Q(seller_account__status="approved")
+        )
+
+
 class Product(models.Model):
     CATEGORY_CHOICES = [
         ("skincare", "Skin care"),
@@ -89,6 +98,15 @@ class Product(models.Model):
             models.Index(fields=["approval_status", "is_flash_sale"]),
             models.Index(fields=["stock"]),
         ]
+
+
+    objects = ProductQuerySet.as_manager()
+
+    @property
+    def is_live(self):
+        if self.approval_status != "approved":
+            return False
+        return not self.seller_account_id or self.seller_account.status == "approved"
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -196,6 +214,11 @@ class Order(models.Model):
     tracking_number = models.CharField(max_length=60, blank=True)
     courier_name = models.CharField(max_length=60, blank=True)
     estimated_delivery = models.DateField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    # Store credit spent on this order (a payment method, so it doesn't
+    # change what the goods cost) and whether it was given back on cancel.
+    credit_used = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    credit_returned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     CANCELLABLE_STATUSES = ("pending", "confirmed")
@@ -215,14 +238,46 @@ class Order(models.Model):
         return sum((item.subtotal for item in self.items.all()), 0)
 
     @property
-    def total(self):
-        """What the customer pays: items - discount + shipping + tax."""
+    def grand_total(self):
+        """Order value: items - discount + shipping + tax."""
         return max(self.subtotal - self.discount_amount, 0) + self.shipping_amount + self.tax_amount
 
     @property
-    def total_cents(self):
+    def total(self):
+        """What the customer pays by card / cash: order value minus any
+        store credit used."""
+        return max(self.grand_total - self.credit_used, 0)
+
+    @property
+    def goods_paid(self):
+        """What the items cost after the coupon, including their tax -
+        the basis for refunding returned items."""
+        return max(self.subtotal - self.discount_amount, 0) + self.tax_amount
+
+    def refund_value(self, item):
+        """Fair refund for one returned item: its share of what was paid
+        for the goods (so a coupon discount isn't refunded as cash)."""
         from decimal import Decimal, ROUND_HALF_UP
-        return int((Decimal(self.total) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        subtotal = Decimal(self.subtotal)
+        if not subtotal:
+            return Decimal("0.00")
+        value = Decimal(self.goods_paid) * Decimal(item.subtotal) / subtotal
+        return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def return_deadline(self):
+        from datetime import timedelta
+        delivered = self.delivered_at or self.created_at
+        return delivered + timedelta(days=SiteSettings.load().return_days)
+
+    @property
+    def can_return(self):
+        from django.utils import timezone
+        return self.status == "delivered" and timezone.now() <= self.return_deadline()
+
+    @property
+    def total_cents(self):
+        from .payments import to_cents
+        return to_cents(self.total, self.currency)
 
     @property
     def contact_email(self):
@@ -237,6 +292,11 @@ class Order(models.Model):
         old_status = None
         if not is_new:
             old_status = Order.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+        if self.status == "delivered" and old_status != "delivered" and not self.delivered_at:
+            from django.utils import timezone
+            self.delivered_at = timezone.now()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = list(kwargs["update_fields"]) + ["delivered_at"]
         super().save(*args, **kwargs)
         if not is_new and old_status and old_status != self.status:
             from . import order_emails
@@ -248,6 +308,7 @@ class Order(models.Model):
                 link=f"/my-orders/",
             )
             if self.status == "delivered" and old_status != "delivered":
+                _reward_referrer_for(self.user)
                 # 1 loyalty point per whole unit of currency spent.
                 points_earned = int(self.total)
                 if points_earned > 0:
@@ -262,6 +323,28 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order #{self.id} - {self.user.username if self.user else self.contact_email}"
+
+
+def _reward_referrer_for(user):
+    """Gives the person who referred ``user`` a one-time 10% coupon, the
+    first time one of ``user``'s orders is delivered."""
+    import secrets
+    from datetime import timedelta
+    from django.utils import timezone
+    updated = Profile.objects.filter(user=user, referral_rewarded=False).exclude(referred_by="").update(referral_rewarded=True)
+    if not updated:
+        return
+    ref = Profile.objects.filter(user=user).values_list("referred_by", flat=True).first()
+    referrer = Profile.objects.filter(referral_code=ref).exclude(user=user).select_related("user").first()
+    if not referrer:
+        return
+    code = "REF-" + secrets.token_hex(3).upper()
+    Coupon.objects.create(code=code, percent_off=10, usage_limit=1, per_user_limit=1,
+                          expiry_date=timezone.localdate() + timedelta(days=90))
+    Notification.objects.create(
+        user=referrer.user, link="/profile/",
+        message=f"{user.username} made their first purchase with your referral link! Here's 10% off your next order: {code}",
+    )
 
 
 class OrderItemQuerySet(models.QuerySet):
@@ -400,7 +483,13 @@ class Profile(models.Model):
     email_verified = models.BooleanField(default=False)
     referral_code = models.CharField(max_length=12, unique=True, blank=True)
     referred_by = models.CharField(max_length=12, blank=True)
+    # The referrer is rewarded once, when this customer's first order is
+    # delivered (so fake sign-ups earn nothing).
+    referral_rewarded = models.BooleanField(default=False)
     loyalty_points = models.PositiveIntegerField(default=0)
+    store_credit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    POINTS_PER_UNIT = 100  # 100 reward points = 1.00 of store credit
 
     def __str__(self):
         return f"{self.user.username}'s profile"
@@ -426,6 +515,7 @@ class Address(models.Model):
 
 class Question(models.Model):
     product = models.ForeignKey(Product, related_name="questions", on_delete=models.CASCADE)
+    user = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="questions")
     username = models.CharField(max_length=100)
     question = models.TextField()
     answer = models.TextField(blank=True)
@@ -640,10 +730,43 @@ class ReturnRequest(models.Model):
     refund_method = models.CharField(max_length=20, choices=REFUND_METHOD_CHOICES, default="original_payment")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="requested", db_index=True)
     admin_note = models.CharField(max_length=255, blank=True)
+    # Filled in when refunded: how much went back to the card and how much
+    # became store credit.
+    card_refund_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    credit_refund_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def refund_total(self):
+        return self.card_refund_amount + self.credit_refund_amount
+
+    def refund_plan(self, as_credit=False):
+        """How this return would be refunded: {"value", "card", "credit",
+        "manual"}. ``value`` is the item's share of what was actually paid.
+        Card orders go back to the card (up to what's left on it; anything
+        paid with store credit goes back as credit). Cash-on-delivery orders
+        can't be refunded to a card: ``manual`` is the amount the store pays
+        back itself (bank transfer / cash), unless store credit is chosen."""
+        from decimal import Decimal
+        order = self.order_item.order
+        value = order.refund_value(self.order_item)
+        plan = {"value": value, "card": Decimal("0"), "credit": Decimal("0"), "manual": Decimal("0")}
+        if as_credit or self.refund_method == "store_credit":
+            plan["credit"] = value
+        elif order.payment_status == "paid" and order.stripe_payment_intent:
+            already = sum(
+                (r.card_refund_amount for r in ReturnRequest.objects.filter(
+                    order_item__order=order, status="refunded").exclude(pk=self.pk)),
+                Decimal("0"),
+            )
+            plan["card"] = min(value, max(order.total - already, Decimal("0")))
+            plan["credit"] = value - plan["card"]
+        else:
+            plan["manual"] = value
+        return plan
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -655,11 +778,20 @@ class ReturnRequest(models.Model):
             messages_by_status = {
                 "approved": f"Your return for '{self.order_item.product_name}' was approved. Refund is being processed via {self.get_refund_method_display()}.",
                 "rejected": f"Your return request for '{self.order_item.product_name}' was rejected." + (f" Note: {self.admin_note}" if self.admin_note else ""),
-                "refunded": f"Refund of {_money(self.order_item.subtotal)} for '{self.order_item.product_name}' has been issued via {self.get_refund_method_display()}.",
+                "refunded": self._refunded_message(),
             }
             msg = messages_by_status.get(self.status)
             if msg:
                 Notification.objects.create(user=self.user, message=msg, link="/my-orders/")
+
+    def _refunded_message(self):
+        parts = []
+        if self.card_refund_amount:
+            parts.append(f"{_money(self.card_refund_amount)} to your card")
+        if self.credit_refund_amount:
+            parts.append(f"{_money(self.credit_refund_amount)} as store credit")
+        how = " and ".join(parts) if parts else "as agreed with our support team"
+        return f"Your refund for '{self.order_item.product_name}' has been issued: {how}."
 
     def __str__(self):
         return f"Return: {self.order_item.product_name} ({self.status})"
@@ -695,6 +827,9 @@ class SiteSettings(models.Model):
     tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Applied to the discounted subtotal at checkout. 0 = no tax line.")
     shipping_flat_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Flat shipping fee per order. 0 = free shipping.")
     free_shipping_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Orders at or above this subtotal ship free. 0 = disabled.")
+    return_days = models.PositiveSmallIntegerField(
+        default=14, help_text="How many days after delivery customers can request a return.",
+    )
     delivery_days = models.PositiveSmallIntegerField(
         default=5, help_text="Usual delivery time in business days. Used for the 'Arrives by' date customers see and get emailed.",
     )

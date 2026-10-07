@@ -20,7 +20,7 @@ class Command(BaseCommand):
     help = "Cancel card orders left unpaid past the Stripe session lifetime and restock their items."
 
     def add_arguments(self, parser):
-        parser.add_argument("--minutes", type=int, default=35, help="Age after which an unpaid order is released (default 35).")
+        parser.add_argument("--minutes", type=int, default=70, help="Age after which an unpaid order is released (default 70, just after the 60-minute payment page expires).")
 
     def handle(self, *args, **options):
         cutoff = timezone.now() - timedelta(minutes=options["minutes"])

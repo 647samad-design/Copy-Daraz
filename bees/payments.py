@@ -121,7 +121,13 @@ def create_checkout_session(request, order):
         "expires_at": int(time.time()) + CHECKOUT_SESSION_LIFETIME_SECONDS,
     }
     email = order.contact_email
-    if email:
+    customer_id = ensure_customer(order.user) if order.user_id else None
+    if customer_id:
+        # Returning customers see their saved cards; new cards can be saved
+        # with one tick on Stripe's page.
+        params["customer"] = customer_id
+        params["saved_payment_method_options"] = {"payment_method_save": "enabled"}
+    elif email:
         params["customer_email"] = email
 
     try:
@@ -161,6 +167,118 @@ def retrieve_session(session_id):
     except Exception:
         logger.exception("Could not retrieve Stripe session %s", session_id)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Saved cards. Cards are stored by Stripe on a Stripe "customer"; we only
+# keep the customer id. Adding a card happens on Stripe's own page.
+# ---------------------------------------------------------------------------
+
+def ensure_customer(user):
+    """Returns the user's Stripe customer id, creating the customer the
+    first time. Returns None if Stripe isn't configured or can't be
+    reached (checkout then simply works without saved cards)."""
+    if not is_configured() or not user or not user.is_authenticated:
+        return None
+    from .models import Profile
+    profile, _ = Profile.objects.get_or_create(user=user, defaults={"referral_code": uuid.uuid4().hex[:8].upper()})
+    if profile.stripe_customer_id:
+        return profile.stripe_customer_id
+    try:
+        customer = _stripe().Customer.create(
+            email=user.email or None,
+            name=user.get_full_name() or user.username,
+            metadata={"user_id": str(user.pk)},
+            idempotency_key=f"customer-{user.pk}",
+        )
+    except Exception:
+        logger.exception("Could not create Stripe customer for user %s", user.pk)
+        return None
+    Profile.objects.filter(pk=profile.pk, stripe_customer_id="").update(stripe_customer_id=customer.id)
+    return Profile.objects.filter(pk=profile.pk).values_list("stripe_customer_id", flat=True).first()
+
+
+def list_cards(customer_id):
+    """Saved cards as plain dicts. Raises PaymentError if Stripe fails."""
+    if not customer_id:
+        return []
+    try:
+        result = _stripe().Customer.list_payment_methods(customer_id, type="card", limit=20)
+    except Exception as exc:
+        logger.exception("Could not list cards for %s", customer_id)
+        raise PaymentError("We couldn't load your saved cards right now. Please try again shortly.") from exc
+    cards = []
+    for pm in result.get("data", []):
+        card = pm.get("card") or {}
+        cards.append({
+            "id": pm.get("id"),
+            "brand": (card.get("display_brand") or card.get("brand") or "card").replace("_", " ").title(),
+            "last4": card.get("last4", ""),
+            "exp_month": card.get("exp_month"),
+            "exp_year": card.get("exp_year"),
+        })
+    return cards
+
+
+def remove_card(customer_id, payment_method_id):
+    """Detaches a saved card, only if it belongs to ``customer_id``."""
+    if not customer_id or not payment_method_id:
+        return False
+    stripe = _stripe()
+    try:
+        pm = stripe.PaymentMethod.retrieve(payment_method_id)
+        if pm.get("customer") != customer_id:
+            return False
+        stripe.PaymentMethod.detach(payment_method_id)
+    except Exception:
+        logger.exception("Could not remove card %s", payment_method_id)
+        return False
+    return True
+
+
+def create_card_setup_session(request, customer_id):
+    """Stripe-hosted page where the customer adds a card for later."""
+    try:
+        session = _stripe().checkout.Session.create(
+            mode="setup",
+            customer=customer_id,
+            payment_method_types=["card"],
+            success_url=_absolute(request, reverse("payment_methods")) + "?added={CHECKOUT_SESSION_ID}",
+            cancel_url=_absolute(request, reverse("payment_methods")),
+            idempotency_key=f"setup-{customer_id}-{uuid.uuid4().hex}",
+        )
+    except Exception as exc:
+        logger.exception("Could not start card setup for %s", customer_id)
+        raise PaymentError("We couldn't open the secure card page. Please try again in a moment.") from exc
+    return session.url
+
+
+def finish_card_setup(session_id, customer_id):
+    """After a card was added on Stripe's page, mark it so Stripe offers
+    it again at checkout. Returns True if a card was saved."""
+    stripe = _stripe()
+    try:
+        session = stripe.checkout.Session.retrieve(session_id, expand=["setup_intent"])
+        if session.get("customer") != customer_id or session.get("status") != "complete":
+            return False
+        intent = session.get("setup_intent") or {}
+        pm_id = intent.get("payment_method") if isinstance(intent, dict) else None
+        if pm_id:
+            stripe.PaymentMethod.modify(pm_id, allow_redisplay="always")
+    except Exception:
+        logger.exception("Could not finish card setup %s", session_id)
+        return False
+    return True
+
+
+def delete_customer(customer_id):
+    """Deletes the Stripe customer and with it every saved card."""
+    if not customer_id or not is_configured():
+        return
+    try:
+        _stripe().Customer.delete(customer_id)
+    except Exception:
+        logger.exception("Could not delete Stripe customer %s", customer_id)
 
 
 def void_pending_payment(order):

@@ -21,7 +21,8 @@
 {% endblock %}
 {% block content %}
 <div class="wrap page">
-    <div class="page-head"><div><h1>Your profile</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    <div class="page-head"><div><h1>Your account</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    {% include "bees/partials/account_tabs.html" with tab="profile" %}
     <div class="stats">
         <a class="stat" href="{% url 'my_orders' %}" style="text-decoration:none;"><strong>{{ orders_count }}</strong><span>Orders</span></a>
         <div class="stat"><strong>{{ addresses|length }}</strong><span>Saved addresses</span></div>
@@ -63,21 +64,25 @@
                 <div class="field"><label for="p_phone">Phone</label><input type="tel" id="p_phone" name="phone" value="{{ profile.phone }}" autocomplete="tel"></div>
                 <div class="field" style="flex-direction:row;gap:10px;flex-wrap:wrap;">
                     <button type="submit" class="btn btn-primary">Save changes</button>
-                    <a href="{% url 'password_reset' %}" class="btn btn-ghost">Change password</a>
+                    <a href="{% url 'account_security' %}" class="btn btn-ghost">Change password</a>
                 </div>
             </form>
         </section>
 
-        <section class="panel">
+        <section class="panel" id="addresses">
             <h2>Saved addresses</h2>
             {% for addr in addresses %}
             <div class="addr">
                 <div>
-                    <span class="badge">{{ addr.label }}</span>
+                    <span class="badge">{{ addr.label }}</span>{% if addr.is_default %} <span class="badge badge-ok">Default</span>{% endif %}
                     <div style="margin-top:8px;font-weight:700;">{{ addr.full_name }}</div>
                     <div class="muted">{{ addr.address }}, {{ addr.city }}{% if addr.state %}, {{ addr.state }}{% endif %} {{ addr.postal_code }}<br>{{ addr.country|country_name }}{% if addr.phone %} · {{ addr.phone }}{% endif %}</div>
                 </div>
-                <form method="post" action="{% url 'delete_address' addr.id %}">{% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm" aria-label="Remove {{ addr.label }} address">Remove</button></form>
+                <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+                    <a class="btn btn-ghost btn-sm" href="{% url 'edit_address' addr.id %}" aria-label="Edit {{ addr.label }} address">Edit</a>
+                    {% if not addr.is_default %}<form method="post" action="{% url 'default_address' addr.id %}">{% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm">Make default</button></form>{% endif %}
+                    <form method="post" action="{% url 'delete_address' addr.id %}" onsubmit="return confirm('Remove this address?')">{% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm" aria-label="Remove {{ addr.label }} address">Remove</button></form>
+                </div>
             </div>
             {% empty %}
             <p class="muted">Save an address to check out in seconds.</p>

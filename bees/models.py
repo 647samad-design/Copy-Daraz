@@ -488,6 +488,9 @@ class Profile(models.Model):
     referral_rewarded = models.BooleanField(default=False)
     loyalty_points = models.PositiveIntegerField(default=0)
     store_credit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Stripe customer that holds this person's saved cards. Card numbers
+    # never touch our servers - Stripe stores them.
+    stripe_customer_id = models.CharField(max_length=255, blank=True)
 
     POINTS_PER_UNIT = 100  # 100 reward points = 1.00 of store credit
 
@@ -505,9 +508,11 @@ class Address(models.Model):
     state = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=2, blank=True)
+    is_default = models.BooleanField(default=False)
 
     class Meta:
         verbose_name_plural = "Addresses"
+        ordering = ["-is_default", "id"]
 
     def __str__(self):
         return f"{self.label} - {self.user.username}"

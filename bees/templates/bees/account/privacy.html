@@ -1,0 +1,39 @@
+{% extends "bees/base.html" %}
+{% block title %}Privacy &amp; data — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block content %}
+<div class="wrap page" style="max-width:920px;">
+    <div class="page-head"><div><h1>Your account</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    {% include "bees/partials/account_tabs.html" %}
+    <div style="display:grid;gap:20px;">
+        <section class="panel">
+            <h2>Emails</h2>
+            <p class="muted" style="margin:6px 0 14px;">Order updates (confirmed, shipped, delivered, refunds) are always sent so you know what's happening with your purchases.</p>
+            <form method="post">{% csrf_token %}<input type="hidden" name="action" value="emails">
+                <label class="pay-option" style="max-width:560px;"><input type="checkbox" name="marketing" value="1" {% if subscribed %}checked{% endif %}><span><strong>Offers and new arrivals</strong><span class="muted">About one email a week. Unsubscribe any time.</span></span></label>
+                <button type="submit" class="btn btn-secondary" style="margin-top:12px;">Save preferences</button>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>Download your data</h2>
+            <p class="muted" style="margin:6px 0 14px;">A copy of your account details, addresses, orders, reviews, questions and wishlist, as a JSON file.</p>
+            <a class="btn btn-secondary" href="{% url 'download_data' %}">Download my data</a>
+        </section>
+        <section class="panel" style="border-color:color-mix(in srgb, var(--sale) 40%, var(--line));">
+            <h2>Delete account</h2>
+            <p class="muted" style="margin:6px 0 14px;">This signs you out and removes your personal details, saved addresses, saved cards, wishlist, store credit and reward points. Records of past orders are kept without your name, as required for accounting. This can't be undone.</p>
+            {% if seller_block %}
+            <p class="badge">{{ seller_block }}</p>
+            {% elif open_orders %}
+            <p class="badge">You have {{ open_orders }} order{{ open_orders|pluralize }} on the way. You can delete your account once {{ open_orders|pluralize:"it has,they have" }} arrived or been cancelled.</p>
+            {% else %}
+            <form method="post" action="{% url 'delete_account' %}" style="display:grid;gap:12px;max-width:420px;" onsubmit="return confirm('Delete your account permanently?')">
+                {% csrf_token %}
+                <div class="field"><label for="del_pw">Confirm with your password</label><input type="password" id="del_pw" name="password" required autocomplete="current-password"></div>
+                <button type="submit" class="btn btn-danger" style="justify-self:start;">Delete my account</button>
+            </form>
+            {% endif %}
+        </section>
+    </div>
+</div>
+{% endblock %}

@@ -24,6 +24,14 @@ class TestCase(DjangoTestCase):
     def _pre_setup(self):
         super()._pre_setup()
         cache.clear()
+        # Never call the real Stripe API from tests.
+        from unittest import mock as _mock
+        self._stripe_customer = _mock.patch("stripe.Customer.create", return_value=_mock.MagicMock(id="cus_test"))
+        self._stripe_customer.start()
+
+    def _post_teardown(self):
+        self._stripe_customer.stop()
+        super()._post_teardown()
 from django.urls import reverse
 
 from .models import (
@@ -465,7 +473,7 @@ from unittest import mock
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
-from .models import Coupon, ProductImage, SiteSettings
+from .models import Address, Coupon, NewsletterSubscriber, ProductImage, SiteSettings
 
 
 CHECKOUT_FORM = {
@@ -1688,3 +1696,170 @@ class AuditFixTests(TestCase):
         msgs = self.client.get(reverse("chat_messages")).json()["messages"]
         self.assertTrue(any("parcel" in m["message"] for m in msgs))
         self.assertEqual(ChatThread.objects.get(user=self.buyer).messages.filter(sender="user").count(), 1)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class AccountSettingsTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("acct", "acct@example.com", "Old-pass-123")
+        self.client.force_login(self.user)
+
+    # --- password & devices -------------------------------------------------
+    def test_change_password(self):
+        other = Client()
+        other.force_login(self.user)
+        r = self.client.post(reverse("account_security"), {"old_password": "wrong", "new_password1": "New-pass-456!", "new_password2": "New-pass-456!"})
+        self.assertContains(r, "incorrectly")
+        self.client.post(reverse("account_security"), {"old_password": "Old-pass-123", "new_password1": "New-pass-456!", "new_password2": "New-pass-456!"})
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("New-pass-456!"))
+        self.assertEqual(self.client.get(reverse("profile")).status_code, 200)  # still signed in here
+        self.assertEqual(other.get(reverse("profile")).status_code, 302)  # signed out elsewhere
+        self.assertTrue(any("password was changed" in m.subject.lower() for m in mail.outbox))
+
+    def test_sign_out_other_devices(self):
+        self.client.logout()
+        self.client.post(reverse("login"), {"username": "acct", "password": "Old-pass-123", "remember": "1"})
+        other = Client()
+        other.post(reverse("login"), {"username": "acct", "password": "Old-pass-123", "remember": "1"})
+        self.assertContains(self.client.get(reverse("account_security")), "1 other device")
+        self.client.post(reverse("account_security"), {"action": "signout_others"})
+        self.assertEqual(other.get(reverse("profile")).status_code, 302)
+        self.assertEqual(self.client.get(reverse("profile")).status_code, 200)
+
+    def test_remember_me(self):
+        self.client.logout()
+        self.client.post(reverse("login"), {"username": "acct", "password": "Old-pass-123"})
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
+        self.client.logout()
+        self.client.post(reverse("login"), {"username": "acct", "password": "Old-pass-123", "remember": "1"})
+        self.assertFalse(self.client.session.get_expire_at_browser_close())
+
+    def test_email_change_alerts_old_address(self):
+        self.client.post(reverse("profile"), {"first_name": "A", "email": "new@example.com", "phone": ""})
+        self.assertTrue(any(m.to == ["acct@example.com"] and "email address was changed" in m.subject.lower() for m in mail.outbox))
+
+    # --- saved cards ----------------------------------------------------------
+    def test_cards_listed_added_and_removed(self):
+        Profile.objects.create(user=self.user, referral_code="AC1", stripe_customer_id="cus_1")
+        listing = {"data": [{"id": "pm_1", "card": {"brand": "visa", "last4": "4242", "exp_month": 4, "exp_year": 2030}}]}
+        with mock.patch("stripe.Customer.list_payment_methods", return_value=listing):
+            page = self.client.get(reverse("payment_methods"))
+        self.assertContains(page, "Visa ending in 4242")
+        self.assertContains(page, "Expires 04/2030")
+        with mock.patch("stripe.checkout.Session.create", return_value=mock.MagicMock(url="https://checkout.stripe.com/setup")) as create:
+            r = self.client.post(reverse("add_card"))
+        self.assertEqual(r.url, "https://checkout.stripe.com/setup")
+        self.assertEqual(create.call_args.kwargs["mode"], "setup")
+        self.assertEqual(create.call_args.kwargs["customer"], "cus_1")
+        # Someone else's card can't be removed
+        with mock.patch("stripe.PaymentMethod.retrieve", return_value={"customer": "cus_OTHER"}), \
+             mock.patch("stripe.PaymentMethod.detach") as detach:
+            self.client.post(reverse("remove_card"), {"card": "pm_x"})
+        detach.assert_not_called()
+        with mock.patch("stripe.PaymentMethod.retrieve", return_value={"customer": "cus_1"}), \
+             mock.patch("stripe.PaymentMethod.detach") as detach:
+            self.client.post(reverse("remove_card"), {"card": "pm_1"})
+        detach.assert_called_once_with("pm_1")
+
+    def test_card_added_on_stripe_is_offered_again(self):
+        Profile.objects.create(user=self.user, referral_code="AC1", stripe_customer_id="cus_1")
+        session = {"customer": "cus_1", "status": "complete", "setup_intent": {"payment_method": "pm_9"}}
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=session), \
+             mock.patch("stripe.Customer.list_payment_methods", return_value={"data": []}), \
+             mock.patch("stripe.PaymentMethod.modify") as modify:
+            r = self.client.get(reverse("payment_methods") + "?added=cs_setup_1", follow=True)
+        modify.assert_called_once_with("pm_9", allow_redisplay="always")
+        self.assertContains(r, "Card saved")
+
+    def test_checkout_uses_saved_customer(self):
+        product = make_product(price=Decimal("10.00"))
+        self.client.post(reverse("add_to_cart", args=[product.id]))
+        fake = mock.MagicMock(id="cs_1", url="https://checkout.stripe.com/pay")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        kwargs = create.call_args.kwargs
+        self.assertEqual(kwargs["customer"], "cus_test")
+        self.assertEqual(kwargs["saved_payment_method_options"], {"payment_method_save": "enabled"})
+        self.assertNotIn("customer_email", kwargs)
+        self.assertEqual(Profile.objects.get(user=self.user).stripe_customer_id, "cus_test")
+
+    @override_settings(STRIPE_SECRET_KEY="")
+    def test_cards_page_without_stripe(self):
+        self.assertContains(self.client.get(reverse("payment_methods")), "aren't switched on")
+
+    # --- addresses ------------------------------------------------------------
+    def test_edit_and_default_address_prefills_checkout(self):
+        self.client.post(reverse("add_address"), {"label": "Home", "full_name": "A One", "address": "1 Road", "city": "Austin", "country": "US", "phone": "1"})
+        self.client.post(reverse("add_address"), {"label": "Work", "full_name": "A Two", "address": "2 Office", "city": "Boston", "country": "US", "phone": "2"})
+        home, work = Address.objects.order_by("id")
+        self.assertTrue(home.is_default)
+        self.client.post(reverse("edit_address", args=[work.id]), {"label": "Office", "full_name": "A Two", "address": "22 Office", "city": "Boston", "country": "US", "phone": "2", "is_default": "1"})
+        work.refresh_from_db(); home.refresh_from_db()
+        self.assertEqual((work.label, work.address, work.is_default, home.is_default), ("Office", "22 Office", True, False))
+        product = make_product()
+        self.client.post(reverse("add_to_cart", args=[product.id]))
+        self.assertContains(self.client.get(reverse("checkout")), 'value="22 Office"')
+        other = User.objects.create_user("other", "o@example.com", "pass12345")
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(reverse("edit_address", args=[work.id])).status_code, 404)
+
+    # --- privacy --------------------------------------------------------------
+    def test_email_preferences(self):
+        self.client.post(reverse("account_privacy"), {"action": "emails", "marketing": "1"})
+        self.assertTrue(NewsletterSubscriber.objects.filter(email="acct@example.com").exists())
+        self.client.post(reverse("account_privacy"), {"action": "emails"})
+        self.assertFalse(NewsletterSubscriber.objects.exists())
+
+    def test_download_data(self):
+        order = Order.objects.create(user=self.user, full_name="A", address="x", city="y", phone="1", status="delivered")
+        OrderItem.objects.create(order=order, product_name="Face Wash", price=Decimal("5"), quantity=1)
+        r = self.client.get(reverse("download_data"))
+        data = json.loads(r.content)
+        self.assertEqual(data["account"]["email"], "acct@example.com")
+        self.assertEqual(data["orders"][0]["items"][0]["product"], "Face Wash")
+
+    def test_delete_account(self):
+        r = self.client.post(reverse("delete_account"), {"password": "nope"}, follow=True)
+        self.assertContains(r, "isn&#x27;t right")
+        open_order = Order.objects.create(user=self.user, full_name="A", address="x", city="y", phone="1", status="shipped")
+        self.client.post(reverse("delete_account"), {"password": "Old-pass-123"})
+        self.assertTrue(User.objects.get(pk=self.user.pk).is_active)
+        Order.objects.filter(pk=open_order.pk).update(status="delivered")
+        Address.objects.create(user=self.user, full_name="A", phone="1", address="x", city="y", country="US")
+        Profile.objects.create(user=self.user, referral_code="AC1", stripe_customer_id="cus_1")
+        with mock.patch("stripe.Customer.delete") as delete:
+            self.client.post(reverse("delete_account"), {"password": "Old-pass-123"})
+        delete.assert_called_once_with("cus_1")
+        u = User.objects.get(pk=self.user.pk)
+        self.assertFalse(u.is_active)
+        self.assertEqual(u.email, "")
+        self.assertFalse(Address.objects.filter(user=u).exists())
+        self.assertTrue(Order.objects.filter(pk=open_order.pk).exists())  # sales records kept
+        self.assertFalse(Client().login(username="acct", password="Old-pass-123"))
+        self.assertEqual(self.client.get(reverse("profile")).status_code, 302)  # signed out
+
+    def test_sellers_cannot_self_delete(self):
+        SellerAccount.objects.create(user=self.user, status="approved", business_name="S")
+        self.client.post(reverse("delete_account"), {"password": "Old-pass-123"})
+        self.assertTrue(User.objects.get(pk=self.user.pk).is_active)
+
+    # --- seller store settings ------------------------------------------------
+    def test_store_settings_rename_updates_products(self):
+        seller = SellerAccount.objects.create(user=self.user, status="approved", business_name="Old Name")
+        p = make_product(seller_account=seller, seller_name="Old Name")
+        self.client.post(reverse("seller_store_settings"), {"store_name": "New Name", "store_description": "Hello", "bank_details": "IBAN 123"})
+        seller.refresh_from_db(); p.refresh_from_db()
+        self.assertEqual((seller.business_name, seller.bank_details, p.seller_name), ("New Name", "IBAN 123", "New Name"))
+        SellerAccount.objects.create(user=User.objects.create_user("z", "z@example.com", "x"), business_name="Taken")
+        self.client.post(reverse("seller_store_settings"), {"store_name": "taken"})
+        seller.refresh_from_db()
+        self.assertEqual(seller.business_name, "New Name")
+
+    def test_team_staff_cannot_change_store_settings(self):
+        owner = User.objects.create_user("own", "own@example.com", "x")
+        org = SellerAccount.objects.create(user=owner, status="approved", business_name="Org", account_type="organization")
+        OrganizationMember.objects.create(organization=org, user=self.user, role="staff")
+        self.client.post(reverse("seller_store_settings"), {"store_name": "Hijack"})
+        org.refresh_from_db()
+        self.assertEqual(org.business_name, "Org")

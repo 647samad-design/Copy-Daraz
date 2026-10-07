@@ -1,0 +1,7 @@
+{% extends "bees/emails/_base_email.html" %}
+{% block email_body %}{% load bees_extras %}{% site_brand as b %}
+    <h1 style="margin:0 0 8px;font-size:24px;">{{ event }}</h1>
+    <p style="margin:0 0 20px;color:#56606B;">Hi {{ user.first_name|default:user.username }}, this is a quick note to let you know: {{ event|lower }} on {% now "F j, Y \a\t H:i" %} (UTC).</p>
+    <p style="margin:0 0 24px;color:#56606B;">{{ detail }}</p>
+    <a href="{{ reset_url }}" style="display:inline-block;background:{{ b.primary_color }};color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:bold;">Reset my password</a>
+{% endblock %}

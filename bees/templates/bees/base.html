@@ -131,6 +131,7 @@
         }
         ::placeholder { color: color-mix(in srgb, var(--muted) 80%, transparent); }
         .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; }
+        .form-grid > *, .field { min-width: 0; }
         .form-grid .span-2 { grid-column: 1 / -1; }
         .check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 1rem; }
         .check input { width: 20px; height: 20px; accent-color: var(--brand); }
@@ -194,7 +195,7 @@
         .prose h2 { font-size: 1.25rem; margin: 28px 0 8px; }
         .prose p { color: var(--muted); font-size: 1.05rem; line-height: 1.7; }
 
-        .navbar-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); z-index: 1000; opacity: 0; transition: width .4s ease, opacity .2s ease; }
+        .navbar-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); z-index: 1000; opacity: 0; pointer-events: none; transition: width .4s ease, opacity .2s ease; }
         .navbar-progress.active { opacity: 1; width: 75%; transition: width 8s cubic-bezier(.1,.7,.2,1), opacity .1s; }
         .admin-btn { color: var(--brand); }
         html[data-theme="dark"] .admin-btn { color: var(--accent); }
@@ -226,6 +227,7 @@
         .search input:focus { outline: none; border-color: var(--brand); background: var(--surface); }
         .search button { min-width: 56px; border: 0; border-radius: 0 999px 999px 0; background: var(--brand); color: var(--on-brand); cursor: pointer; display: grid; place-items: center; }
         .search button svg { width: 20px; height: 20px; }
+        .search button:hover { background: color-mix(in srgb, var(--brand) 82%, #000); }
         .suggestions { display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); z-index: 260; overflow: hidden; box-shadow: 0 12px 32px rgba(20,26,31,.12); }
         .suggestions.show { display: block; }
         .suggestions a { display: block; padding: 12px 18px; text-decoration: none; }
@@ -262,6 +264,8 @@
         .pcard-fav { position: absolute; right: 10px; top: 10px; z-index: 2; }
         .pcard-fav button { width: 40px; height: 40px; border-radius: 999px; border: 0; cursor: pointer; background: var(--surface); color: var(--muted); display: grid; place-items: center; box-shadow: 0 2px 8px rgba(20,26,31,.12); }
         .pcard-fav button svg { width: 20px; height: 20px; }
+        .pcard-fav button:hover { color: var(--sale); transform: scale(1.08); }
+        .pcard-fav button { transition: transform .12s ease, color .12s ease; }
         .pcard-fav button.active { color: var(--sale); }
         .pcard-fav button.active svg { fill: currentColor; }
         .pcard-body { padding: 12px 2px 0; display: flex; flex-direction: column; gap: 4px; flex: 1; }
@@ -317,7 +321,10 @@
         .social svg { width: 18px; height: 18px; }
 
         /* ================= Overlays ================= */
-        .toasts { position: fixed; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 10px; max-width: min(380px, calc(100vw - 40px)); }
+        .toasts { position: fixed; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 10px; max-width: min(380px, calc(100vw - 40px)); pointer-events: none; }
+        .toasts .toast { pointer-events: none; }
+        .toasts .toast.show { pointer-events: auto; cursor: pointer; }
+        @media (max-width: 560px) { .toasts { top: 12px; left: 12px; right: 12px; max-width: none; } }
         .toast { background: var(--ink); color: var(--paper); padding: 14px 18px; border-radius: var(--radius); font-weight: 700; box-shadow: 0 12px 32px rgba(0,0,0,.2); border-left: 6px solid var(--accent); opacity: 0; transform: translateY(-8px); transition: opacity .25s ease, transform .25s ease; }
         .toast.show { opacity: 1; transform: none; }
         .toast.success { border-left-color: #3DD68C; }
@@ -622,19 +629,30 @@
             const m = document.cookie.match(/csrftoken=([^;]+)/);
             return m ? m[1] : '';
         }
+        // Messages fade out by themselves (or on tap) and are then removed,
+        // so they never sit invisibly on top of the header buttons.
+        function hideToast(t) {
+            if (!t.isConnected) return;
+            t.classList.remove('show');
+            setTimeout(() => t.remove(), 300);
+        }
+        function armToast(t, delay, life) {
+            t.setAttribute('role', 'status');
+            t.title = 'Tap to dismiss';
+            t.addEventListener('click', () => hideToast(t));
+            setTimeout(() => t.classList.add('show'), delay);
+            setTimeout(() => hideToast(t), delay + life);
+        }
         function showToast(text, type) {
             const c = document.getElementById('toast-container');
             const t = document.createElement('div');
             t.className = 'toast ' + (type || 'success');
             t.textContent = text;
             c.appendChild(t);
-            requestAnimationFrame(() => t.classList.add('show'));
-            setTimeout(() => t.classList.remove('show'), 3800);
-            setTimeout(() => t.remove(), 4200);
+            armToast(t, 20, 3800);
         }
-        document.querySelectorAll('.toast').forEach(function (t, i) {
-            setTimeout(() => t.classList.add('show'), 80 + i * 90);
-            setTimeout(() => t.classList.remove('show'), 4500 + i * 90);
+        document.querySelectorAll('#toast-container .toast').forEach(function (t, i) {
+            armToast(t, 80 + i * 90, (t.textContent.length > 90 ? 6500 : 4500));
         });
 
         function updateCartBadge(n) {

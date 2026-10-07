@@ -35,10 +35,10 @@
             </div>
         </div>
         {% include "bees/partials/order_status.html" %}
-        {% if order.tracking_number or order.estimated_delivery %}
+        {% if order.status != "cancelled" and order.tracking_number or order.status != "cancelled" and order.estimated_delivery %}
         <div class="tracking">
             {% if order.tracking_number %}<span>Tracking number <strong>{{ order.tracking_number }}</strong>{% if order.courier_name %} with {{ order.courier_name }}{% endif %}</span>{% endif %}
-            {% if order.estimated_delivery %}<span>Arrives by <strong>{{ order.estimated_delivery|date:"M j, Y" }}</strong></span>{% endif %}
+            {% if order.estimated_delivery %}<span>{% if order.status == "delivered" %}Delivered{% else %}Arrives by <strong>{{ order.estimated_delivery|date:"M j, Y" }}</strong>{% endif %}</span>{% endif %}
         </div>
         {% endif %}
         {% for item in order.items.all %}

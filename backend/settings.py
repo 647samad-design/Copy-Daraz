@@ -274,11 +274,22 @@ if USE_SUPABASE_STORAGE:
         },
     }
 
+# Public address of the store, used for links in emails sent outside a
+# request (order shipped / delivered ...). Defaults to the first host in
+# ALLOWED_HOSTS, e.g. https://19bees.netlify.app
+SITE_URL = os.environ.get('SITE_URL', '').strip().rstrip('/')
+
 # Stripe (card payments). See bees/payments.py.
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
 STORE_CURRENCY = os.environ.get('STORE_CURRENCY', 'usd').lower()
+# Optional: send Stripe API calls through a relay instead of directly to
+# api.stripe.com. Needed on PythonAnywhere's free plan, which blocks
+# api.stripe.com but allows *.supabase.co - see deploy/supabase/stripe-relay.
+STRIPE_API_BASE = os.environ.get('STRIPE_API_BASE', '').strip().rstrip('/')
+if STRIPE_API_BASE and not STRIPE_API_BASE.startswith('https://'):
+    raise ImproperlyConfigured("STRIPE_API_BASE must start with https://")
 
 # Seller commission tiers: (lifetime sales at or above, % points off the
 # base commission rate). Checked top to bottom.

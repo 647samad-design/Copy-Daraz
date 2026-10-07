@@ -206,16 +206,6 @@ def orders(request):
     })
 
 
-def _send_shipped_email(request, order):
-    from .views import _send_html_email
-    _send_html_email(
-        f"Your order #{order.id} is on its way",
-        "bees/emails/order_shipped.html",
-        {"order": order, "orders_url": request.build_absolute_uri(reverse("my_orders"))},
-        order.contact_email,
-    )
-
-
 @staff_required
 def order_detail(request, pk):
     order = get_object_or_404(Order.objects.select_related("user"), pk=pk)
@@ -244,15 +234,19 @@ def order_detail(request, pk):
             except ValueError:
                 messages.error(request, "Estimated delivery must be a valid date.")
                 return redirect("manage_order", pk=pk)
+            if new_status in ("confirmed", "shipped") and not order.estimated_delivery:
+                from .order_emails import default_delivery_date
+                order.estimated_delivery = default_delivery_date(order)
             order.status = new_status
-            order.save()  # notifies the customer when the status changes
+            order.save()  # notifies + emails the customer when the status changes
             if new_status != was:
                 _log(request, f"Order #{order.id}: {was} -> {new_status}")
                 if new_status == "shipped":
-                    _send_shipped_email(request, order)
+                    order.items.exclude(fulfillment_status="delivered").update(fulfillment_status="handed_to_courier")
                 if new_status == "delivered":
                     order.items.update(fulfillment_status="delivered")
-            messages.success(request, "Order updated." + (" The customer has been emailed." if new_status == "shipped" and was != "shipped" else ""))
+            emailed = new_status != was and new_status in ("confirmed", "shipped", "delivered") and order.contact_email
+            messages.success(request, "Order updated." + (" The customer has been emailed." if emailed else ""))
         _refresh_attention()
         return redirect("manage_order", pk=pk)
     items = order.items.select_related("product", "seller_account__user")
@@ -671,7 +665,7 @@ class SiteSettingsForm(forms.ModelForm):
          ["site_name", "tagline", "logo_file", "logo_url", "favicon_url", "primary_color", "accent_color"]),
         ("Homepage", "The large banner at the top of the homepage.", ["hero_title", "hero_subtitle", "hero_image_url"]),
         ("Announcement bar", "A message across the top of every page, e.g. a sale.", ["banner_active", "banner_text", "banner_link"]),
-        ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "allow_cash_on_delivery"]),
+        ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "allow_cash_on_delivery"]),
         ("Contact & social", "Shown in the footer, emails and help page.",
          ["support_email", "support_phone", "company_address", "facebook_url", "instagram_url", "twitter_url", "youtube_url"]),
         ("Language", "", ["show_language_menu"]),

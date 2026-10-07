@@ -948,9 +948,10 @@ class ManageActionTests(TestCase):
 
     def test_marking_shipped_emails_customer_and_notifies(self):
         order = self._order(status="confirmed")
-        self.client.post(reverse("manage_order", args=[order.id]), {
-            "action": "update", "status": "shipped", "tracking_number": "1Z999", "courier_name": "UPS", "estimated_delivery": "2026-12-01",
-        })
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("manage_order", args=[order.id]), {
+                "action": "update", "status": "shipped", "tracking_number": "1Z999", "courier_name": "UPS", "estimated_delivery": "2026-12-01",
+            })
         order.refresh_from_db()
         self.assertEqual(order.status, "shipped")
         self.assertEqual(order.tracking_number, "1Z999")
@@ -1054,7 +1055,7 @@ class ManageActionTests(TestCase):
         data = {f: v for f, v in {
             "site_name": "Nova Goods", "tagline": "Good things", "primary_color": "#112233", "accent_color": "#FFCC00",
             "hero_title": "Hello", "hero_subtitle": "World", "tax_percent": "0", "shipping_flat_fee": "0",
-            "free_shipping_threshold": "0", "allow_cash_on_delivery": "on",
+            "free_shipping_threshold": "0", "delivery_days": "5", "allow_cash_on_delivery": "on",
         }.items()}
         self.client.post(reverse("manage_settings"), data)
         self.assertContains(self.client.get(reverse("home")), "Nova Goods")
@@ -1214,3 +1215,174 @@ class DemoCatalogueTests(TestCase):
             self.assertIn("charcoal-face-wash", fw.image_url)
             self.assertFalse(Product.objects.filter(image_url__contains="picsum").exists())
             self.assertFalse(ProductImage.objects.filter(image_url__contains="picsum").exists())
+
+
+class StripeRelayTests(TestCase):
+    def tearDown(self):
+        import stripe
+        stripe.api_base = "https://api.stripe.com"
+
+    def test_default_api_base(self):
+        from . import payments
+        with self.settings(STRIPE_SECRET_KEY="sk_test_x", STRIPE_API_BASE=""):
+            self.assertEqual(payments._stripe().api_base, "https://api.stripe.com")
+
+    def test_relay_api_base(self):
+        from . import payments
+        relay = "https://ref.supabase.co/functions/v1/stripe-relay/secret"
+        with self.settings(STRIPE_SECRET_KEY="sk_test_x", STRIPE_API_BASE=relay):
+            self.assertEqual(payments._stripe().api_base, relay)
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy",
+                   ALLOWED_HOSTS=["shop.example.com", "testserver"], SITE_URL="")
+class OrderJourneyTests(TestCase):
+    """The customer is kept informed at every step, and cancelling a paid
+    order refunds it."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user("boss", "boss@example.com", "pass12345", is_staff=True)
+        self.buyer = User.objects.create_user("buyer", "buyer@example.com", "pass12345")
+        self.product = make_product(name="Charcoal Face Wash", price=Decimal("20.00"), stock=10)
+
+    def _cod_order(self):
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 2})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        return Order.objects.get()
+
+    def _admin_set(self, order, status, **extra):
+        self.client.force_login(self.staff)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("manage_order", args=[order.id]), {
+                "action": "update", "status": status, "tracking_number": extra.get("tracking", ""),
+                "courier_name": extra.get("courier", ""),
+                "estimated_delivery": order.estimated_delivery.isoformat() if order.estimated_delivery else "",
+            })
+        order.refresh_from_db()
+        return order
+
+    def test_full_cod_journey_emails_every_step(self):
+        order = self._cod_order()
+        # Placed: estimated delivery set, "received" email with the date
+        self.assertIsNotNone(order.estimated_delivery)
+        self.assertGreater(order.estimated_delivery, order.created_at.date())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("received", mail.outbox[0].subject)
+        self.assertIn("Estimated delivery", mail.outbox[0].alternatives[0][0])
+
+        order = self._admin_set(order, "confirmed")
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertIn("is confirmed", mail.outbox[1].subject)
+        self.assertIn(order.estimated_delivery.strftime("%B"), mail.outbox[1].alternatives[0][0])
+
+        order = self._admin_set(order, "shipped", tracking="TRK123", courier="DHL")
+        self.assertEqual(len(mail.outbox), 3)
+        self.assertIn("on its way", mail.outbox[2].subject)
+        self.assertIn("TRK123", mail.outbox[2].alternatives[0][0])
+        self.assertIn("https://shop.example.com/my-orders/", mail.outbox[2].alternatives[0][0])
+        self.assertEqual(set(order.items.values_list("fulfillment_status", flat=True)), {"handed_to_courier"})
+
+        order = self._admin_set(order, "delivered")
+        self.assertEqual(len(mail.outbox), 4)
+        self.assertIn("delivered", mail.outbox[3].subject)
+        self.assertIn("Write a review", mail.outbox[3].alternatives[0][0])
+        self.assertTrue(all(m.to == ["jane@example.com"] for m in mail.outbox))  # the email given at checkout
+
+    def test_customer_cancels_cod_order(self):
+        order = self._cod_order()
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(self.product.stock, 10)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("cancelled", mail.outbox[0].subject)
+        self.assertIn("not been charged", mail.outbox[0].alternatives[0][0])
+
+    def test_customer_cancels_paid_order_gets_refund_and_email(self):
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
+        fake = mock.MagicMock(id="cs_test_9", url="https://checkout.stripe.com/x")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake):
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        order = Order.objects.get()
+        payload = json.dumps({"type": "checkout.session.completed", "data": {"object": _fake_session(order)}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}), self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("stripe_webhook"), data=payload, content_type="application/json", HTTP_STRIPE_SIGNATURE="t=1,v1=x")
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+        self.assertIsNotNone(order.estimated_delivery)
+        self.assertEqual(len(mail.outbox), 1)  # one "confirmed + paid" email, not two
+        mail.outbox.clear()
+
+        with mock.patch("stripe.Refund.create") as refund, self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("cancel_order", args=[order.id]))
+        refund.assert_called_once()
+        self.assertEqual(refund.call_args.kwargs["payment_intent"], "pi_test_123")
+        order.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("full refund", mail.outbox[0].alternatives[0][0])
+        self.assertIn("$20.00", mail.outbox[0].alternatives[0][0])
+        self.assertContains(self.client.get(reverse("my_orders")), "refunded to your card")
+
+    def test_failed_refund_keeps_order_and_warns(self):
+        order = self._cod_order()
+        Order.objects.filter(pk=order.pk).update(payment_status="paid", payment_method="card", stripe_payment_intent="pi_x")
+        with mock.patch("stripe.Refund.create", side_effect=Exception("down")):
+            r = self.client.post(reverse("cancel_order", args=[order.id]), follow=True)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "pending")
+        self.assertContains(r, "couldn&#x27;t process the refund")
+
+    def test_shipped_order_cannot_be_cancelled_by_customer(self):
+        order = self._cod_order()
+        self._admin_set(order, "shipped")
+        self.client.force_login(self.buyer)
+        self.client.post(reverse("cancel_order", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.status, "shipped")
+
+    def test_seller_fulfilment_moves_order_forward(self):
+        seller_user = User.objects.create_user("sel", "sel@example.com", "pass12345")
+        seller = SellerAccount.objects.create(user=seller_user, status="approved", business_name="Sel Co")
+        Product.objects.filter(pk=self.product.pk).update(seller_account=seller)
+        order = self._cod_order()
+        item = order.items.get()
+        mail.outbox.clear()
+        self.client.force_login(seller_user)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("update_fulfillment_status", args=[item.id]), {"fulfillment_status": "handed_to_courier"})
+        order.refresh_from_db()
+        self.assertEqual(order.status, "shipped")
+        self.assertIn("on its way", mail.outbox[-1].subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("update_fulfillment_status", args=[item.id]), {"fulfillment_status": "delivered"})
+        order.refresh_from_db()
+        self.assertEqual(order.status, "delivered")
+        self.assertIn("delivered", mail.outbox[-1].subject)
+
+    def test_seller_cannot_ship_cancelled_order(self):
+        seller_user = User.objects.create_user("sel", "sel@example.com", "pass12345")
+        seller = SellerAccount.objects.create(user=seller_user, status="approved", business_name="Sel Co")
+        Product.objects.filter(pk=self.product.pk).update(seller_account=seller)
+        order = self._cod_order()
+        self.client.post(reverse("cancel_order", args=[order.id]))
+        item = order.items.get()
+        self.client.force_login(seller_user)
+        self.client.post(reverse("update_fulfillment_status", args=[item.id]), {"fulfillment_status": "handed_to_courier"})
+        item.refresh_from_db()
+        self.assertEqual(item.fulfillment_status, "pending")
+
+    def test_delivery_days_setting_controls_date(self):
+        from .order_emails import add_business_days
+        from datetime import date
+        self.assertEqual(add_business_days(date(2026, 10, 9), 1), date(2026, 10, 12))  # Fri -> Mon
+        SiteSettings.objects.update_or_create(pk=1, defaults={"delivery_days": 10})
+        cache.clear()
+        order = self._cod_order()
+        from django.utils import timezone
+        self.assertEqual(order.estimated_delivery, add_business_days(timezone.localdate(), 10))

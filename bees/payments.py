@@ -23,6 +23,7 @@ STRIPE_PUBLISHABLE_KEY   pk_test_... / pk_live_...  (not required by
 STRIPE_WEBHOOK_SECRET    whsec_...  (from Dashboard > Developers > Webhooks,
                          or from `stripe listen` when testing locally)
 STORE_CURRENCY           usd (default), eur, gbp ...
+STRIPE_API_BASE          optional relay URL (see deploy/supabase/stripe-relay)
 
 Until STRIPE_SECRET_KEY is set, card payments are hidden at checkout.
 """
@@ -58,6 +59,7 @@ def _stripe():
     import stripe
     stripe.api_key = settings.STRIPE_SECRET_KEY
     stripe.max_network_retries = 2
+    stripe.api_base = getattr(settings, "STRIPE_API_BASE", "") or "https://api.stripe.com"
     return stripe
 
 
@@ -228,7 +230,14 @@ def mark_order_paid(order_id, session):
         order.stripe_payment_intent = session.get("payment_intent") or ""
         if order.status == "pending":
             order.status = "confirmed"
-        order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent", "status"])
+        if not order.estimated_delivery:
+            from .order_emails import default_delivery_date
+            order.estimated_delivery = default_delivery_date(order)
+        # The caller sends the "payment received" email, which already says
+        # the order is confirmed - don't send a second one.
+        order._skip_status_email = True
+        order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent", "status", "estimated_delivery"])
+        order._skip_status_email = False
     return order, True
 
 

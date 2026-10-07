@@ -2,7 +2,17 @@
 {% load bees_extras %}
 {% block email_body %}{% site_brand as b %}
     <h1 style="margin:0 0 8px;font-size:24px;">Thanks for your order</h1>
-    <p style="margin:0 0 22px;color:#56606B;">Hi {{ order.full_name }}, order #{{ order.id }} is confirmed. We'll email you again when it ships.</p>
+    {% if order.status == "pending" %}
+    <p style="margin:0 0 22px;color:#56606B;">Hi {{ order.full_name }}, we've received order #{{ order.id }}. We'll email you as soon as it's confirmed, and again when it ships.{% if order.payment_method == "cod" %} You'll pay {{ order.total|money }} in cash when it arrives.{% endif %}</p>
+    {% else %}
+    <p style="margin:0 0 22px;color:#56606B;">Hi {{ order.full_name }}, order #{{ order.id }} is confirmed{% if order.payment_status == "paid" %} and your payment has been received{% endif %}. We'll email you again when it ships.</p>
+    {% endif %}
+    {% if order.estimated_delivery %}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:#F4F6F7;border-radius:10px;width:100%;"><tr><td style="padding:14px 18px;">
+        <div style="color:#56606B;font-size:14px;">Estimated delivery</div>
+        <div style="font-size:20px;font-weight:bold;">{{ order.estimated_delivery|date:"l, F j" }}</div>
+    </td></tr></table>
+    {% endif %}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
         {% for item in order.items.all %}
         <tr><td style="padding:10px 0;border-bottom:1px solid #DDE2E6;">{{ item.product_name }} &times; {{ item.quantity }}</td><td style="padding:10px 0;border-bottom:1px solid #DDE2E6;text-align:right;">{{ item.subtotal|money }}</td></tr>

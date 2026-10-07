@@ -2136,3 +2136,60 @@ class GuestCheckoutTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.user, user)
         self.assertContains(self.client.get(reverse("my_orders")), "Guest Serum")
+
+
+class SavedCartTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("cart", "cart@example.com", "pass12345")
+        self.product = make_product(name="Lip Balm", price=Decimal("4.00"), stock=9)
+
+    def test_cart_follows_account_to_another_device(self):
+        phone = Client()
+        phone.post(reverse("login"), {"username": "cart", "password": "pass12345"})
+        phone.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 2})
+        laptop = Client()
+        laptop.post(reverse("add_to_cart", args=[make_product(name="Other").id]))  # browsing as a visitor
+        laptop.post(reverse("login"), {"username": "cart", "password": "pass12345"})
+        self.assertEqual(laptop.session["cart"][str(self.product.id)], 2)
+        self.assertEqual(len(laptop.session["cart"]), 2)
+        self.assertEqual(len(Profile.objects.get(user=self.user).saved_cart), 2)
+
+    def test_reminder_sent_once_after_a_day(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        self.assertEqual(len(mail.outbox), 0)  # too soon
+        Profile.objects.filter(user=self.user).update(cart_updated_at=timezone.now() - timedelta(hours=25))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Lip Balm", mail.outbox[0].alternatives[0][0])
+
+    def test_no_reminder_when_opted_out_or_ordered(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.utils import timezone
+        self.client.force_login(self.user)
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        self.client.post(reverse("account_privacy"), {"action": "emails"})  # both boxes unticked
+        Profile.objects.filter(user=self.user).update(cart_updated_at=timezone.now() - timedelta(hours=30))
+        call_command("send_cart_reminders", stdout=open(os.devnull, "w"))
+        self.assertEqual(len(mail.outbox), 0)
+        Profile.objects.filter(user=self.user).update(cart_reminders=True)
+        self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        self.assertEqual(Profile.objects.get(user=self.user).saved_cart, {})
+
+
+class BackupTests(TestCase):
+    def test_backup_and_list(self):
+        import tempfile
+        from django.core.management import call_command
+        with tempfile.TemporaryDirectory() as tmp, override_settings(BASE_DIR=tmp, MEDIA_ROOT=os.path.join(tmp, "m")):
+            for _ in range(3):
+                call_command("backup_data", "--keep", "2", stdout=open(os.devnull, "w"))
+            files = os.listdir(os.path.join(tmp, "backups"))
+            self.assertTrue(1 <= len(files) <= 2)
+            self.assertTrue(all(f.startswith("backup-") and f.endswith(".tar.gz") for f in files))

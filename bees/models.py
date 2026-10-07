@@ -566,6 +566,12 @@ class Profile(models.Model):
     # Stripe customer that holds this person's saved cards. Card numbers
     # never touch our servers - Stripe stores them.
     stripe_customer_id = models.CharField(max_length=255, blank=True)
+    # Cart kept with the account so it follows the customer between
+    # devices, and for the "you left something in your cart" reminder.
+    saved_cart = models.JSONField(default=dict, blank=True)
+    cart_updated_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    cart_reminder_sent = models.BooleanField(default=False)
+    cart_reminders = models.BooleanField(default=True, help_text="Email a reminder about items left in the cart.")
 
     POINTS_PER_UNIT = 100  # 100 reward points = 1.00 of store credit
 
@@ -1053,6 +1059,24 @@ def _back_in_stock(sender, instance, **kwargs):
             notify_restocked(instance.pk, None)
         else:
             notify_restocked(instance.product_id, instance.pk)
+
+
+from django.contrib.auth.signals import user_logged_in  # noqa: E402
+
+
+@receiver(user_logged_in)
+def _merge_saved_cart(sender, request, user, **kwargs):
+    """On sign-in, items saved on the account (e.g. from another device)
+    are added to this browser's cart, and the merged cart is saved back."""
+    if request is None or not hasattr(request, "session"):
+        return
+    from .cart import persist
+    profile = Profile.objects.filter(user=user).only("saved_cart").first()
+    cart = dict(request.session.get("cart", {}))
+    for key, qty in ((profile.saved_cart if profile else {}) or {}).items():
+        cart.setdefault(key, qty)
+    request.session["cart"] = cart
+    persist(request, user=user)
 
 
 @receiver([post_save, post_delete], sender=ShippingZone)

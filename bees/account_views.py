@@ -214,6 +214,7 @@ def _seller_block(user):
 def privacy(request):
     email = (request.user.email or "").lower()
     if request.method == "POST" and request.POST.get("action") == "emails":
+        Profile.objects.filter(pk=_profile(request.user).pk).update(cart_reminders=bool(request.POST.get("cart_reminders")))
         wants = bool(request.POST.get("marketing"))
         if wants and email:
             NewsletterSubscriber.objects.get_or_create(email=email)
@@ -225,6 +226,7 @@ def privacy(request):
     return render(request, "bees/account/privacy.html", {
         "tab": "privacy",
         "subscribed": bool(email) and NewsletterSubscriber.objects.filter(email__iexact=email).exists(),
+        "cart_reminders": _profile(request.user).cart_reminders,
         "open_orders": open_orders,
         "seller_block": _seller_block(request.user),
     })
@@ -304,6 +306,7 @@ def delete_account(request):
             NewsletterSubscriber.objects.filter(email__iexact=email).delete()
         Profile.objects.filter(pk=profile.pk).update(
             phone="", stripe_customer_id="", store_credit=0, loyalty_points=0, email_verified=False,
+            saved_cart={}, cart_updated_at=None, cart_reminders=False,
         )
         user.username = f"deleted-{user.pk}-{secrets.token_hex(3)}"
         user.email = ""

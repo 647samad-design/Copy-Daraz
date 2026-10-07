@@ -34,6 +34,7 @@ from .models import (
     Notification, SearchLog, SellerAccount, SellerReview, ReturnRequest, SiteSettings, AuditLog,
     OrganizationMember, ChatThread, ChatMessage, ProductVariant,
 )
+from .cart import persist as _persist_cart
 from .ratelimit import ratelimit
 from .security import (
     safe_next_url, redirect_back, validate_image_upload, validate_document_upload, random_upload_name,
@@ -846,6 +847,7 @@ def add_to_cart(request, pk):
         warning = f"Only {stock} of {name} left in stock."
     cart[key] = new_qty
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
 
     if _is_ajax(request):
@@ -884,6 +886,7 @@ def update_cart_item(request, key):
         elif action == "remove":
             del cart[key]
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
 
     if _is_ajax(request):
@@ -919,6 +922,7 @@ def cart_bulk_remove(request):
     for pid in request.POST.getlist("selected"):
         cart.pop(pid, None)
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
     messages.success(request, "Selected items removed from cart.")
     return redirect("cart")
@@ -1064,6 +1068,7 @@ def checkout_view(request):
             return redirect("cart")
 
         request.session["cart"] = {}
+        _persist_cart(request)
         request.session["coupon_code"] = ""
         if not order.user_id:
             _remember_guest_order(request, order)
@@ -1232,6 +1237,7 @@ def _restore_cart_from_order(request, order):
             key = make_key(item.product_id, item.variant_id)
             cart[key] = cart.get(key, 0) + item.quantity
     request.session["cart"] = cart
+    _persist_cart(request)
     if order.coupon_code and not request.session.get("coupon_code"):
         request.session["coupon_code"] = order.coupon_code
     request.session.modified = True
@@ -1400,6 +1406,7 @@ def buy_again(request, order_id):
         cart[key] = min(cart.get(key, 0) + item.quantity, stock)
         added += 1
     request.session["cart"] = cart
+    _persist_cart(request)
     request.session.modified = True
     if added:
         messages.success(request, f"{added} item(s) added back to your cart.")

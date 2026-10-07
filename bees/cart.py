@@ -69,3 +69,24 @@ def totals(rows):
     total = sum((r["subtotal"] for r in rows), Decimal("0"))
     count = sum(r["qty"] for r in rows)
     return total, count
+
+
+def persist(request, user=None):
+    """Saves the session cart on the signed-in customer's account."""
+    from django.utils import timezone
+    from .models import Profile
+    user = user or request.user
+    if not user or not user.is_authenticated:
+        return
+    cart = request.session.get("cart", {}) or {}
+    profile, _ = Profile.objects.get_or_create(user=user, defaults={"referral_code": _code()})
+    if profile.saved_cart == cart:
+        return
+    Profile.objects.filter(pk=profile.pk).update(
+        saved_cart=cart, cart_updated_at=timezone.now() if cart else None, cart_reminder_sent=False,
+    )
+
+
+def _code():
+    import secrets
+    return secrets.token_hex(4).upper()

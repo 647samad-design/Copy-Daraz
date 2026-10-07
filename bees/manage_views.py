@@ -525,6 +525,153 @@ def coupons(request):
 
 
 # ---------------------------------------------------------------------------
+# System check
+# ---------------------------------------------------------------------------
+
+def _stripe_error_text(exc):
+    text = str(exc)
+    status = getattr(exc, "http_status", None)
+    if status == 401 or "Invalid API Key" in text:
+        return "Stripe rejected the secret key (STRIPE_SECRET_KEY). Copy it again from Stripe > Developers > API keys."
+    if status == 403 or "Forbidden" in text:
+        return "The Supabase relay refused the request. Check RELAY_SECRET matches the end of STRIPE_API_BASE, and that 'Verify JWT' is OFF on the stripe-relay function."
+    if status == 404:
+        return "The relay address wasn't found. Check STRIPE_API_BASE and that the stripe-relay function is deployed."
+    return f"Couldn't reach Stripe: {text[:300]}"
+
+
+@staff_required
+def system_check(request):
+    from django.conf import settings as dj
+    from django.core.mail import EmailMultiAlternatives
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+    from .alerts import EMAIL_FAILED, REFUND_FAILED, STRIPE_EVENT
+    from .management.commands.backup_data import list_backups
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "email":
+            to = request.POST.get("to", "").strip() or request.user.email
+            try:
+                msg = EmailMultiAlternatives(f"Test email from {SiteSettings.load().site_name}",
+                                             "If you can read this, your store can send emails.", None, [to])
+                msg.send(fail_silently=False)
+                if dj.EMAIL_BACKEND.endswith("console.EmailBackend"):
+                    messages.error(request, "Email isn't set up: messages are only printed to the server log. Add EMAIL_HOST_USER and EMAIL_HOST_PASSWORD (Gmail app password) to .env and reload.")
+                else:
+                    messages.success(request, f"Test email sent to {to}. Check the inbox (and spam folder).")
+            except Exception as exc:
+                hint = ""
+                if "535" in str(exc) or "Username and Password not accepted" in str(exc):
+                    hint = " Gmail refused the login: use a 16-letter App Password (not your normal password) and make sure 2-Step Verification is on."
+                messages.error(request, f"Sending failed: {type(exc).__name__}: {str(exc)[:300]}.{hint}")
+        elif action == "stripe":
+            if not payments.is_configured():
+                messages.error(request, "STRIPE_SECRET_KEY isn't set in .env.")
+            else:
+                try:
+                    payments._stripe().Balance.retrieve()
+                    messages.success(request, "Stripe connection works" + (" through the Supabase relay." if dj.STRIPE_API_BASE else "."))
+                except Exception as exc:
+                    messages.error(request, _stripe_error_text(exc))
+        elif action == "storage":
+            from django.core.files.base import ContentFile
+            from django.core.files.storage import default_storage
+            try:
+                name = default_storage.save("healthcheck/test.txt", ContentFile(b"ok"))
+                default_storage.delete(name)
+                messages.success(request, "Image storage works (" + ("Supabase Storage" if dj.USE_SUPABASE_STORAGE else "this server's disk") + ").")
+            except Exception as exc:
+                messages.error(request, f"Image storage failed: {str(exc)[:300]}")
+        return redirect("manage_system")
+
+    checks = []
+
+    def add(group, name, ok, detail, level=None):
+        checks.append({"group": group, "name": name, "level": level or ("ok" if ok else "bad"), "detail": detail})
+
+    # Database
+    db = dj.DATABASES["default"]
+    engine = "SQLite file on this server" if db["ENGINE"].endswith("sqlite3") else "PostgreSQL (Supabase)" if "postgres" in db["ENGINE"] else db["ENGINE"]
+    try:
+        executor = MigrationExecutor(connection)
+        pending = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        add("Database", "Connection", True, f"{engine}. {Order.objects.count()} orders, {Product.objects.count()} products, {User.objects.count()} accounts.")
+        add("Database", "Up to date", not pending, "All updates applied." if not pending else f"{len(pending)} update(s) not applied. Run: python manage.py migrate")
+    except Exception as exc:
+        add("Database", "Connection", False, str(exc)[:300])
+
+    # Email
+    console = dj.EMAIL_BACKEND.endswith("console.EmailBackend")
+    add("Email", "Sending", not console,
+        "Not set up - customers get NO emails. Add EMAIL_HOST_USER and EMAIL_HOST_PASSWORD to .env." if console
+        else f"Sending through {getattr(dj, 'EMAIL_HOST', '')} as {dj.DEFAULT_FROM_EMAIL}.")
+    week_ago = timezone.now() - timedelta(days=7)
+    failures = AuditLog.objects.filter(action__startswith=EMAIL_FAILED, created_at__gte=week_ago)
+    last_fail = failures.order_by("-created_at").first()
+    add("Email", "Failures (7 days)", not failures.exists(),
+        "None." if not last_fail else f"{failures.count()} failed. Latest: {last_fail.action[len(EMAIL_FAILED) + 2:][:220]}",
+        level=None if not last_fail else "bad")
+
+    # Payments
+    stripe_on = payments.is_configured()
+    key = getattr(dj, "STRIPE_SECRET_KEY", "")
+    add("Payments", "Stripe", stripe_on,
+        ("Live mode - real cards are charged." if key.startswith(("sk_live", "rk_live")) else "Test mode - use card 4242 4242 4242 4242.") if stripe_on
+        else "Not set up - only cash on delivery is offered.", level=None if stripe_on else "warn")
+    if stripe_on:
+        add("Payments", "Webhook secret", payments.webhook_configured(),
+            "Set." if payments.webhook_configured() else "STRIPE_WEBHOOK_SECRET missing - paid orders won't be confirmed automatically.")
+        last = SiteSettings.objects.filter(pk=1).values_list("stripe_last_webhook", flat=True).first()
+        add("Payments", "Last message from Stripe", bool(last),
+            timezone.localtime(last).strftime("%b %d, %Y %H:%M") if last else "None yet. After a test payment this should show a time; if not, check the webhook URL in Stripe.",
+            level=None if last else "warn")
+        add("Payments", "Route", True, "Through the Supabase relay (PythonAnywhere free)." if dj.STRIPE_API_BASE else "Direct to api.stripe.com.", level="ok")
+    stuck = Order.objects.filter(payment_status="pending", created_at__lt=timezone.now() - timedelta(hours=2)).count()
+    add("Payments", "Unpaid card orders older than 2 hours", stuck == 0,
+        "None." if not stuck else f"{stuck} - the daily task or Stripe's 'expired' webhook releases them.", level=None if not stuck else "warn")
+    refund_fail = AuditLog.objects.filter(action__startswith=REFUND_FAILED, created_at__gte=week_ago)
+    add("Payments", "Failed refunds (7 days)", not refund_fail.exists(),
+        "None." if not refund_fail.exists() else "; ".join(a.action[len(REFUND_FAILED) + 2:][:120] for a in refund_fail[:3]))
+    stripe_events = AuditLog.objects.filter(action__startswith=STRIPE_EVENT, created_at__gte=week_ago)
+    if stripe_events.exists():
+        add("Payments", "Stripe notices (7 days)", False, "; ".join(a.action[len(STRIPE_EVENT) + 2:][:120] for a in stripe_events[:3]), level="warn")
+
+    # Files & backups
+    add("Files & backups", "Image storage", True, "Supabase Storage." if dj.USE_SUPABASE_STORAGE else "This server's disk.", level="ok")
+    try:
+        backups = list_backups()
+    except Exception as exc:
+        backups = []
+        add("Files & backups", "Backups", False, f"Couldn't list backups: {str(exc)[:200]}")
+    else:
+        if backups:
+            from datetime import datetime
+            stamp = datetime.strptime(backups[0][7:20], "%Y%m%d-%H%M")
+            age = (timezone.now().replace(tzinfo=None) - stamp).days
+            add("Files & backups", "Backups", age <= 2, f"{len(backups)} kept. Newest: {stamp:%b %d, %Y %H:%M} UTC." + (" Older than 2 days - is the daily task running?" if age > 2 else ""))
+        else:
+            add("Files & backups", "Backups", False, "No backups yet. Add the daily task on PythonAnywhere (Tasks tab): cd ~/Lumen-Market && venv/bin/python manage.py daily_tasks")
+
+    # Security
+    add("Security", "Debug mode", not dj.DEBUG, "Off." if not dj.DEBUG else "ON - turn DEBUG off in .env on the live site.")
+    staff = User.objects.filter(is_staff=True, is_active=True)
+    without = [u.username for u in staff if not getattr(getattr(u, "profile", None), "totp_enabled", False)]
+    add("Security", "Staff two-step sign-in", not without, "All staff use it." if not without else f"Not set up: {', '.join(without[:5])}.",
+        level=None if not without else "warn")
+
+    groups = {}
+    for c in checks:
+        groups.setdefault(c["group"], []).append(c)
+    return _render(request, "system.html", {
+        "section": "system", "groups": groups,
+        "problems": sum(1 for c in checks if c["level"] == "bad"),
+        "warnings": sum(1 for c in checks if c["level"] == "warn"),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Shipping zones
 # ---------------------------------------------------------------------------
 

@@ -102,8 +102,9 @@ def send(order, kind):
         email.attach_alternative(html, "text/html")
         email.send(fail_silently=False)
         return True
-    except Exception:
-        logger.exception("Could not send '%s' email for order #%s", kind, order.pk)
+    except Exception as exc:
+        from .alerts import email_failed
+        email_failed(SUBJECTS.get(kind, kind).format(id=order.pk), recipient, exc)
         return False
 
 

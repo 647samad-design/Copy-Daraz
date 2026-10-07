@@ -1,0 +1,39 @@
+{% extends "bees/manage/base.html" %}
+{% block page_title %}System check{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><h1>System check</h1><p>Is everything connected and working on the live site? Test email and payments here after any change to <code>.env</code>.</p></div>
+    <div class="actions">{% if problems %}<span class="pill bad">{{ problems }} problem{{ problems|pluralize }}</span>{% elif warnings %}<span class="pill warn">{{ warnings }} to look at</span>{% else %}<span class="pill ok">All good</span>{% endif %}</div>
+</div>
+<section class="panel" style="margin-bottom:16px;">
+    <h2>Run a live test</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px;">
+        <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">{% csrf_token %}<input type="hidden" name="action" value="email">
+            <div class="field" style="min-width:240px;"><label for="to">Send a test email to</label><input class="input" id="to" type="email" name="to" value="{{ request.user.email }}" placeholder="you@example.com"></div>
+            <button class="btn btn-secondary btn-sm">Send test email</button>
+        </form>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="stripe"><button class="btn btn-secondary btn-sm">Test Stripe connection</button></form>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="storage"><button class="btn btn-secondary btn-sm">Test image storage</button></form>
+    </div>
+</section>
+<div class="col-stack">
+{% for group, items in groups.items %}
+<section class="panel">
+    <h2>{{ group }}</h2>
+    <div class="table-scroll">
+    <table class="table" style="min-width:480px;">
+        <tbody>
+        {% for c in items %}
+        <tr>
+            <td style="width:34%;"><strong>{{ c.name }}</strong></td>
+            <td style="width:90px;">{% if c.level == "ok" %}<span class="pill ok">OK</span>{% elif c.level == "warn" %}<span class="pill warn">Check</span>{% else %}<span class="pill bad">Problem</span>{% endif %}</td>
+            <td class="small">{{ c.detail }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endfor %}
+</div>
+{% endblock %}

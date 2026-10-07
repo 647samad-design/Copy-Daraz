@@ -387,7 +387,9 @@ def mark_order_paid(order_id, session):
             order.payment_status = "refunded" if refunded else "paid"
             order.save(update_fields=["payment_status", "payment_method", "cod_fallback", "stripe_payment_intent"])
             if not refunded:
-                logger.error("Order %s was paid after being cancelled and the automatic refund failed - refund it in Stripe.", order.id)
+                from .alerts import REFUND_FAILED, notify_staff
+                notify_staff(f"Order #{order.id} was paid after being cancelled and the automatic refund failed. Refund it in Stripe.",
+                             link=f"/manage/orders/{order.id}/", category=REFUND_FAILED)
             if order.user_id:
                 from .models import Notification
                 Notification.objects.create(

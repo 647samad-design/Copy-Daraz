@@ -6,8 +6,8 @@
         <h2 style="margin-top:4px;">{{ product.name }}</h2>
         {% if product.rating_count %}<div class="pcard-meta"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span> {{ product.average_rating }} · {{ product.rating_count }} review{{ product.rating_count|pluralize }}</div>{% endif %}
         <div class="pcard-price">
-            <span class="price" style="font-size:1.6rem;">{{ product.price|money }}</span>
-            {% if product.old_price %}<span class="price-was">{{ product.old_price|money }}</span>{% endif %}
+            <span class="price" style="font-size:1.6rem;">{{ product.price|price }}</span>
+            {% if product.old_price %}<span class="price-was">{{ product.old_price|price }}</span>{% endif %}
             {% if product.discount_percent %}<span class="price-off">Save {{ product.discount_percent }}%</span>{% endif %}
         </div>
         {% if product.description %}<p class="muted">{{ product.description|truncatewords:36 }}</p>{% endif %}

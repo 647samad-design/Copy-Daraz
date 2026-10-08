@@ -70,7 +70,7 @@
                 {% csrf_token %}
                 {% if only_seller %}
                 <div class="form-grid">
-                    <div class="field"><label for="courier">Courier</label><input id="courier" type="text" name="courier_name" maxlength="60" value="{{ order.courier_name }}" placeholder="e.g. DHL, FedEx, UPS"></div>
+                    <div class="field"><label for="courier">Courier</label><input id="courier" type="text" name="courier_name" maxlength="60" value="{{ order.courier_name }}" placeholder="e.g. DHL, FedEx, UPS" list="courier-list" autocomplete="off">{% courier_names as couriers %}<datalist id="courier-list">{% for c in couriers %}<option value="{{ c }}">{% endfor %}</datalist></div>
                     <div class="field"><label for="tracking">Tracking number</label><input id="tracking" type="text" name="tracking_number" maxlength="60" value="{{ order.tracking_number }}" placeholder="Shown to the customer"></div>
                 </div>
                 {% else %}<p class="muted small">This order has several sellers, so the store adds the tracking number. Just update your items.</p>{% endif %}
@@ -97,7 +97,7 @@
             <dl class="kv">
                 <dt>Expected by</dt><dd>{{ order.estimated_delivery|date:"M j, Y"|default:"—" }}</dd>
                 <dt>Courier</dt><dd>{{ order.courier_name|default:"—" }}</dd>
-                <dt>Tracking</dt><dd>{{ order.tracking_number|default:"—" }}</dd>
+                <dt>Tracking</dt><dd>{{ order.tracking_number|default:"—" }}{% if order.tracking_link %} · <a class="link" href="{{ order.tracking_link }}" target="_blank" rel="noopener">Track</a>{% endif %}</dd>
                 {% if order.delivered_at %}<dt>Delivered</dt><dd>{{ order.delivered_at|date:"M j, Y" }}</dd>{% endif %}
             </dl>
         </section>

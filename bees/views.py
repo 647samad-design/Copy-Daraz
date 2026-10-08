@@ -41,7 +41,7 @@ from .ratelimit import ratelimit
 from .security import (
     safe_next_url, redirect_back, validate_image_upload, validate_document_upload, random_upload_name,
 )
-from .templatetags.bees_extras import country_name, money
+from .templatetags.bees_extras import country_name, money, price as display_price
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 def with_ratings(queryset):
     """Annotate a Product queryset with avg_rating/review_count in one query,
     instead of each product template tag hitting the DB separately (N+1)."""
-    return queryset.annotate(
+    return queryset.select_related("seller_account").annotate(
         avg_rating=Avg("reviews__rating"),
         review_count=Count("reviews", distinct=True),
     )
@@ -223,7 +223,7 @@ def home(request):
     query = request.GET.get("q", "").strip()
     if query:
         return redirect(f"{reverse('search_products')}?{urlencode({'q': query})}")
-    flash_sale_products = with_ratings(Product.objects.live().filter(is_flash_sale=True))[:10]
+    flash_sale_products = with_ratings(Product.objects.flash())[:10]
     just_for_you_products = with_ratings(Product.objects.live()).order_by("-created_at")[:15]
     return render(request, "bees/index.html", {
         "flash_sale_products": flash_sale_products,
@@ -276,11 +276,15 @@ def product_detail(request, pk):
     variant_sizes = list(dict.fromkeys(v.size for v in variants if v.size))
     variant_colors = list(dict.fromkeys(v.color for v in variants if v.color))
     variants_json = [
-        {"id": v.id, "size": v.size, "color": v.color, "stock": v.stock, "price": money(v.unit_price), "label": v.label}
+        {"id": v.id, "size": v.size, "color": v.color, "stock": v.stock, "price": display_price(v.unit_price), "label": v.label}
         for v in variants
     ]
     from . import shipping as shipping_rules
-    has_shipping_zones = "flat" not in shipping_rules.table()
+    ship_table = shipping_rules.table()
+    has_shipping_zones = "flat" not in ship_table
+    ship_country = request.session.get("ship_country", "")
+    if not ship_country and request.user.is_authenticated:
+        ship_country = Address.objects.filter(user=request.user, is_default=True).values_list("country", flat=True).first() or ""
     related_products = with_ratings(Product.objects.live().filter(category=product.category).exclude(pk=product.pk))[:6]
     questions = product.questions.all()
 
@@ -305,6 +309,8 @@ def product_detail(request, pk):
         "variant_colors": variant_colors,
         "variants_json": variants_json,
         "has_shipping_zones": has_shipping_zones,
+        "ship_table": {**ship_table, "default_days": _brand().delivery_days},
+        "ship_country": ship_country,
         "related_products": related_products,
         "questions": questions,
         "recently_viewed": recently_viewed,
@@ -584,7 +590,9 @@ def signup_view(request):
             with transaction.atomic():
                 user = User.objects.create_user(username=username, email=email, password=password)
                 code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-                ref = (request.GET.get("ref") or request.POST.get("ref", ""))[:12]
+                ref = (request.GET.get("ref") or request.POST.get("ref", "") or request.session.get("ref", ""))[:12].strip().upper()
+                if not _brand().referral_enabled or not Profile.objects.filter(referral_code=ref).exists():
+                    ref = ""
                 Profile.objects.create(user=user, referral_code=code, referred_by=ref)
                 if ref:
                     _reward_referral(ref, user)
@@ -641,12 +649,16 @@ def _reward_referral(ref, new_user):
     referrer_profile = Profile.objects.filter(referral_code=ref).exclude(user=new_user).first()
     if not referrer_profile:
         return
+    percent = _brand().referral_friend_percent
+    if not percent:
+        return
     new_user_coupon_code = "WELCOME-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    Coupon.objects.create(code=new_user_coupon_code, percent_off=10, usage_limit=1, per_user_limit=1,
-                          expiry_date=timezone.localdate() + timedelta(days=60))
+    Coupon.objects.create(code=new_user_coupon_code, percent_off=percent, usage_limit=1, per_user_limit=1,
+                          expiry_date=timezone.localdate() + timedelta(days=60),
+                          owner=new_user, purpose="referral_welcome")
     Notification.objects.create(
         user=new_user,
-        message=f"Welcome! Here's 10% off your first order: {new_user_coupon_code}",
+        message=f"Welcome! Here's {percent}% off your first order: {new_user_coupon_code}",
         link="/cart/",
     )
 
@@ -871,6 +883,16 @@ def notifications_list(request):
     return render(request, "bees/notifications.html", {"notifications": notifications})
 
 
+def set_currency(request, code):
+    from . import currency
+    code = code.upper()
+    if code == currency.store_code():
+        request.session.pop(currency.SESSION_KEY, None)
+    elif currency.get(code):
+        request.session[currency.SESSION_KEY] = code
+    return redirect_back(request, "home")
+
+
 def set_language(request, lang_code):
     from .translations import TRANSLATIONS
     if lang_code in TRANSLATIONS:
@@ -1072,7 +1094,7 @@ def _payment_methods():
     return methods
 
 
-def _price_cart(subtotal, coupon=None, country=None):
+def _price_cart(subtotal, coupon=None, country=None, items=1):
     """Returns the full price breakdown for a cart subtotal. Shipping
     depends on the destination country; ``shipping`` is None while the
     country isn't known, and ``ships`` is False if we don't deliver there."""
@@ -1084,7 +1106,7 @@ def _price_cart(subtotal, coupon=None, country=None):
     discounted = max(subtotal - discount, Decimal("0"))
     # Free-shipping thresholds are checked against what the customer
     # actually pays for the goods (after the coupon).
-    quote = shipping_rules.quote(country, discounted) if subtotal else {"ships": True, "fee": Decimal("0"), "zone": None}
+    quote = shipping_rules.quote(country, discounted, items) if subtotal else {"ships": True, "fee": Decimal("0"), "zone": None}
     shipping = quote["fee"]
     tax = (discounted * Decimal(brand.tax_percent or 0) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
@@ -1127,7 +1149,7 @@ def checkout_view(request):
 
     coupon, coupon_error = _session_coupon(request, subtotal)
     default_address = Address.objects.filter(user=request.user, is_default=True).first() if request.user.is_authenticated else None
-    pricing = _price_cart(subtotal, coupon, default_address.country if default_address else None)
+    pricing = _price_cart(subtotal, coupon, default_address.country if default_address else None, count)
     methods = _payment_methods()
 
     if request.method == "POST":
@@ -1143,7 +1165,7 @@ def checkout_view(request):
         data = {f: request.POST.get(f, "").strip() for f in CHECKOUT_REQUIRED + ("state",)}
         data["country"] = data["country"].upper()[:2]
         missing = [f.replace("_", " ") for f in CHECKOUT_REQUIRED if not data[f]]
-        pricing = _price_cart(subtotal, coupon, data["country"])
+        pricing = _price_cart(subtotal, coupon, data["country"], count)
         try:
             if missing:
                 raise ValidationError(f"Please fill in: {', '.join(missing)}.")
@@ -1208,7 +1230,7 @@ def _checkout_context(request, items, pricing, coupon, methods, form=None):
     checkout_data = {
         "subtotal": str(pricing["subtotal"]), "discount": str(pricing["discount"]), "tax": str(pricing["tax"]),
         "credit": str(credit), "currency": settings.STORE_CURRENCY.upper(),
-        "shipping": shipping_rules.table(), "card": "card" in methods,
+        "shipping": shipping_rules.table(), "card": "card" in methods, "items": sum(i["qty"] for i in items),
     }
     return {
         "checkout_data": checkout_data,
@@ -1258,6 +1280,7 @@ def _place_order(request, items, data, payment_method, use_credit=False):
                 if item["qty"] > product.stock:
                     raise CheckoutError(f"Sorry, only {product.stock} of {product.name} left in stock. Please update your cart.")
                 price = product.price
+            price = product.bulk_unit_price(price, item["qty"])
             subtotal += price * item["qty"]
             lines.append((product, variant, price, item["qty"]))
 
@@ -1270,7 +1293,7 @@ def _place_order(request, items, data, payment_method, use_credit=False):
                 if not is_valid:
                     raise CheckoutError(error)
 
-        pricing = _price_cart(subtotal, coupon, data["country"])
+        pricing = _price_cart(subtotal, coupon, data["country"], sum(qty for _p, _v, _price, qty in lines))
         if not pricing["ships"]:
             raise CheckoutError("Sorry, we don't deliver to that country yet.")
         is_card = payment_method == "card"
@@ -1955,10 +1978,17 @@ def _product_fields_from_post(request):
         validate_image_upload(uploaded)
         from .images import save_public
         image_url = save_public(uploaded, "products")
+    bulk_qty = _parse_int(request.POST.get("bulk_min_qty") or "0", "Quantity offer: minimum quantity", minimum=0, maximum=1000)
+    bulk_pct = _parse_int(request.POST.get("bulk_percent") or "0", "Quantity offer: discount", minimum=0, maximum=50)
+    if bulk_qty == 1:
+        raise ValidationError("Quantity offer: the minimum quantity should be 2 or more.")
+    if bool(bulk_qty) != bool(bulk_pct):
+        raise ValidationError("Quantity offer: fill in both the quantity and the discount, or leave both empty.")
     return {
         "name": name, "category": category, "price": price, "old_price": old_price,
         "discount_percent": discount, "stock": stock, "image_url": image_url,
         "description": request.POST.get("description", "").strip()[:10000],
+        "bulk_min_qty": bulk_qty or None, "bulk_percent": bulk_pct,
     }
 
 
@@ -2390,3 +2420,13 @@ def demo_login(request, role):
         "admin": "You're in the store admin demo. Store settings are read-only here; everything else works.",
     }[role])
     return redirect(target)
+
+
+@require_POST
+def remember_ship_country(request):
+    """Remembers the country picked in the product page delivery estimate."""
+    code = request.POST.get("country", "").upper()[:2]
+    from .countries import COUNTRIES
+    if code in dict(COUNTRIES) or code == "":
+        request.session["ship_country"] = code
+    return JsonResponse({"ok": True})

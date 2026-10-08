@@ -30,7 +30,7 @@
         <div class="store-hero-body">
             {% if seller_account.store_logo %}<img class="store-logo" src="{{ seller_account.store_logo.url }}" alt="">{% else %}<span class="store-initial" aria-hidden="true">{{ seller_name|first|upper }}</span>{% endif %}
             <div style="min-width:0;flex:1;">
-                <h1>{{ seller_name }}{% if seller_account.has_badge %} <span class="pro-badge" title="This seller is on a Pro plan">★ Pro seller</span>{% endif %}</h1>
+                <h1>{{ seller_name }}{% if seller_account.has_badge %} <span class="pro-badge" title="This seller is on a Pro plan">★ Pro seller</span>{% endif %}{% if seller_account.verified_at %} <span class="seller-badge verified">✓ {{ t.verified_seller }}</span>{% endif %}{% if seller_account.top_seller %} <span class="seller-badge top">★ {{ t.top_seller }}</span>{% endif %}</h1>
                 {% if seller_account.store_description %}<p>{{ seller_account.store_description|truncatewords:40 }}</p>{% endif %}
                 <div class="store-facts">
                     {% if stats.n %}<span>★ {{ stats.avg|floatformat:1 }} ({{ stats.n }} review{{ stats.n|pluralize }})</span>{% endif %}
@@ -40,6 +40,7 @@
                     {% if seller_account.country %}<span>Ships from {{ seller_account.city|default:"" }}{% if seller_account.city %}, {% endif %}{{ seller_account.country }}</span>{% endif %}
                     {% if seller_account %}<span>Selling since {{ seller_account.created_at|date:"Y" }}</span>{% endif %}
                 </div>
+                {% if seller_account and seller_account.status == "approved" %}<a class="btn btn-secondary btn-sm" style="margin-top:12px;" href="{% url 'message_store' seller_account.id %}" rel="nofollow">💬 {{ t.message_seller }}</a>{% endif %}
             </div>
         </div>
     </section>

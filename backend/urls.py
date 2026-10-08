@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.sitemaps.views import sitemap
 from django.views.generic import TemplateView
 from bees import views
+from bees import messaging as msgs
 from bees import account_views
 from bees import manage_views as mv
 from bees import seller_views as sv
@@ -63,8 +64,24 @@ urlpatterns = [
     path('order/<int:pk>/cancel/', views.cancel_order, name='cancel_order'),
     path('order-item/<int:item_id>/return/', views.request_return, name='request_return'),
     path('wishlist/', views.wishlist_view, name='wishlist'),
+    path('messages/', msgs.inbox, name='messages_inbox'),
+    path('messages/<int:pk>/', msgs.conversation, name='conversation'),
+    path('messages/<int:pk>/send/', msgs.send_view, name='message_send'),
+    path('messages/<int:pk>/poll/', msgs.poll_view, name='message_poll'),
+    path('messages/<int:pk>/report/', msgs.report_view, name='message_report'),
+    path('product/<int:pk>/message/', msgs.message_about_product, name='message_seller'),
+    path('store-message/<int:seller_id>/', msgs.message_store, name='message_store'),
+    path('seller/messages/', sv.messages_inbox, name='seller_messages'),
+    path('seller/messages/<int:pk>/', sv.conversation, name='seller_conversation'),
+    path('manage/messages/', mv.conversations, name='manage_conversations'),
+    path('manage/messages/<int:pk>/', mv.conversation_detail, name='manage_conversation'),
+    path('manage/currencies/', mv.currencies, name='manage_currencies'),
+    path('manage/referrals/', mv.referrals, name='manage_referrals'),
+    path('account/referrals/', account_views.referrals, name='referrals'),
     path('wishlist/toggle/<int:pk>/', views.toggle_wishlist, name='toggle_wishlist'),
     path('set-language/<str:lang_code>/', views.set_language, name='set_language'),
+    path('set-currency/<str:code>/', views.set_currency, name='set_currency'),
+    path('api/ship-country/', views.remember_ship_country, name='remember_ship_country'),
     path('help/', views.help_support, name='help_support'),
     path('sell/', views.sell_on_bees, name='sell_on_bees'),
     path('about/', views.about_us, name='about_us'),

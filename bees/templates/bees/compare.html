@@ -14,7 +14,7 @@
     <div class="panel table-scroll">
         <table class="table cmp">
             <tr><th scope="row">Product</th>{% for p in products %}<td><img src="{{ p.image_url }}" alt=""><a class="link" href="{% url 'product_detail' p.id %}">{{ p.name }}</a><br><a href="{% url 'toggle_compare' p.id %}" class="muted small">Remove</a></td>{% endfor %}</tr>
-            <tr><th scope="row">Price</th>{% for p in products %}<td><span class="price">{{ p.price|money }}</span>{% if p.old_price %} <span class="price-was">{{ p.old_price|money }}</span>{% endif %}</td>{% endfor %}</tr>
+            <tr><th scope="row">Price</th>{% for p in products %}<td><span class="price">{{ p.price|price }}</span>{% if p.old_price %} <span class="price-was">{{ p.old_price|price }}</span>{% endif %}</td>{% endfor %}</tr>
             <tr><th scope="row">Rating</th>{% for p in products %}<td>{% if p.rating_count %}<span class="stars">{{ p.average_rating|stars }}</span> {{ p.average_rating }} ({{ p.rating_count }}){% else %}<span class="muted">No reviews</span>{% endif %}</td>{% endfor %}</tr>
             <tr><th scope="row">Category</th>{% for p in products %}<td>{{ p.get_category_display }}</td>{% endfor %}</tr>
             <tr><th scope="row">Availability</th>{% for p in products %}<td>{% if p.stock > 0 %}<span class="badge badge-ok">In stock</span>{% else %}<span class="badge badge-sale">Out of stock</span>{% endif %}</td>{% endfor %}</tr>

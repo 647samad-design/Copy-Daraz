@@ -65,3 +65,16 @@ class DemoGuardMiddleware:
                 from .security import safe_next_url
                 return redirect(safe_next_url(request, request.META.get("HTTP_REFERER"), request.path))
         return self.get_response(request)
+
+
+class ReferralCaptureMiddleware:
+    """Remembers ?ref=CODE from any shared link (product, store, home) so
+    the friend is credited when they sign up later in the visit."""
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        ref = request.GET.get("ref", "")
+        if ref and 4 <= len(ref) <= 12 and ref.isalnum() and not request.user.is_authenticated:
+            request.session["ref"] = ref.upper()
+        return self.get_response(request)

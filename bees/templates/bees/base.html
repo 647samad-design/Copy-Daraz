@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 {% load bees_extras static %}
-<html lang="{{ current_lang|default:'en' }}" dir="{% if current_lang == 'ur' %}rtl{% else %}ltr{% endif %}">
+<html lang="{% if current_lang == 'roman' %}ur-Latn{% else %}{{ current_lang|default:'en' }}{% endif %}" dir="{{ text_dir|default:'ltr' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -70,6 +70,25 @@
         [hidden] { display: none !important; } /* layout rules (display:grid/flex) must never un-hide an element */
         .demo-ribbon { background: #111827; color: #F9FAFB; text-align: center; font-size: .86rem; padding: 6px 12px; }
         .demo-ribbon a { color: #FCD34D; font-weight: 700; }
+        .locale-menu .menu-label { display: block; padding: 8px 14px 2px; font-size: .75rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+        .locale-menu .menu-panel { max-height: min(70vh, 560px); overflow-y: auto; }
+        .locale-menu .menu-panel a { gap: 6px; }
+        .locale-menu .menu-panel a.on { font-weight: 800; color: var(--brand); }
+        html[data-theme="dark"] .locale-menu .menu-panel a.on { color: var(--accent); }
+        .deal-timer { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 12px; border-radius: 999px; background: color-mix(in srgb, var(--sale) 10%, var(--surface)); color: var(--sale); font-weight: 700; font-size: .95rem; }
+        .deal-timer strong { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+        .bulk-offer { margin-top: 10px; display: inline-block; padding: 6px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--ok) 10%, var(--surface)); color: var(--ok); font-weight: 700; font-size: .95rem; }
+        .pcard-timer { display: inline-flex; gap: 4px; color: var(--sale); font-weight: 700; font-size: .82rem; font-variant-numeric: tabular-nums; }
+        .pcard-bulk { display: block; color: var(--ok); font-weight: 700; font-size: .8rem; }
+        .ship-est select { min-height: 38px; padding: 4px 8px; max-width: 100%; }
+        .ship-est > span:last-child { display: grid; gap: 6px; justify-items: end; text-align: right; min-width: 0; }
+        .ship-result.ok { color: var(--ok); font-weight: 700; }
+        .ship-result.bad { color: var(--sale); font-weight: 700; }
+        .seller-badge { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; padding: 1px 8px; border-radius: 999px; font: 800 .72rem/1.5 var(--font-body, system-ui, sans-serif); white-space: nowrap; }
+        .seller-badge.verified { background: color-mix(in srgb, var(--ok) 14%, var(--surface)); color: var(--ok); }
+        .seller-badge.top { background: color-mix(in srgb, #B07400 16%, var(--surface)); color: #8A5A00; }
+        html[data-theme="dark"] .seller-badge.top { color: #F2C26B; }
+        .link-btn { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
         .smart-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 8px; vertical-align: middle; }
         .smart-chips span { padding: 2px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); font-size: .82rem; font-weight: 700; }
         .pro-badge { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; padding: 2px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font: 800 0.72rem/1.4 var(--font-body, system-ui, sans-serif); letter-spacing: .02em; white-space: nowrap; }
@@ -500,6 +519,8 @@
                         <div class="menu-head"><strong>{{ user.get_full_name|default:user.username }}</strong><span class="muted small">{{ user.email }}</span></div>
                         <a href="{% url 'my_orders' %}">{{ t.my_orders }}</a>
                         <a href="{% url 'notifications_list' %}">Notifications{% if unread_notifications_count %} ({{ unread_notifications_count }}){% endif %}</a>
+                        <a href="{% url 'messages_inbox' %}">{{ t.messages }}{% if buyer_unread_messages %} ({{ buyer_unread_messages }}){% endif %}</a>
+                        {% if brand.referral_enabled %}<a href="{% url 'referrals' %}">{{ t.invite_friends }}</a>{% endif %}
                         <a href="{% url 'profile' %}">Account &amp; addresses</a>
                         <a href="{% url 'payment_methods' %}">Saved cards</a>
                         <a href="{% url 'account_security' %}">Password &amp; security</a>
@@ -529,13 +550,19 @@
                     <span class="icon-label">Cart</span>
                     {% if cart_count %}<span class="count cart-count">{{ cart_count }}</span>{% endif %}
                 </a>
-                {% if brand.show_language_menu %}
-                <details class="menu">
-                    <summary class="icon-btn" aria-label="Language">{{ language_names|get_item:current_lang }}</summary>
+                {% if brand.show_language_menu or currencies %}
+                <details class="menu locale-menu">
+                    <summary class="icon-btn" aria-label="{{ t.language }} / {{ t.currency }}">{% if brand.show_language_menu %}{{ current_lang|upper|slice:":2" }}{% endif %}{% if brand.show_language_menu and currencies %} · {% endif %}{% if currencies %}{{ current_currency }}{% endif %}</summary>
                     <div class="menu-panel">
-                        <a href="{% url 'set_language' 'en' %}">English</a>
-                        <a href="{% url 'set_language' 'ur' %}">اردو</a>
-                        <a href="{% url 'set_language' 'roman' %}">Roman Urdu</a>
+                        {% if brand.show_language_menu %}
+                        <span class="menu-label">{{ t.language }}</span>
+                        {% for code, name in language_names.items %}<a href="{% url 'set_language' code %}" lang="{{ code }}" {% if code == current_lang %}aria-current="true" class="on"{% endif %}>{{ name }}</a>{% endfor %}
+                        {% endif %}
+                        {% if currencies %}
+                        <span class="menu-label">{{ t.currency }}</span>
+                        <a href="{% url 'set_currency' store_currency_code %}" {% if current_currency == store_currency_code %}aria-current="true" class="on"{% endif %}>{{ store_currency_code }}</a>
+                        {% for c in currencies %}<a href="{% url 'set_currency' c.code %}" {% if current_currency == c.code %}aria-current="true" class="on"{% endif %}>{{ c.code }} <span class="muted">{{ c.symbol }}</span></a>{% endfor %}
+                        {% endif %}
                     </div>
                 </details>
                 {% endif %}
@@ -936,6 +963,24 @@
             });
             window.addEventListener('pageshow', function () { bar.classList.remove('active'); });
         })();
+    </script>
+    <script>
+    (function () {
+        var timers = document.querySelectorAll('[data-ends]');
+        if (!timers.length) return;
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+        function tick() {
+            var now = Date.now();
+            timers.forEach(function (el) {
+                var left = Math.max(0, Math.floor((new Date(el.dataset.ends).getTime() - now) / 1000));
+                var out = el.querySelector('[data-timer]') || el;
+                if (!left) { el.hidden = true; return; }
+                var d = Math.floor(left / 86400), h = Math.floor(left % 86400 / 3600), m = Math.floor(left % 3600 / 60), s = left % 60;
+                out.textContent = (d ? d + 'd ' : '') + pad(h) + ':' + pad(m) + ':' + pad(s);
+            });
+        }
+        tick(); setInterval(tick, 1000);
+    })();
     </script>
     {% block extra_js %}{% endblock %}
 </body>

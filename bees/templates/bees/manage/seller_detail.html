@@ -66,6 +66,14 @@
             </form>
             <p class="muted small" style="margin-top:8px;">The rate drops automatically as their lifetime sales grow{% if seller.active_plan.commission_discount %} and their {{ seller.active_plan.name }} plan takes {{ seller.active_plan.commission_discount|floatformat:"-2" }}% off{% endif %}.</p>
         </section>
+        <section class="panel" id="badges">
+            <h2>Badges</h2>
+            <div class="list-row"><span><span class="seller-badge verified">✓ Verified seller</span></span>
+                <form method="post" style="margin:0;">{% csrf_token %}{% if seller.verified_at %}<span class="muted small">since {{ seller.verified_at|date:"M j, Y" }}</span> <button class="btn btn-ghost btn-sm" name="action" value="unverify">Remove</button>{% else %}<button class="btn btn-secondary btn-sm" name="action" value="verify">Verify</button>{% endif %}</form></div>
+            <p class="muted small" style="margin:6px 0 10px;">Verify after checking their ID / business documents above.</p>
+            <div class="list-row"><span><span class="seller-badge top">★ Top seller</span></span><strong>{% if seller.top_seller %}<span class="pill ok">Earned</span>{% else %}<span class="muted small">Not yet</span>{% endif %}</strong></div>
+            <p class="muted small" style="margin:6px 0 0;">Given automatically every day: {{ badge_rules.orders }}+ orders in 90 days and {{ badge_rules.rating }}★+ from {{ badge_rules.reviews }}+ reviews.</p>
+        </section>
         <section class="panel" id="plan">
             <h2>Plan</h2>
             <dl class="kv" style="margin-bottom:14px;">

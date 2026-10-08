@@ -30,7 +30,7 @@
                         </div>
                     </td>
                     <td class="small">{% if z.is_rest_of_world %}All other countries{% else %}{{ z.countries|truncatechars:60 }}{% endif %}</td>
-                    <td class="num">{% if z.fee %}{{ z.fee|money }}{% else %}Free{% endif %}</td>
+                    <td class="num">{% if z.fee %}{{ z.fee|money }}{% else %}Free{% endif %}{% if z.per_item_fee %}<div class="muted small">+{{ z.per_item_fee|money }} each extra item</div>{% endif %}</td>
                     <td>{% if z.free_over is not None %}{{ z.free_over|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
                     <td>{% if z.delivery_days %}{{ z.delivery_days }} days{% else %}<span class="muted">Default</span>{% endif %}</td>
 
@@ -49,7 +49,7 @@
             <label class="check"><input type="checkbox" name="active" {% if field.value %}checked{% endif %}> Active</label>
             {% else %}
             <div class="field">
-                <label for="{{ field.id_for_label }}">{% if field.name == "fee" %}Shipping fee{% elif field.name == "free_over" %}Free shipping over <span class="muted">(optional)</span>{% elif field.name == "delivery_days" %}Delivery time, business days <span class="muted">(optional)</span>{% elif field.name == "countries" %}Countries{% else %}Name{% endif %}</label>
+                <label for="{{ field.id_for_label }}">{% if field.name == "fee" %}Shipping fee{% elif field.name == "per_item_fee" %}Each extra item <span class="muted">(optional)</span>{% elif field.name == "free_over" %}Free shipping over <span class="muted">(optional)</span>{% elif field.name == "delivery_days" %}Delivery time, business days <span class="muted">(optional)</span>{% elif field.name == "countries" %}Countries{% else %}Name{% endif %}</label>
                 {{ field }}
                 {% if field.name == "countries" %}<span class="hint">Two-letter codes separated by commas, e.g. <code>US, CA</code>. Use <code>*</code> for every other country.</span>{% endif %}
                 {% for e in field.errors %}<span class="hint" style="color:var(--sale);">{{ e }}</span>{% endfor %}

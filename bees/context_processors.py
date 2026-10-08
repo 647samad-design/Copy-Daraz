@@ -1,4 +1,4 @@
-from .translations import TRANSLATIONS, LANGUAGE_NAMES
+from .translations import TRANSLATIONS, LANGUAGE_NAMES, RTL_LANGUAGES
 
 
 def cart_count(request):
@@ -31,7 +31,9 @@ def _site_settings(request):
 
 def site_language(request):
     brand_obj = _site_settings(request)
-    lang = request.session.get("site_lang", "en") if brand_obj.show_language_menu else "en"
+    lang = "en"
+    if brand_obj.show_language_menu:
+        lang = request.session.get("site_lang") or _browser_language(request)
     if lang not in TRANSLATIONS:
         lang = "en"
     store = brand_obj.site_name
@@ -43,6 +45,34 @@ def site_language(request):
         "t": strings,
         "current_lang": lang,
         "language_names": LANGUAGE_NAMES,
+        "text_dir": "rtl" if lang in RTL_LANGUAGES else "ltr",
+    }
+
+
+def _browser_language(request):
+    """First visit: use the browser's language if the store has it."""
+    header = request.META.get("HTTP_ACCEPT_LANGUAGE", "")
+    for part in header.split(","):
+        code = part.split(";")[0].strip().lower()[:2]
+        if code in TRANSLATIONS and code != "roman":
+            return code
+        if code == "en":
+            return "en"
+    return "en"
+
+
+def currencies(request):
+    from . import currency
+    try:
+        active = currency.active_currencies()
+    except Exception:
+        active = []
+    cur = currency.current()
+    return {
+        "currencies": active,
+        "current_currency": cur.code if cur else currency.store_code(),
+        "store_currency_code": currency.store_code(),
+        "shopper_currency": cur,
     }
 
 
@@ -72,7 +102,8 @@ def roles(request):
     if user.is_staff:
         from .manage_views import attention_counts
         attention = attention_counts()["total"]
-    return {"is_seller": is_seller, "admin_attention": attention}
+    from .messaging import unread_for_buyer
+    return {"is_seller": is_seller, "admin_attention": attention, "buyer_unread_messages": unread_for_buyer(user)}
 
 
 def unread_notifications(request):

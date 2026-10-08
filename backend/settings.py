@@ -112,6 +112,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'bees.middleware.StaffTwoFactorMiddleware',
     'bees.middleware.DemoGuardMiddleware',
+    'bees.currency.DisplayCurrencyMiddleware',
+    'bees.middleware.ReferralCaptureMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'bees.middleware.NoCacheMiddleware',
 ]
@@ -135,6 +137,7 @@ TEMPLATES = [
                 'bees.context_processors.compare_count',
                 'bees.context_processors.site_banner',
                 'bees.context_processors.brand',
+                'bees.context_processors.currencies',
                 'bees.context_processors.roles',
             ],
         },

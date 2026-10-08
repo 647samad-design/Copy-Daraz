@@ -1,0 +1,31 @@
+{% extends "bees/manage/base.html" %}
+{% block page_title %}Buyer ↔ seller messages{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'manage_support' %}">← Store chat</a><h1 style="margin-top:6px;">Buyer ↔ seller messages</h1><p>Private conversations between shoppers and sellers. Check anything that was reported.</p></div>
+    <div class="tabs"><a href="?" class="{% if not tab %}on{% endif %}">All</a><a href="?tab=reported" class="{% if tab == 'reported' %}on{% endif %}">Reported{% if reported_count %}<span class="n">{{ reported_count }}</span>{% endif %}</a></div>
+</div>
+<form method="get" class="toolbar">{% if tab %}<input type="hidden" name="tab" value="{{ tab }}">{% endif %}
+    <label for="mq" class="sr-only">Search messages</label>
+    <input class="input grow" id="mq" type="search" name="q" value="{{ q }}" placeholder="Shopper, seller or words in a message">
+    <button class="btn btn-primary" type="submit">Search</button>
+</form>
+<section class="panel" style="padding:8px 20px;">
+    <div class="table-scroll">
+        <table class="table" style="min-width:560px;">
+            <thead><tr><th>Shopper</th><th>Seller</th><th>Last message</th><th></th></tr></thead>
+            <tbody>
+            {% for c in page_obj %}
+            <tr class="clickable" onclick="location.href='{% url 'manage_conversation' c.id %}'">
+                <td><a class="rowlink" href="{% url 'manage_conversation' c.id %}">{{ c.buyer.get_full_name|default:c.buyer.username }}</a><div class="muted small">{{ c.buyer.email }}</div></td>
+                <td>{{ c.seller.display_name }}</td>
+                <td class="small">{{ c.last_message_at|timesince }} ago</td>
+                <td>{% if c.reported %}<span class="pill bad">Reported</span>{% endif %}</td>
+            </tr>
+            {% empty %}<tr class="empty-row"><td colspan="4">No conversations yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% include "bees/manage/_pagination.html" %}
+{% endblock %}

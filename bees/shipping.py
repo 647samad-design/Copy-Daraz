@@ -32,10 +32,10 @@ def zone_for(country):
     return rest
 
 
-def quote(country, amount):
-    """Shipping for an order to ``country`` whose goods cost ``amount``
-    (after discounts). Returns {"ships", "fee", "zone"}. ``fee`` is None
-    when the country isn't known yet."""
+def quote(country, amount, items=1):
+    """Shipping for an order of ``items`` pieces to ``country`` whose goods
+    cost ``amount`` (after discounts). Returns {"ships", "fee", "zone"}.
+    ``fee`` is None when the country isn't known yet."""
     from .models import SiteSettings
     zones = _zones()
     if not zones:
@@ -46,7 +46,7 @@ def quote(country, amount):
     zone = zone_for(country)
     if not zone:
         return {"ships": False, "fee": None, "zone": None}
-    return {"ships": True, "fee": zone.fee_for(amount), "zone": zone}
+    return {"ships": True, "fee": zone.fee_for(amount, items), "zone": zone}
 
 
 def table():
@@ -60,7 +60,7 @@ def table():
                          "free_over": str(brand.free_shipping_threshold) if brand.free_shipping_threshold else None}}
     data = {"countries": {}, "rest": None}
     for zone in zones:
-        entry = {"fee": str(zone.fee), "free_over": str(zone.free_over) if zone.free_over is not None else None, "name": zone.name}
+        entry = {"fee": str(zone.fee), "per_item": str(zone.per_item_fee or 0), "days": zone.delivery_days, "free_over": str(zone.free_over) if zone.free_over is not None else None, "name": zone.name}
         if zone.is_rest_of_world:
             data["rest"] = data["rest"] or entry
         else:

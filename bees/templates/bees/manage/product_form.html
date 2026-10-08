@@ -32,6 +32,7 @@
                 <div class="field"><label for="m-old">Original price <span class="muted">(optional)</span></label><input id="m-old" type="number" name="old_price" min="0" step="0.01" value="{{ p.old_price|default:'' }}"><span class="hint">Shown crossed out when higher than the price.</span></div>
                 <div class="field"><label for="m-disc">Discount badge %</label><input id="m-disc" type="number" name="discount_percent" min="0" max="95" value="{{ p.discount_percent|default:'0' }}"></div>
                 <div class="field"><label for="m-stock">Stock</label><input id="m-stock" type="number" name="stock" min="0" step="1" value="{% if p %}{{ p.stock }}{% else %}10{% endif %}" required></div>
+                {% include "bees/partials/offer_fields.html" %}
             </div>
         </section>
         <section class="panel">
@@ -43,6 +44,7 @@
             <div class="stack-sm">
                 <div class="field"><label for="m-appr">Status</label><select id="m-appr" name="approval_status">{% for v, l in approval_choices %}<option value="{{ v }}" {% if p.approval_status|default:'approved' == v %}selected{% endif %}>{% if v == 'approved' %}Live in store{% else %}{{ l }}{% endif %}</option>{% endfor %}</select></div>
                 <label class="check"><input type="checkbox" name="is_flash_sale" value="1" {% if p.is_flash_sale %}checked{% endif %}> Show in today's deals</label>
+                <div class="field"><label for="m-ends">Deal ends <span class="muted">(optional)</span></label><input type="datetime-local" id="m-ends" name="flash_sale_ends" value="{% if p.flash_sale_ends.year %}{{ p.flash_sale_ends|date:'Y-m-d\TH:i' }}{% else %}{{ p.flash_sale_ends|default:'' }}{% endif %}"><span class="hint">Shows a countdown on the product; the deal leaves the homepage when it ends.</span></div>
             </div>
         </section>
         <button type="submit" class="btn btn-primary btn-block">{% if product %}Save product{% else %}Create product{% endif %}</button>

@@ -2999,3 +2999,21 @@ class PaymentSelfTestTests(TestCase):
             r = self.client.post(reverse("manage_system"), {"action": "stripe_full"}, follow=True)
         self.assertContains(r, "found a problem")
         self.assertContains(r, "The currency provided is not supported")
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy")
+class AddCardRequestTests(TestCase):
+    def test_setup_page_uses_dashboard_payment_methods(self):
+        """Stripe's current API rejects payment_method_types on Checkout."""
+        from .models import Profile
+        user = User.objects.create_user("cardq", "cq@example.com", "pass12345")
+        Profile.objects.create(user=user, referral_code="CARDQ1", stripe_customer_id="cus_q")
+        self.client.force_login(user)
+        ok = mock.MagicMock(url="https://checkout.stripe.com/c/pay/cs_q")
+        with mock.patch("stripe.checkout.Session.create", return_value=ok) as create:
+            r = self.client.post(reverse("add_card"))
+        self.assertEqual(r["Location"], "https://checkout.stripe.com/c/pay/cs_q")
+        kwargs = create.call_args.kwargs
+        self.assertNotIn("payment_method_types", kwargs)
+        self.assertEqual(kwargs["mode"], "setup")
+        self.assertEqual(kwargs["currency"], "usd")

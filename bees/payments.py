@@ -337,18 +337,21 @@ def create_card_setup_session(request, customer_id, user=None):
         params = dict(
             mode="setup",
             customer=cid,
+            # Stripe's current API takes the payment methods from the
+            # Dashboard settings; passing payment_method_types is rejected.
             currency=settings.STORE_CURRENCY.lower(),
-            payment_method_types=["card"],
             success_url=_absolute(request, reverse("payment_methods")) + "?added={CHECKOUT_SESSION_ID}",
             cancel_url=_absolute(request, reverse("payment_methods")),
         )
         try:
             return _stripe().checkout.Session.create(idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}", **params)
         except Exception as exc:
-            # Older Stripe API versions don't take a currency in setup mode.
-            if getattr(exc, "param", "") != "currency":
+            # Older Stripe API versions need payment_method_types instead of
+            # a currency in setup mode.
+            if getattr(exc, "param", "") not in ("currency", "payment_method_types") and "payment_method_types" not in str(exc):
                 raise
-            params.pop("currency")
+            params.pop("currency", None)
+            params["payment_method_types"] = ["card"]
             return _stripe().checkout.Session.create(idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}", **params)
     try:
         try:
@@ -633,7 +636,7 @@ def self_test(request):
                                                        "product_data": {"name": "System check"}}}],
             idempotency_key=f"check-{uuid.uuid4().hex}"))
         setup = step("Add-a-card page", lambda: stripe.checkout.Session.create(
-            mode="setup", customer=customer.id, currency=currency, payment_method_types=["card"], **base,
+            mode="setup", customer=customer.id, currency=currency, **base,
             idempotency_key=f"check-{uuid.uuid4().hex}"))
     else:
         pay2 = setup = None

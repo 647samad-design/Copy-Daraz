@@ -214,10 +214,10 @@ def seed(apps, schema_editor):
             perks="Seller Center with sales reports\nPayouts to your bank\nEmail alerts for every order")
         SellerPlan.objects.create(
             name="Pro", price=19, commission_discount=3, product_limit=500, badge=True, highlight=True, position=2,
-            perks="Everything in Starter\n'Pro seller' badge on your store and products\nPriority product review")
+            perks="Everything in Starter\nPriority product review")
         SellerPlan.objects.create(
             name="Business", price=49, commission_discount=5, product_limit=None, badge=True, position=3,
-            perks="Everything in Pro\nUnlimited products\nLowest commission\nPriority support")
+            perks="Everything in Pro\nLowest commission\nPriority support")
 
 
 Migration.operations.append(migrations.RunPython(seed, migrations.RunPython.noop))

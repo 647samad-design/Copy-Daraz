@@ -1236,7 +1236,13 @@ COLOR_PRESETS = [
 
 def _setup_form(fields, data=None, files=None, instance=None):
     form_class = forms.modelform_factory(SiteSettings, form=SiteSettingsForm, fields=fields)
-    return form_class(data, files, instance=instance)
+    form = form_class(data, files, instance=instance)
+    labels = {"logo_file": "Upload your logo", "logo_url": "…or paste a logo link", "primary_color": "Main colour",
+              "accent_color": "Accent colour", "hero_title": "Homepage headline", "hero_subtitle": "Homepage sub-heading"}
+    for name, label in labels.items():
+        if name in form.fields:
+            form.fields[name].label = label
+    return form
 
 
 def _launch_checklist(site):

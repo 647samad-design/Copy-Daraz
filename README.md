@@ -46,6 +46,39 @@ Every individual seller and organization gets their own back office:
 
 `MIN_PAYOUT` in settings (default 10) is the smallest payout a seller can request. Payouts can only be requested from earnings on delivered orders.
 
+## Seller plans (/manage/plans/)
+
+Sellers can buy a monthly plan (Starter free, Pro $19, Business $49 by default) for a lower
+commission, more products and a "Pro seller" badge. They pay by card on Stripe's page from
+Seller Center > Plan; nothing renews automatically and they get a reminder 3 days before it ends.
+Staff can also give a plan by hand on a seller's page (bank transfer, free trial). Edit prices,
+limits and perks at /manage/plans/. Default commission for new sellers is in Store settings > Selling.
+
+## Setup wizard (/manage/setup/)
+
+A brand-new store opens a five-step wizard the first time the owner visits the admin: store details,
+logo and colours (with live preview), commission, payments & delivery, and a launch checklist.
+Run it again any time from Store settings.
+
+## AI listing writer and smart search
+
+The product forms have a "Write it for me" button that drafts a description from the product name
+and a few key details. Add `ANTHROPIC_API_KEY=...` to `.env` to use Claude (optional `AI_MODEL`);
+without a key a built-in writer is used. Search understands phrases like `hoodie under 40`,
+`lamp between 20 and 50` or `cheap earbuds`, matches words in any order and plurals, and shows
+close matches when nothing matches every word.
+
+## Demo copy for clients
+
+On a separate copy of the store (never your live store):
+
+    python manage.py demo_setup        # demo shopper, seller and admin + sample orders
+    # .env: DEMO_MODE=True, then reload
+
+The sign-in page then shows one-click "Shop as a customer", "Open the Seller Center" and
+"Run the marketplace" buttons. Demo accounts can't change store settings, passwords or security,
+and `daily_tasks` resets them every day.
+
 ## Quick start (local)
 
 ```bash

@@ -35,7 +35,7 @@ SELLER_PRODUCTS = [
     ("Linen Tote Bag", "fashion", "24.00", "Natural linen\nInner pocket\nFits a 13-inch laptop"),
     ("Soy Wax Candle - Cedar", "table-lamp", "21.50", "100% soy wax\nAbout 40 hours burn time\nCotton wick"),
     ("Kids Watercolor Starter Kit", "coloring-drawing", "16.00", "12 colours\n2 brushes\nNon-toxic paints"),
-    ("Merino Wool Beanie", "hoodies", "29.00", "Soft merino wool\nOne size\nHand wash"),
+    ("Merino Wool Beanie", "fashion", "29.00", "Soft merino wool\nOne size\nHand wash"),
 ]
 
 

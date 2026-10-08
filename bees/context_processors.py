@@ -105,4 +105,5 @@ def brand(request):
         "stripe_enabled": payments.is_configured(),
         "store_currency": dj_settings.STORE_CURRENCY.upper(),
         "nav_categories": Product.CATEGORY_CHOICES,
+        "demo_mode": getattr(dj_settings, "DEMO_MODE", False),
     }

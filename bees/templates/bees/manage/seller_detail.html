@@ -64,7 +64,26 @@
                 <span class="muted">% base rate</span>
                 <button class="btn btn-secondary btn-sm" type="submit">Save</button>
             </form>
-            <p class="muted small" style="margin-top:8px;">The rate drops automatically as their lifetime sales grow.</p>
+            <p class="muted small" style="margin-top:8px;">The rate drops automatically as their lifetime sales grow{% if seller.active_plan.commission_discount %} and their {{ seller.active_plan.name }} plan takes {{ seller.active_plan.commission_discount|floatformat:"-2" }}% off{% endif %}.</p>
+        </section>
+        <section class="panel" id="plan">
+            <h2>Plan</h2>
+            <dl class="kv" style="margin-bottom:14px;">
+                <dt>Current plan</dt><dd>{% if seller.active_plan %}{{ seller.active_plan.name }}{% else %}None{% endif %}{% if seller.plan_expires_at and not seller.active_plan.is_free %} · until {{ seller.plan_expires_at|date:"M j, Y" }}{% endif %}</dd>
+                <dt>Products</dt><dd>{{ product_count }}{% if seller.product_limit %} of {{ seller.product_limit }}{% endif %}</dd>
+            </dl>
+            {% if paid_plans %}
+            <form method="post" class="toolbar">
+                {% csrf_token %}<input type="hidden" name="action" value="grant_plan">
+                <label for="g-plan" class="sr-only">Plan</label>
+                <select id="g-plan" name="plan">{% for p in paid_plans %}<option value="{{ p.id }}">{{ p.name }} ({{ p.price|money }}/mo)</option>{% endfor %}</select>
+                <label for="g-months" class="sr-only">Months</label>
+                <select id="g-months" name="months">{% for m in month_choices %}<option value="{{ m }}">{{ m }} month{{ m|pluralize }}</option>{% endfor %}</select>
+                <label class="check small"><input type="checkbox" name="free"> No charge</label>
+                <button class="btn btn-secondary btn-sm" type="submit">Give plan</button>
+            </form>
+            <p class="muted small" style="margin-top:8px;">Use this when the seller paid you another way (bank transfer, cash), or to give a free trial.</p>
+            {% endif %}
         </section>
         <section class="panel" id="payouts">
             <h2>Payouts</h2>

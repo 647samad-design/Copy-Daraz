@@ -30,7 +30,7 @@
         <div class="store-hero-body">
             {% if seller_account.store_logo %}<img class="store-logo" src="{{ seller_account.store_logo.url }}" alt="">{% else %}<span class="store-initial" aria-hidden="true">{{ seller_name|first|upper }}</span>{% endif %}
             <div style="min-width:0;flex:1;">
-                <h1>{{ seller_name }}</h1>
+                <h1>{{ seller_name }}{% if seller_account.has_badge %} <span class="pro-badge" title="This seller is on a Pro plan">★ Pro seller</span>{% endif %}</h1>
                 {% if seller_account.store_description %}<p>{{ seller_account.store_description|truncatewords:40 }}</p>{% endif %}
                 <div class="store-facts">
                     {% if stats.n %}<span>★ {{ stats.avg|floatformat:1 }} ({{ stats.n }} review{{ stats.n|pluralize }})</span>{% endif %}

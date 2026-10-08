@@ -1,0 +1,75 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Seller plans{% endblock %}
+{% block page_css %}
+    .errorlist { list-style: none; margin: 0; padding: 0; color: var(--sale); font-size: .9rem; }
+{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><h1>Seller plans</h1><p>Monthly plans sellers pay for to get a lower commission, more products and a “Pro seller” badge. A second income on top of commission.</p></div>
+    <div class="actions"><a class="btn btn-primary btn-sm" href="?new=1#edit">+ New plan</a></div>
+</div>
+
+<div class="kpis" style="margin:0;">
+    <div class="kpi"><strong>{{ stats.month|money }}</strong><span>Plan income, last 30 days</span></div>
+    <div class="kpi"><strong>{{ stats.total|money }}</strong><span>Plan income, all time</span></div>
+    <div class="kpi"><strong>{{ stats.paying }}</strong><span>Sellers on a paid plan</span></div>
+</div>
+
+<section class="panel" style="padding:8px 20px;">
+    <div class="table-scroll">
+        <table class="table" style="min-width:640px;">
+            <thead><tr><th>Plan</th><th class="num">Price / month</th><th>Commission</th><th>Products</th><th class="num">Sellers</th><th></th></tr></thead>
+            <tbody>
+            {% for p in plans %}
+            <tr>
+                <td><strong>{{ p.name }}</strong> {% if p.highlight %}<span class="pill info">Most popular</span>{% endif %}{% if not p.active %} <span class="pill">Hidden</span>{% endif %}{% if p.badge %}<div class="muted small">With Pro badge</div>{% endif %}</td>
+                <td class="num">{% if p.is_free %}Free{% else %}{{ p.price|money }}{% endif %}</td>
+                <td>{% if p.commission_discount %}−{{ p.commission_discount|floatformat:"-2" }}%{% else %}Standard{% endif %}</td>
+                <td>{% if p.product_limit %}Up to {{ p.product_limit }}{% else %}Unlimited{% endif %}</td>
+                <td class="num">{{ p.seller_count }}</td>
+                <td style="white-space:nowrap;text-align:right;">
+                    <a class="btn btn-ghost btn-sm" href="?edit={{ p.id }}#edit">Edit</a>
+                    <form method="post" style="display:inline;" class="del-form">{% csrf_token %}<input type="hidden" name="id" value="{{ p.id }}"><button class="btn btn-ghost btn-sm" name="action" value="delete" style="color:var(--sale);">Delete</button></form>
+                </td>
+            </tr>
+            {% empty %}<tr class="empty-row"><td colspan="6">No plans yet. Every seller pays the standard commission. Add a plan to start earning monthly fees.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="muted small" style="margin:6px 0 10px;">The cheapest free plan is the one every seller starts on. Paid plans last 30 days per month bought; nothing renews automatically, and sellers get a reminder before it ends.</p>
+</section>
+
+{% if edit %}
+<section class="panel" id="edit">
+    <h2>{% if edit.instance.pk %}Edit {{ edit.instance.name }}{% else %}New plan{% endif %}</h2>
+    <form method="post">
+        {% csrf_token %}{% if edit.instance.pk %}<input type="hidden" name="id" value="{{ edit.instance.pk }}">{% endif %}
+        <div class="form-grid">
+            {% for f in edit %}
+            {% if f.field.widget.input_type == "checkbox" %}
+            <div><label class="check"><input type="checkbox" name="{{ f.html_name }}" {% if f.value %}checked{% endif %}> {{ f.label }}</label>{% if f.help_text %}<span class="hint muted small" style="display:block;margin-left:30px;">{{ f.help_text }}</span>{% endif %}</div>
+            {% else %}
+            <div class="field {% if f.name == 'perks' %}span-2{% endif %}"><label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{{ f.errors }}</div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;"><button class="btn btn-primary" type="submit">Save plan</button><a class="btn btn-ghost" href="{% url 'manage_plans' %}">Cancel</a></div>
+    </form>
+</section>
+{% endif %}
+
+<section class="panel">
+    <h2>Recent plan payments</h2>
+    <div class="table-scroll">
+        <table class="table">
+            <thead><tr><th>Date</th><th>Seller</th><th>Plan</th><th>How</th><th>Status</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+            {% for h in payments %}
+            <tr><td class="nowrap">{{ h.created_at|date:"M j, Y" }}</td><td><a class="rowlink" href="{% url 'manage_seller' h.seller_id %}">{{ h.seller.display_name }}</a></td><td>{{ h.plan_name }} × {{ h.months }}</td><td>{{ h.get_method_display }}</td><td><span class="pill {% if h.status == 'paid' %}ok{% else %}bad{% endif %}">{{ h.get_status_display }}</span></td><td class="num">{{ h.amount|money }}</td></tr>
+            {% empty %}<tr class="empty-row"><td colspan="6">No plan payments yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

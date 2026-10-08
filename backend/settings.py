@@ -111,6 +111,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'bees.middleware.StaffTwoFactorMiddleware',
+    'bees.middleware.DemoGuardMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'bees.middleware.NoCacheMiddleware',
 ]
@@ -301,6 +302,18 @@ COMMISSION_TIERS = [(25000, 5), (5000, 2)]
 # Back up automatically the first time staff open the admin each day, if
 # the daily scheduled task hasn't made a backup (off while running tests).
 AUTO_BACKUP = env_bool('AUTO_BACKUP', 'test' not in sys.argv)
+
+# A brand-new store opens the setup wizard the first time the owner visits
+# the admin (off while running tests).
+SETUP_WIZARD_REDIRECT = env_bool('SETUP_WIZARD_REDIRECT', 'test' not in sys.argv)
+
+# Optional AI listing writer. Without a key a built-in writer is used.
+AI_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+AI_MODEL = os.environ.get('AI_MODEL', 'claude-haiku-5-5').strip()
+
+# Demo mode: one-click demo logins on the sign-in page and protection for
+# the demo accounts. Only for a separate demo copy of the store.
+DEMO_MODE = env_bool('DEMO_MODE', False)
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024

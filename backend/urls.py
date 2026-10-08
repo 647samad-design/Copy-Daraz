@@ -30,6 +30,7 @@ urlpatterns = [
     path('signup/', views.signup_view, name='signup'),
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
+    path('demo/login/<str:role>/', views.demo_login, name='demo_login'),
 
     path('password-reset/', ratelimit("password_reset", rate_limit=5, window_seconds=300,
         redirect_to="password_reset", message="Too many reset requests. Please wait a few minutes and try again.")(auth_views.PasswordResetView.as_view(
@@ -101,6 +102,7 @@ urlpatterns = [
     path('compare/toggle/<int:pk>/', views.toggle_compare, name='toggle_compare'),
     path('cart/bulk-remove/', views.cart_bulk_remove, name='cart_bulk_remove'),
     path('api/search-suggest/', views.search_suggest, name='search_suggest'),
+    path('api/ai/write-listing/', views.ai_write_listing, name='ai_write_listing'),
 
     path('become-seller/', views.become_seller, name='become_seller'),
     # Seller Center
@@ -121,6 +123,9 @@ urlpatterns = [
     path('seller/reviews/', sv.reviews, name='seller_reviews'),
     path('seller/team/', sv.team, name='seller_team'),
     path('seller/holiday/', sv.vacation, name='seller_vacation'),
+    path('seller/plan/', sv.plan, name='seller_plan'),
+    path('seller/plan/<int:pk>/choose/', sv.buy_plan, name='seller_buy_plan'),
+    path('seller/plan/done/', sv.plan_done, name='seller_plan_done'),
     path('seller/order-item/<int:item_id>/status/', views.update_fulfillment_status, name='update_fulfillment_status'),
     path('seller/product/add/', views.seller_add_product, name='seller_add_product'),
     path('seller/question/<int:pk>/answer/', views.seller_answer_question, name='seller_answer_question'),
@@ -153,6 +158,8 @@ urlpatterns = [
     path('manage/support/', mv.support, name='manage_support'),
     path('manage/support/<int:pk>/', mv.support, name='manage_support_thread'),
     path('manage/settings/', mv.store_settings, name='manage_settings'),
+    path('manage/plans/', mv.plans, name='manage_plans'),
+    path('manage/setup/', mv.setup_wizard, name='manage_setup'),
 
     path('payment/success/', views.payment_success, name='payment_success'),
     path('payment/cancel/<int:order_id>/', views.payment_cancel, name='payment_cancel'),

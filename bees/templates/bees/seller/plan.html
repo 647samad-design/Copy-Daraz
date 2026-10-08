@@ -1,0 +1,84 @@
+{% extends "bees/seller/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Your plan{% endblock %}
+{% block page_css %}
+    .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 16px; align-items: stretch; }
+    .plan-card { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 24px 22px; border-radius: var(--radius); background: var(--surface); border: 1.5px solid var(--line); }
+    .plan-card.pop { border-color: var(--brand); box-shadow: 0 10px 30px -18px color-mix(in srgb, var(--brand) 70%, transparent); }
+    html[data-theme="dark"] .plan-card.pop { border-color: var(--accent); }
+    .plan-card.now { background: color-mix(in srgb, var(--ok) 6%, var(--surface)); }
+    .plan-card .flag { position: absolute; top: -12px; left: 22px; padding: 3px 12px; border-radius: 999px; font-size: .78rem; font-weight: 800; background: var(--accent); color: var(--on-accent); }
+    .plan-card h3 { font-size: 1.25rem; margin: 0; }
+    .plan-card .price { font-family: var(--font-display); font-size: 2.1rem; line-height: 1; }
+    .plan-card .price small { font-family: var(--font-body, inherit); font-size: .95rem; color: var(--muted); font-weight: 600; }
+    .plan-card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .plan-card li { display: flex; gap: 8px; align-items: flex-start; }
+    .plan-card li::before { content: "✓"; color: var(--ok); font-weight: 800; flex-shrink: 0; }
+    .plan-card li.key { font-weight: 700; }
+    .plan-card form { margin-top: auto; display: grid; gap: 8px; }
+    .plan-card select { min-height: 44px; }
+    .usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 16px; }
+    .usage div span { display: block; color: var(--muted); font-size: .88rem; }
+    .usage div strong { font-family: var(--font-display); font-size: 1.35rem; }
+{% endblock %}
+{% block seller %}
+<div class="adm-head">
+    <div><h1>Your plan</h1><p>Pay less commission, list more products and stand out with a badge.</p></div>
+</div>
+
+<section class="panel">
+    <div class="usage">
+        <div><span>Current plan</span><strong>{% if current %}{{ current.name }}{% else %}Standard{% endif %}</strong>{% if paid_until %}<div class="muted small">Paid until {{ paid_until|date:"M j, Y" }}</div>{% endif %}</div>
+        <div><span>Your commission now</span><strong>{{ rate|floatformat:"-2" }}%</strong><div class="muted small">per sale</div></div>
+        <div><span>Products listed</span><strong>{{ used }}{% if limit %} <span class="muted small">of {{ limit }}</span>{% endif %}</strong>
+            {% if limit %}<div class="meter" aria-hidden="true" style="margin-top:6px;"><i style="width:{{ used_pct }}%"></i></div>{% else %}<div class="muted small">No limit</div>{% endif %}</div>
+    </div>
+    {% if limit and used >= limit %}<div class="callout warn" style="margin:16px 0 0;"><strong>You've reached your product limit.</strong> Upgrade to keep adding products.</div>{% endif %}
+</section>
+
+{% if plans %}
+<div class="plans" style="margin-top:6px;">
+    {% for p in plans %}
+    <article class="plan-card {% if p.highlight %}pop{% endif %} {% if current and current.id == p.id %}now{% endif %}">
+        {% if current and current.id == p.id %}<span class="flag" style="background:var(--ok);color:#fff;">Your plan</span>{% elif p.highlight %}<span class="flag">Most popular</span>{% endif %}
+        <h3>{{ p.name }}</h3>
+        <div class="price">{% if p.is_free %}Free{% else %}{{ p.price|money }} <small>/ month</small>{% endif %}</div>
+        <ul>
+            <li class="key">{% if p.commission_discount %}{{ p.commission_discount|floatformat:"-2" }}% lower commission on every sale{% else %}Standard commission{% endif %}</li>
+            <li class="key">{% if p.product_limit %}Up to {{ p.product_limit }} products{% else %}Unlimited products{% endif %}</li>
+            {% if p.badge %}<li class="key">“Pro seller” badge</li>{% endif %}
+            {% for perk in p.perk_list %}<li>{{ perk }}</li>{% endfor %}
+        </ul>
+        {% if current and current.id == p.id and p.is_free %}
+            <button class="btn btn-ghost" type="button" disabled>Current plan</button>
+        {% elif p.is_free %}
+            <form method="post" action="{% url 'seller_buy_plan' p.id %}">{% csrf_token %}<button class="btn btn-ghost" type="submit">Switch to {{ p.name }}</button></form>
+        {% elif card_ready %}
+            <form method="post" action="{% url 'seller_buy_plan' p.id %}">{% csrf_token %}
+                <label class="small muted" for="m{{ p.id }}">Pay for</label>
+                <select id="m{{ p.id }}" name="months">{% for m in month_choices %}<option value="{{ m }}">{{ m }} month{{ m|pluralize }}</option>{% endfor %}</select>
+                <button class="btn {% if p.highlight %}btn-primary{% else %}btn-secondary{% endif %}" type="submit">{% if current and current.id == p.id %}Add more time{% else %}Get {{ p.name }}{% endif %}</button>
+                <span class="muted small">Secure card payment. No automatic renewal.</span>
+            </form>
+        {% else %}
+            <p class="muted small" style="margin-top:auto;">Card payments aren't switched on yet. Contact the store team to upgrade.</p>
+        {% endif %}
+    </article>
+    {% endfor %}
+</div>
+{% else %}
+<section class="panel"><p class="muted">This store doesn't offer seller plans yet.</p></section>
+{% endif %}
+
+{% if history %}
+<section class="panel">
+    <h2>Plan payments</h2>
+    <div class="table-scroll">
+        <table class="table">
+            <thead><tr><th>Date</th><th>Plan</th><th>Months</th><th>Status</th><th class="num">Amount</th></tr></thead>
+            <tbody>{% for h in history %}<tr><td class="nowrap">{{ h.created_at|date:"M j, Y" }}</td><td>{{ h.plan_name }}</td><td>{{ h.months }}</td><td><span class="pill {% if h.status == 'paid' %}ok{% else %}bad{% endif %}">{{ h.get_status_display }}</span></td><td class="num">{{ h.amount|money }}</td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

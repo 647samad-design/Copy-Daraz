@@ -3017,3 +3017,282 @@ class AddCardRequestTests(TestCase):
         self.assertNotIn("payment_method_types", kwargs)
         self.assertEqual(kwargs["mode"], "setup")
         self.assertEqual(kwargs["currency"], "usd")
+
+
+# ---------------------------------------------------------------------------
+# Growth pack: seller plans, setup wizard, AI writer, smart search, demo mode
+# ---------------------------------------------------------------------------
+
+import io  # noqa: E402
+from datetime import timedelta  # noqa: E402
+
+from django.utils import timezone  # noqa: E402
+
+from .models import Notification, Order, PlanPayment, SellerAccount, SellerPlan  # noqa: E402
+
+
+class SellerPlanTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user("planner", "planner@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=self.owner, account_type="individual", business_name="Plan Co")
+        self.seller.status = "approved"
+        self.seller.save()
+        self.free = SellerPlan.objects.get(name="Starter")
+        self.pro = SellerPlan.objects.get(name="Pro")
+        self.client.force_login(self.owner)
+
+    def test_default_plans_and_new_seller_starts_on_free(self):
+        self.assertEqual(self.seller.active_plan, self.free)
+        self.assertEqual(self.seller.product_limit, 50)
+        self.assertEqual(self.seller.effective_commission_rate, 10)
+        r = self.client.get(reverse("seller_plan"))
+        self.assertContains(r, "Pro")
+        self.assertContains(r, "Starter")
+
+    def test_commission_defaults_come_from_store_settings(self):
+        site = SiteSettings.load()
+        site.commission_individual, site.commission_organization = Decimal("12"), Decimal("18")
+        site.save()
+        u = User.objects.create_user("org", "org@example.com", "pass12345")
+        org = SellerAccount.objects.create(user=u, account_type="organization")
+        self.assertEqual(org.commission_rate, Decimal("18"))
+
+    def test_paid_plan_lowers_commission_and_expires(self):
+        payment = PlanPayment.objects.create(seller=self.seller, plan=self.pro, plan_name="Pro", months=2, amount=Decimal("38"))
+        self.assertTrue(payment.activate())
+        self.assertFalse(payment.activate())  # second call does nothing
+        seller = SellerAccount.objects.get(pk=self.seller.pk)
+        self.assertEqual(seller.active_plan, self.pro)
+        self.assertEqual(seller.effective_commission_rate, 7)
+        self.assertTrue(seller.has_badge)
+        self.assertGreater(seller.plan_expires_at, timezone.now() + timedelta(days=59))
+        SellerAccount.objects.filter(pk=seller.pk).update(plan_expires_at=timezone.now() - timedelta(minutes=1))
+        seller = SellerAccount.objects.get(pk=self.seller.pk)
+        self.assertEqual(seller.active_plan, self.free)
+        self.assertEqual(seller.effective_commission_rate, 10)
+
+    def test_renewing_adds_to_time_left(self):
+        PlanPayment.objects.create(seller=self.seller, plan=self.pro, plan_name="Pro", months=1, amount=19).activate()
+        first = SellerAccount.objects.get(pk=self.seller.pk).plan_expires_at
+        PlanPayment.objects.create(seller=self.seller, plan=self.pro, plan_name="Pro", months=1, amount=19).activate()
+        second = SellerAccount.objects.get(pk=self.seller.pk).plan_expires_at
+        self.assertAlmostEqual((second - first).days, 30, delta=1)
+
+    def test_product_limit_blocks_adding(self):
+        self.free.product_limit = 1
+        self.free.save()
+        make_product(name="One", seller_account=self.seller, seller_name="Plan Co")
+        r = self.client.get(reverse("seller_add_product"))
+        self.assertRedirects(r, reverse("seller_plan"), fetch_redirect_response=False)
+
+    def test_buy_without_stripe_shows_message(self):
+        with self.settings(STRIPE_SECRET_KEY=""):
+            r = self.client.post(reverse("seller_buy_plan", args=[self.pro.id]), {"months": "3"}, follow=True)
+        self.assertContains(r, "Card payments aren")
+        self.assertFalse(PlanPayment.objects.exists())
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+    def test_card_payment_activates_plan_via_webhook(self):
+        fake = mock.Mock()
+        fake.id, fake.url = "cs_plan_1", "https://checkout.stripe.com/c/pay/cs_plan_1"
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            r = self.client.post(reverse("seller_buy_plan", args=[self.pro.id]), {"months": "3"})
+        self.assertEqual(r.url, fake.url)
+        kwargs = create.call_args.kwargs
+        self.assertEqual(kwargs["line_items"][0]["quantity"], 3)
+        self.assertEqual(kwargs["line_items"][0]["price_data"]["unit_amount"], 1900)
+        payment = PlanPayment.objects.get()
+        self.assertEqual(payment.amount, Decimal("57"))
+        session = {"id": "cs_plan_1", "payment_status": "paid", "amount_total": 5700,
+                   "metadata": {"plan_payment_id": str(payment.id)}}
+        payload = json.dumps({"type": "checkout.session.completed", "data": {"object": session}})
+        with mock.patch("stripe.Webhook.construct_event", return_value={}):
+            self.client.post(reverse("stripe_webhook"), data=payload, content_type="application/json", HTTP_STRIPE_SIGNATURE="x")
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, "paid")
+        self.assertEqual(SellerAccount.objects.get(pk=self.seller.pk).active_plan, self.pro)
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_dummy")
+    def test_underpaid_session_does_not_activate(self):
+        from . import payments
+        payment = PlanPayment.objects.create(seller=self.seller, plan=self.pro, plan_name="Pro", months=1,
+                                             amount=Decimal("19"), stripe_session_id="cs_x")
+        payments.confirm_plan_payment(payment.id, {"id": "cs_x", "payment_status": "paid", "amount_total": 100})
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, "pending")
+
+    def test_staff_can_give_plan_and_manage_plans(self):
+        admin = User.objects.create_superuser("boss", "boss@example.com", "pass12345")
+        self.client.force_login(admin)
+        r = self.client.post(reverse("manage_seller", args=[self.seller.id]),
+                             {"action": "grant_plan", "plan": self.pro.id, "months": "1", "free": "on"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(SellerAccount.objects.get(pk=self.seller.pk).active_plan, self.pro)
+        self.assertEqual(PlanPayment.objects.get().amount, 0)
+        r = self.client.get(reverse("manage_plans"))
+        self.assertContains(r, "Seller plans")
+        self.client.post(reverse("manage_plans"), {"name": "Gold", "price": "99", "commission_discount": "6",
+                                                   "product_limit": "", "position": "4", "active": "on"})
+        self.assertTrue(SellerPlan.objects.filter(name="Gold", product_limit=None).exists())
+        r = self.client.post(reverse("manage_plans"), {"name": "Bad", "price": "5", "commission_discount": "80", "position": "5"})
+        self.assertFalse(SellerPlan.objects.filter(name="Bad").exists())
+
+    def test_staff_team_member_cannot_open_plan(self):
+        from .models import OrganizationMember
+        staff = User.objects.create_user("helper", "h@example.com", "pass12345")
+        self.seller.account_type = "organization"
+        self.seller.save()
+        OrganizationMember.objects.create(organization=self.seller, user=staff, role="staff")
+        self.client.force_login(staff)
+        r = self.client.get(reverse("seller_plan"))
+        self.assertEqual(r.status_code, 302)
+
+    def test_reminder_sent_once(self):
+        from django.core.management import call_command
+        SellerAccount.objects.filter(pk=self.seller.pk).update(plan=self.pro, plan_expires_at=timezone.now() + timedelta(days=2))
+        call_command("plan_reminders", stdout=io.StringIO())
+        call_command("plan_reminders", stdout=io.StringIO())
+        self.assertEqual(Notification.objects.filter(user=self.owner, message__icontains="plan ends").count(), 1)
+
+
+class SetupWizardTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser("owner", "owner@example.com", "pass12345")
+        self.client.force_login(self.admin)
+
+    def test_steps_save_and_finish(self):
+        r = self.client.get(reverse("manage_setup"))
+        self.assertContains(r, "Set up your store")
+        r = self.client.post(reverse("manage_setup"), {"step": "basics", "site_name": "Nova Market", "tagline": "Hi",
+                                                       "support_email": "help@nova.test"})
+        self.assertRedirects(r, reverse("manage_setup") + "?step=look", fetch_redirect_response=False)
+        self.assertEqual(SiteSettings.load().site_name, "Nova Market")
+        r = self.client.post(reverse("manage_setup"), {"step": "selling", "commission_individual": "8", "commission_organization": "15"})
+        self.assertEqual(SiteSettings.objects.get(pk=1).commission_individual, Decimal("8"))
+        r = self.client.post(reverse("manage_setup"), {"step": "selling", "commission_individual": "120", "commission_organization": "15"})
+        self.assertContains(r, "between 0 and 90")
+        for step in ("look", "checkout", "launch"):
+            self.assertEqual(self.client.get(reverse("manage_setup") + f"?step={step}").status_code, 200)
+        self.client.post(reverse("manage_setup"), {"finish": "1"})
+        self.assertTrue(SiteSettings.objects.get(pk=1).setup_completed)
+
+    def test_dashboard_banner_and_redirect(self):
+        SiteSettings.objects.update_or_create(pk=1, defaults={"setup_completed": False})
+        from django.core.cache import cache as c
+        c.clear()
+        self.assertContains(self.client.get(reverse("manage_dashboard")), "Finish setting up your store")
+        with self.settings(SETUP_WIZARD_REDIRECT=True):
+            r = self.client.get(reverse("manage_dashboard"))
+            self.assertRedirects(r, reverse("manage_setup"), fetch_redirect_response=False)
+            self.assertEqual(self.client.get(reverse("manage_dashboard")).status_code, 200)  # only once
+
+    def test_plain_staff_cannot_run_setup(self):
+        staff = User.objects.create_user("clerk", "c@example.com", "pass12345", is_staff=True)
+        self.client.force_login(staff)
+        self.assertEqual(self.client.get(reverse("manage_setup")).status_code, 302)
+
+
+class AIWriterAndSmartSearchTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user("writer", "w@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=self.owner, business_name="Write Co")
+        self.seller.status = "approved"
+        self.seller.save()
+
+    def test_builtin_writer_uses_details_and_needs_a_name(self):
+        self.client.force_login(self.owner)
+        r = self.client.post(reverse("ai_write_listing"), {"name": "Cotton Hoodie", "category": "hoodies",
+                                                           "notes": "100% cotton, machine washable"})
+        data = r.json()
+        self.assertEqual(data["source"], "builtin")
+        self.assertIn("Cotton Hoodie", data["description"])
+        self.assertIn("• 100% cotton", data["description"])
+        self.assertEqual(self.client.post(reverse("ai_write_listing"), {"name": ""}).status_code, 400)
+
+    def test_writer_falls_back_when_ai_unreachable(self):
+        from . import ai
+        with self.settings(AI_API_KEY="key"), mock.patch("urllib.request.urlopen", side_effect=OSError("offline")):
+            text, source = ai.write_listing("Desk Lamp", "table-lamp", "")
+        self.assertEqual(source, "builtin")
+        self.assertIn("Desk Lamp", text)
+
+    def test_writer_uses_ai_reply(self):
+        from . import ai
+        reply = mock.MagicMock()
+        reply.__enter__.return_value.read.return_value = json.dumps(
+            {"content": [{"type": "text", "text": "A **lovely** lamp for reading late into the night.\n\nWhy you'll love it:\n• Warm light"}]}).encode()
+        with self.settings(AI_API_KEY="key"), mock.patch("urllib.request.urlopen", return_value=reply):
+            text, source = ai.write_listing("Desk Lamp", "table-lamp", "")
+        self.assertEqual(source, "ai")
+        self.assertNotIn("**", text)
+
+    def test_writer_only_for_sellers_and_staff(self):
+        shopper = User.objects.create_user("shopper", "s@example.com", "pass12345")
+        self.client.force_login(shopper)
+        self.assertEqual(self.client.post(reverse("ai_write_listing"), {"name": "Lamp"}).status_code, 403)
+
+    def test_parse_search(self):
+        from . import ai
+        self.assertEqual(ai.parse_search("red hoodie under 40"), {"words": ["red", "hoodie"], "min": None, "max": 40.0, "cheap": False})
+        p = ai.parse_search("lamp between 20 and 50")
+        self.assertEqual((p["min"], p["max"], p["words"]), (20.0, 50.0, ["lamp"]))
+        p = ai.parse_search("sneakers $60-$20")
+        self.assertEqual((p["min"], p["max"]), (20.0, 60.0))
+        self.assertTrue(ai.parse_search("cheap earbuds")["cheap"])
+
+    def test_smart_search_filters_price_and_matches_words_in_any_order(self):
+        make_product(name="Red Cotton Hoodie", category="hoodies", price=Decimal("35"))
+        make_product(name="Red Wool Hoodie", category="hoodies", price=Decimal("80"))
+        make_product(name="Blue Lamp", category="table-lamp", price=Decimal("20"))
+        r = self.client.get(reverse("search_products"), {"q": "hoodies red under 40"})
+        self.assertContains(r, "Red Cotton Hoodie")
+        self.assertNotContains(r, "Red Wool Hoodie")
+        self.assertContains(r, "Under")
+        r = self.client.get(reverse("search_products"), {"q": "red lamp"})  # nothing matches both words
+        self.assertContains(r, "Close matches")
+        self.assertContains(r, "Blue Lamp")
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeTests(TestCase):
+    def setUp(self):
+        from django.core.management import call_command
+        make_product(name="Existing")
+        call_command("demo_setup", stdout=io.StringIO())
+
+    def test_demo_accounts_and_data(self):
+        seller = SellerAccount.objects.get(user__username="demo_seller")
+        self.assertEqual(seller.status, "approved")
+        self.assertTrue(seller.has_badge)
+        self.assertTrue(Order.objects.filter(user__username="demo_shopper").exists())
+        self.assertFalse(User.objects.get(username="demo_admin").has_usable_password())
+
+    def test_one_click_login_for_each_role(self):
+        r = self.client.get(reverse("login"))
+        self.assertContains(r, "Try the live demo")
+        r = self.client.post(reverse("demo_login", args=["seller"]))
+        self.assertRedirects(r, reverse("seller_dashboard"), fetch_redirect_response=False)
+        self.assertEqual(self.client.get(reverse("seller_dashboard")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("login")).status_code, 200)  # can switch role
+        self.client.post(reverse("demo_login", args=["admin"]))
+        self.assertEqual(self.client.get(reverse("manage_dashboard")).status_code, 200)
+        self.assertEqual(self.client.post(reverse("demo_login", args=["nobody"])).status_code, 404)
+
+    def test_demo_admin_cannot_change_settings(self):
+        self.client.post(reverse("demo_login", args=["admin"]))
+        before = SiteSettings.load().site_name
+        r = self.client.post(reverse("manage_settings"), {"site_name": "Hacked"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(SiteSettings.objects.get(pk=1).site_name, before)
+
+    def test_reset_puts_accounts_back(self):
+        from django.core.management import call_command
+        SellerAccount.objects.filter(user__username="demo_seller").update(status="suspended", vacation_mode=True)
+        call_command("demo_setup", "--reset", stdout=io.StringIO())
+        seller = SellerAccount.objects.get(user__username="demo_seller")
+        self.assertEqual((seller.status, seller.vacation_mode), ("approved", False))
+
+    @override_settings(DEMO_MODE=False)
+    def test_demo_login_off_by_default(self):
+        self.assertEqual(self.client.post(reverse("demo_login", args=["admin"])).status_code, 404)
+        self.assertNotContains(self.client.get(reverse("login")), "Try the live demo")

@@ -27,10 +27,11 @@ from django.views.decorators.http import require_POST
 from . import payments
 from .models import (
     AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
-    Payout, Product, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
+    Payout, Product, Profile, Question, ReturnRequest, Review, SellerAccount, SellerPlan, ShippingZone, SiteSettings,
 )
 from .templatetags.bees_extras import money
 from .security import safe_next_url
+from .seller_views import PLAN_MONTH_CHOICES
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +118,11 @@ def _auto_backup():
 
 @staff_required
 def dashboard(request):
+    from django.conf import settings as dj
+    setup_pending = request.user.is_superuser and not SiteSettings.load().setup_completed
+    if setup_pending and getattr(dj, "SETUP_WIZARD_REDIRECT", False) and not request.session.get("setup_seen"):
+        request.session["setup_seen"] = True
+        return redirect("manage_setup")
     _auto_backup()
     today = timezone.localdate()
     days = 30 if request.GET.get("range") == "30" else 7
@@ -173,6 +179,7 @@ def dashboard(request):
 
     return _render(request, "dashboard.html", {
         "section": "dashboard",
+        "setup_pending": setup_pending,
         "days": days,
         "series": series,
         "period_revenue": period_revenue,
@@ -450,6 +457,25 @@ def seller_detail(request, pk):
             seller.save(update_fields=["commission_rate"])
             _log(request, f"Seller #{seller.id} commission set to {rate}%")
             messages.success(request, "Commission rate saved.")
+        elif action == "grant_plan":
+            from .models import PlanPayment
+            plan = SellerPlan.objects.filter(pk=request.POST.get("plan"), price__gt=0).first()
+            try:
+                months = int(request.POST.get("months", "1"))
+            except ValueError:
+                months = 0
+            if not plan or months not in PLAN_MONTH_CHOICES:
+                messages.error(request, "Choose a plan and how many months.")
+                return redirect("manage_seller", pk=pk)
+            free = bool(request.POST.get("free"))
+            payment = PlanPayment.objects.create(
+                seller=seller, plan=plan, plan_name=plan.name, months=months, method="manual",
+                amount=Decimal("0") if free else plan.price * months, created_by=request.user,
+            )
+            payment.activate()
+            seller.refresh_from_db()
+            _log(request, f"Gave seller #{seller.id} the {plan.name} plan for {months} month(s){' free' if free else ''}")
+            messages.success(request, f"{seller.display_name} is on {plan.name} until {seller.plan_expires_at:%b %d, %Y}.")
         elif action == "payout":
             try:
                 amount = Decimal(request.POST.get("amount", "")).quantize(Decimal("0.01"))
@@ -504,6 +530,83 @@ def seller_detail(request, pk):
         "payouts": seller.payouts.select_related("recorded_by")[:20],
         "payout_request": seller.payouts.filter(status="requested").first(),
         "balance": balance(seller), "method_choices": Payout.METHOD_CHOICES,
+        "paid_plans": SellerPlan.objects.filter(active=True, price__gt=0),
+        "month_choices": PLAN_MONTH_CHOICES,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Seller plans
+# ---------------------------------------------------------------------------
+
+class SellerPlanForm(forms.ModelForm):
+    class Meta:
+        model = SellerPlan
+        fields = ["name", "price", "commission_discount", "product_limit", "badge", "highlight", "position", "active", "perks"]
+        widgets = {"perks": forms.Textarea(attrs={"rows": 4})}
+
+    def clean_commission_discount(self):
+        value = self.cleaned_data["commission_discount"]
+        if value < 0 or value > 50:
+            raise ValidationError("Use a number between 0 and 50.")
+        return value
+
+    def clean_price(self):
+        value = self.cleaned_data["price"]
+        if value < 0:
+            raise ValidationError("Price can't be negative.")
+        return value
+
+
+@staff_required
+def plans(request):
+    edit = None
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "delete":
+            plan = get_object_or_404(SellerPlan, pk=request.POST.get("id"))
+            if plan.sellers.exists():
+                plan.active = False
+                plan.save(update_fields=["active"])
+                messages.info(request, f"{plan.name} is in use, so it was hidden instead of deleted. Sellers on it keep it until it ends.")
+            else:
+                _log(request, f"Deleted seller plan {plan.name}")
+                plan.delete()
+                messages.success(request, "Plan deleted.")
+            return redirect("manage_plans")
+        instance = get_object_or_404(SellerPlan, pk=request.POST.get("id")) if request.POST.get("id") else None
+        form = SellerPlanForm(request.POST, instance=instance)
+        if form.is_valid():
+            plan = form.save()
+            _log(request, f"{'Updated' if instance else 'Created'} seller plan {plan.name}")
+            messages.success(request, f"{plan.name} saved.")
+            return redirect("manage_plans")
+        messages.error(request, "Please fix the plan details below.")
+        edit = form
+    elif request.GET.get("edit"):
+        edit = SellerPlanForm(instance=get_object_or_404(SellerPlan, pk=request.GET["edit"]))
+    elif request.GET.get("new"):
+        edit = SellerPlanForm(initial={"position": SellerPlan.objects.count() + 1, "active": True})
+
+    from .models import PlanPayment
+    now = timezone.now()
+    rows = list(SellerPlan.objects.all())
+    free = SellerPlan.free_plan()
+    counts = {}
+    for plan_id, price, active, expires in SellerAccount.objects.values_list("plan_id", "plan__price", "plan__active", "plan_expires_at"):
+        current = plan_id if plan_id and active and (price <= 0 or (expires and expires > now)) else (free.id if free else None)
+        counts[current] = counts.get(current, 0) + 1
+    for p in rows:
+        p.seller_count = counts.get(p.id, 0)
+    paid = PlanPayment.objects.filter(status="paid")
+    stats = {
+        "month": paid.filter(paid_at__gte=now - timedelta(days=30)).aggregate(v=Sum("amount"))["v"] or 0,
+        "total": paid.aggregate(v=Sum("amount"))["v"] or 0,
+        "paying": SellerAccount.objects.filter(plan__price__gt=0, plan_expires_at__gt=now).count(),
+    }
+    return _render(request, "plans.html", {
+        "section": "plans", "plans": rows, "edit": edit, "stats": stats,
+        "payments": PlanPayment.objects.select_related("seller").exclude(status="pending")[:25],
     })
 
 
@@ -1047,6 +1150,8 @@ class SiteSettingsForm(forms.ModelForm):
          ["site_name", "tagline", "logo_file", "logo_url", "favicon_url", "primary_color", "accent_color"]),
         ("Homepage", "The large banner at the top of the homepage.", ["hero_title", "hero_subtitle", "hero_image_url"]),
         ("Announcement bar", "A message across the top of every page, e.g. a sale.", ["banner_active", "banner_text", "banner_link"]),
+        ("Selling", "Commission taken from each sale. Applies to sellers who join from now on; change an existing seller's rate on their page.",
+         ["commission_individual", "commission_organization"]),
         ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "return_days", "allow_cash_on_delivery"]),
         ("Contact & social", "Shown in the footer, emails and help page.",
          ["support_email", "support_phone", "company_address", "facebook_url", "instagram_url", "twitter_url", "youtube_url"]),
@@ -1056,6 +1161,26 @@ class SiteSettingsForm(forms.ModelForm):
 
     def groups(self):
         return [(title, hint, [self[name] for name in names]) for title, hint, names in self.GROUPS]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("commission_individual", "commission_organization"):
+            if name in self.fields:
+                self.fields[name].required = False  # left out = keep the current rate
+
+    def _clean_rate(self, name):
+        value = self.cleaned_data[name]
+        if value is None:
+            return getattr(self.instance, name)
+        if value is None or value < 0 or value > 90:
+            raise ValidationError("Use a number between 0 and 90.")
+        return value
+
+    def clean_commission_individual(self):
+        return self._clean_rate("commission_individual")
+
+    def clean_commission_organization(self):
+        return self._clean_rate("commission_organization")
 
 
 @staff_required
@@ -1083,3 +1208,106 @@ def store_settings(request):
             return redirect("manage_settings")
         messages.error(request, "Please fix the highlighted fields.")
     return _render(request, "settings.html", {"section": "settings", "form": form})
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard: the first thing a new owner sees. Five short steps that
+# cover everything needed to open the store; each step saves on its own,
+# so it can be left and resumed.
+# ---------------------------------------------------------------------------
+
+SETUP_STEPS = [
+    ("basics", "Your store", "The name and contact details customers see.",
+     ["site_name", "tagline", "support_email", "support_phone", "company_address"]),
+    ("look", "Look & feel", "Your logo, colours and homepage headline.",
+     ["logo_file", "logo_url", "primary_color", "accent_color", "hero_title", "hero_subtitle"]),
+    ("selling", "Selling rules", "What you earn from every sale your sellers make.",
+     ["commission_individual", "commission_organization"]),
+    ("checkout", "Payments & delivery", "How customers pay and what delivery costs.",
+     ["allow_cash_on_delivery", "shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "return_days"]),
+    ("launch", "Launch", "A last check before you open the doors.", []),
+]
+
+COLOR_PRESETS = [
+    ("Lagoon", "#0E3B43", "#F2B33D"), ("Midnight", "#1E2A4A", "#7FD1B9"), ("Forest", "#1F4D2B", "#E9C46A"),
+    ("Plum", "#4A1942", "#F4A259"), ("Charcoal", "#22252A", "#FF6B5B"), ("Ocean", "#0B4F8A", "#FFD166"),
+]
+
+
+def _setup_form(fields, data=None, files=None, instance=None):
+    form_class = forms.modelform_factory(SiteSettings, form=SiteSettingsForm, fields=fields)
+    return form_class(data, files, instance=instance)
+
+
+def _launch_checklist(site):
+    from django.conf import settings as dj
+    return [
+        ("Store name and contact email", bool(site.site_name and site.support_email), "manage_setup", "?step=basics"),
+        ("Logo added", bool(site.logo), "manage_setup", "?step=look"),
+        ("Card payments (Stripe) connected", payments.is_configured(), "manage_system", ""),
+        ("Stripe webhook set", payments.is_configured() and payments.webhook_configured(), "manage_system", ""),
+        ("Emails can be sent", "console" not in getattr(dj, "EMAIL_BACKEND", "console"), "manage_system", ""),
+        ("At least one product live", Product.objects.live().exists(), "manage_product_new", ""),
+        ("Seller plans ready", SellerPlan.objects.filter(active=True).exists(), "manage_plans", ""),
+        ("Two-step sign-in for staff", site.require_staff_2fa, "manage_settings", ""),
+    ]
+
+
+@staff_required
+def setup_wizard(request):
+    if not request.user.is_superuser:
+        messages.error(request, "Only the store owner can run the setup.")
+        return redirect("manage_dashboard")
+    site = SiteSettings.objects.get_or_create(pk=1)[0]
+    keys = [s[0] for s in SETUP_STEPS]
+    key = request.GET.get("step") or request.POST.get("step") or keys[0]
+    if key not in keys:
+        key = keys[0]
+    index = keys.index(key)
+    _, title, hint, fields = SETUP_STEPS[index]
+
+    if request.method == "POST" and request.POST.get("finish"):
+        site.setup_completed = True
+        site.save()
+        _log(request, "Finished store setup")
+        messages.success(request, "Your store is ready. Welcome aboard!")
+        return redirect("manage_dashboard")
+    if request.method == "POST" and request.POST.get("skip_all"):
+        site.setup_completed = True
+        site.save()
+        messages.info(request, "Setup skipped. You can run it again any time from Store settings.")
+        return redirect("manage_dashboard")
+
+    form = None
+    if fields:
+        files = request.FILES or None
+        upload_error = None
+        if request.method == "POST" and request.FILES.get("logo_file"):
+            from .images import LOGO_MAX, optimize
+            from .security import validate_image_upload
+            try:
+                validate_image_upload(request.FILES["logo_file"])
+                files = request.FILES.copy()
+                files["logo_file"] = optimize(request.FILES["logo_file"], LOGO_MAX)
+            except ValidationError as exc:
+                upload_error = exc
+        form = _setup_form(fields, request.POST if request.method == "POST" else None, files, site)
+        if request.method == "POST":
+            if upload_error:
+                form.add_error("logo_file", upload_error)
+            if form.is_valid():
+                form.save()
+                _log(request, f"Setup: saved '{title}'")
+                return redirect(f"{reverse('manage_setup')}?step={keys[index + 1]}")
+            messages.error(request, "Please fix the highlighted fields.")
+
+    from django.conf import settings as dj
+    return _render(request, "setup.html", {
+        "section": "settings", "steps": SETUP_STEPS, "step_key": key, "step_index": index,
+        "step_title": title, "step_hint": hint, "form": form, "site": site,
+        "prev_key": keys[index - 1] if index else None,
+        "presets": COLOR_PRESETS, "currency": dj.STORE_CURRENCY.upper(),
+        "stripe_ready": payments.is_configured(), "webhook_ready": payments.webhook_configured(),
+        "checklist": _launch_checklist(site) if key == "launch" else None,
+        "plans": SellerPlan.objects.filter(active=True) if key == "selling" else None,
+    })

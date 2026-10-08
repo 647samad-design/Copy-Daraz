@@ -381,13 +381,57 @@ def search_products(request):
         log, created = SearchLog.objects.get_or_create(query__iexact=query, defaults={"query": query})
         if not created:
             SearchLog.objects.filter(pk=log.pk).update(count=F("count") + 1)
-    base_qs = (
-        Product.objects.live().filter(Q(name__icontains=query) | Q(description__icontains=query))
-        if query else Product.objects.none()
-    )
+    base_qs, smart = _smart_search(query)
+    if smart.get("cheap") and not request.GET.get("sort"):
+        request.GET = request.GET.copy()
+        request.GET["sort"] = "price_asc"
     context = _listing(request, base_qs, 12)
     context["query"] = query
+    context["smart"] = smart
     return render(request, "bees/search.html", context)
+
+
+def _smart_search(query):
+    """Understands searches like 'red hoodie under 40': every word must
+    match the name, description, category or seller (plural or not), and
+    price words become a price range. If nothing matches every word, the
+    closest matches (any word) are shown instead."""
+    from . import ai
+    if not query:
+        return Product.objects.none(), {}
+    parsed = ai.parse_search(query)
+    labels = dict(Product.CATEGORY_CHOICES)
+
+    def word_q(word):
+        stem = ai.singular(word)
+        q = Q(name__icontains=stem) | Q(description__icontains=stem) | Q(seller_name__icontains=stem)
+        cats = [slug for slug, label in labels.items() if stem in label.lower() or stem in slug]
+        if cats:
+            q |= Q(category__in=cats)
+        return q
+
+    qs = Product.objects.live()
+    if parsed["min"] is not None:
+        qs = qs.filter(price__gte=parsed["min"])
+    if parsed["max"] is not None:
+        qs = qs.filter(price__lte=parsed["max"])
+    words = parsed["words"]
+    smart = {"min": parsed["min"], "max": parsed["max"], "cheap": parsed["cheap"], "fallback": False,
+             "price": parsed["min"] is not None or parsed["max"] is not None}
+    if not words:
+        if smart["price"] or parsed["cheap"]:
+            return qs, smart
+        return qs.filter(Q(name__icontains=query) | Q(description__icontains=query)), smart
+    strict = qs
+    for word in words:
+        strict = strict.filter(word_q(word))
+    if len(words) > 1 and not strict.exists():
+        any_q = Q()
+        for word in words:
+            any_q |= word_q(word)
+        smart["fallback"] = True
+        return qs.filter(any_q), smart
+    return strict, smart
 
 
 def all_products(request):
@@ -677,7 +721,7 @@ def resend_verification(request):
            message="Too many sign-in attempts from this connection. Please wait a few minutes and try again.")
 def login_view(request):
     next_url = safe_next_url(request, request.POST.get("next") or request.GET.get("next"), reverse("home"))
-    if request.user.is_authenticated:
+    if request.user.is_authenticated and not _is_demo_user(request.user):
         return redirect(next_url)
 
     if request.method == "POST":
@@ -705,7 +749,20 @@ def login_view(request):
             return redirect(next_url)
         messages.error(request, "Incorrect username/email or password.")
 
-    return render(request, "bees/login.html", {"next": next_url})
+    return render(request, "bees/login.html", {"next": next_url, "demo_roles": DEMO_ROLES})
+
+
+def _is_demo_user(user):
+    from django.conf import settings as dj
+    from .management.commands.demo_setup import DEMO_USERNAMES
+    return getattr(dj, "DEMO_MODE", False) and user.is_authenticated and user.username in DEMO_USERNAMES
+
+
+DEMO_ROLES = [
+    ("shopper", "Shop as a customer", "Browse, use smart search, add to cart and check out."),
+    ("seller", "Open the Seller Center", "Sales, orders to ship, products, plan and payouts."),
+    ("admin", "Run the marketplace", "Store admin: orders, sellers, plans, coupons and reports."),
+]
 
 
 def logout_view(request):
@@ -1654,6 +1711,14 @@ def stripe_webhook(request):
     if event_type.startswith("charge."):
         _stripe_charge_event(event_type, session)
         return HttpResponse(status=200)
+    plan_payment_id = (session.get("metadata") or {}).get("plan_payment_id")
+    if plan_payment_id and event_type.startswith("checkout.session."):
+        from .models import PlanPayment
+        if event_type in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+            payments.confirm_plan_payment(plan_payment_id, session)
+        elif event_type in ("checkout.session.expired", "checkout.session.async_payment_failed"):
+            PlanPayment.objects.filter(pk=plan_payment_id, status="pending").update(status="failed")
+        return HttpResponse(status=200)
     order_id = (session.get("metadata") or {}).get("order_id")
     if not order_id:
         return HttpResponse(status=200)
@@ -1996,6 +2061,10 @@ def variant_rows_for_form(request, product=None):
 @login_required
 def seller_add_product(request):
     seller, role = _approved_seller_or_404(request.user)
+    if not seller.can_add_product:
+        messages.error(request, f"Your {seller.active_plan.name} plan allows {seller.product_limit} products. "
+                                "Upgrade your plan to add more, or remove a product you no longer sell.")
+        return redirect("seller_plan")
     if request.method == "POST":
         try:
             variant_rows = parse_variant_rows(request)
@@ -2276,3 +2345,48 @@ def chat_send(request):
         extra={"links": reply.get("links", []), "options": reply.get("options", [])},
     )
     return JsonResponse({"reply": _chat_json(saved)})
+
+
+@login_required
+@require_POST
+def ai_write_listing(request):
+    """Writes a product description for the add/edit product forms."""
+    from django.core.cache import cache
+    from . import ai
+    seller, _role = get_seller_account_for_user(request.user)
+    if not (request.user.is_staff or (seller and seller.status == "approved")):
+        return JsonResponse({"error": "Only approved sellers and store staff can use the writer."}, status=403)
+    key = f"ai-writer:{request.user.pk}"
+    used = cache.get(key, 0)
+    if used >= 40:
+        return JsonResponse({"error": "You've used the writer a lot in the last hour. Please try again a bit later."}, status=429)
+    cache.set(key, used + 1, 3600)
+    name = request.POST.get("name", "").strip()
+    if len(name) < 3:
+        return JsonResponse({"error": "Type the product name first."}, status=400)
+    category = request.POST.get("category", "")
+    label = dict(Product.CATEGORY_CHOICES).get(category, "")
+    text, source = ai.write_listing(name, category, request.POST.get("notes", ""), label)
+    return JsonResponse({"description": text, "source": source})
+
+
+@require_POST
+def demo_login(request, role):
+    """One-click sign-in to the demo accounts (DEMO_MODE only)."""
+    from django.conf import settings as dj
+    from .management.commands.demo_setup import DEMO_USERS
+    if not getattr(dj, "DEMO_MODE", False) or role not in DEMO_USERS:
+        raise Http404
+    user = User.objects.filter(username=DEMO_USERS[role]["username"], is_active=True).first()
+    if not user:
+        messages.error(request, "The demo isn't ready yet. Please try again in a minute.")
+        return redirect("login")
+    auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    request.session.set_expiry(60 * 60 * 4)
+    target = {"shopper": "home", "seller": "seller_dashboard", "admin": "manage_dashboard"}[role]
+    messages.success(request, {
+        "shopper": "You're browsing as a demo shopper. Add something to the cart and try checkout (use Cash on delivery).",
+        "seller": "Welcome to the Seller Center demo. Try adding a product with the AI writer, or ship an order.",
+        "admin": "You're in the store admin demo. Store settings are read-only here; everything else works.",
+    }[role])
+    return redirect(target)

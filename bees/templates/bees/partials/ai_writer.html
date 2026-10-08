@@ -1,0 +1,48 @@
+{# "Write it for me" helper under a product description box. Reads the form's name / category fields and fills textarea[name=description]. #}
+<div class="aiw" data-aiw data-url="{% url 'ai_write_listing' %}">
+    <div class="aiw-row">
+        <label class="sr-only" for="aiw_notes">Key details for the writer</label>
+        <input type="text" id="aiw_notes" class="input" maxlength="600" placeholder="Key details, e.g. 100% cotton, 3 colours, machine washable" data-aiw-notes>
+        <button type="button" class="btn btn-secondary btn-sm aiw-btn" data-aiw-go><span aria-hidden="true">✨</span> Write it for me</button>
+    </div>
+    <span class="hint" data-aiw-msg>Type the product name (and any key details), then let the writer draft the description. Check it before saving.</span>
+</div>
+<style>
+    .aiw { margin-top: 8px; padding: 12px; border-radius: var(--radius-sm); border: 1.5px dashed var(--line); background: var(--surface-2); display: grid; gap: 6px; }
+    .aiw-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .aiw-row .input { flex: 1 1 220px; min-width: 0; min-height: 44px; }
+    .aiw-btn { min-height: 44px; white-space: nowrap; }
+    .aiw-btn[disabled] { opacity: .65; cursor: progress; }
+    .aiw .hint.bad { color: var(--sale); font-weight: 700; }
+    .aiw .hint.ok { color: var(--ok); }
+</style>
+<script>
+(function () {
+    var box = document.querySelector('[data-aiw]');
+    if (!box) return;
+    var form = box.closest('form'), btn = box.querySelector('[data-aiw-go]'), msg = box.querySelector('[data-aiw-msg]');
+    var notes = box.querySelector('[data-aiw-notes]');
+    notes.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); btn.click(); } });
+    function say(text, cls) { msg.textContent = text; msg.className = 'hint ' + (cls || ''); }
+    btn.addEventListener('click', function () {
+        var name = form.querySelector('[name=name]'), cat = form.querySelector('[name=category]'), desc = form.querySelector('[name=description]');
+        if (!name || name.value.trim().length < 3) { say('Type the product name first.', 'bad'); if (name) name.focus(); return; }
+        if (desc.value.trim() && !confirm('Replace the current description?')) return;
+        var data = new FormData();
+        data.append('csrfmiddlewaretoken', form.querySelector('[name=csrfmiddlewaretoken]').value);
+        data.append('name', name.value); data.append('category', cat ? cat.value : ''); data.append('notes', notes.value);
+        btn.disabled = true; say('Writing…');
+        fetch(box.dataset.url, { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (res) {
+                if (!res.ok) { say(res.j.error || 'Something went wrong. Please try again.', 'bad'); return; }
+                desc.value = res.j.description;
+                desc.dispatchEvent(new Event('input', { bubbles: true }));
+                desc.style.height = 'auto'; desc.style.height = Math.min(desc.scrollHeight + 4, 520) + 'px';
+                say(res.j.source === 'ai' ? 'Written by AI. Read it through and adjust anything that isn\'t right.' : 'Draft ready. Read it through and adjust anything that isn\'t right.', 'ok');
+            })
+            .catch(function () { say('Could not reach the writer. Check your connection and try again.', 'bad'); })
+            .then(function () { btn.disabled = false; });
+    });
+})();
+</script>

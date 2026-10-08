@@ -1639,6 +1639,10 @@ def stripe_webhook(request):
     try:
         event = payments.parse_webhook(request.body, request.META.get("HTTP_STRIPE_SIGNATURE", ""))
     except ValueError:
+        # Stripe (or someone) reached the webhook but the signature didn't
+        # match: almost always the wrong STRIPE_WEBHOOK_SECRET in .env.
+        from .alerts import WEBHOOK_REJECTED, log_once
+        log_once(WEBHOOK_REJECTED, "a message arrived but its signature didn't match STRIPE_WEBHOOK_SECRET")
         return HttpResponse(status=400)
 
     event_type = event.get("type", "")

@@ -2654,7 +2654,8 @@ class SystemCheckPaymentHistoryTests(TestCase):
     def test_old_payment_errors_clear_once_stripe_works(self):
         from .alerts import PAYMENT_FAILED, log
         log(f"{PAYMENT_FAILED}: order #1 - The Supabase relay refused the request: RELAY_SECRET mismatch")
-        page = self.client.get(reverse("manage_system"))
+        with mock.patch("stripe.Balance.retrieve", side_effect=Exception("still down")):
+            page = self.client.get(reverse("manage_system"))
         self.assertContains(page, "RELAY_SECRET mismatch")
         with mock.patch("stripe.Balance.retrieve", return_value={}):
             self.client.post(reverse("manage_system"), {"action": "stripe"})
@@ -2732,3 +2733,62 @@ class StripeObjectCompatibilityTests(TestCase):
                 mock.patch("stripe.PaymentMethod.modify") as modify:
             self.assertTrue(payments.finish_card_setup("cs_1", "cus_1"))
             modify.assert_called_once_with("pm_1", allow_redisplay="always")
+
+
+class PaymentDiagnosticsTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("boss4", "boss4@example.com", "pass12345", is_staff=True)
+        self.client.force_login(self.staff)
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_old_errors_clear_automatically_when_stripe_works(self):
+        from .alerts import PAYMENT_FAILED, log
+        log(f"{PAYMENT_FAILED}: order #1 - RELAY_SECRET mismatch")
+        with mock.patch("stripe.Balance.retrieve", return_value={}) as bal:
+            page = self.client.get(reverse("manage_system"))
+            bal.assert_called_once()
+        self.assertNotContains(page, "RELAY_SECRET mismatch")
+        self.assertContains(page, "already fixed")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x", STRIPE_WEBHOOK_SECRET="whsec_x")
+    def test_webhook_with_wrong_secret_is_explained(self):
+        self.client.logout()
+        r = self.client.post(reverse("stripe_webhook"), data="{}", content_type="application/json", HTTP_STRIPE_SIGNATURE="t=1,v1=bad")
+        self.assertEqual(r.status_code, 400)
+        self.client.force_login(self.staff)
+        with mock.patch("stripe.Balance.retrieve", return_value={}):
+            page = self.client.get(reverse("manage_system"))
+        self.assertContains(page, "webhook secret doesn&#x27;t match")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x", STRIPE_WEBHOOK_SECRET="whsec_x")
+    def test_no_webhook_yet_shows_exact_url(self):
+        with mock.patch("stripe.Balance.retrieve", return_value={}):
+            page = self.client.get(reverse("manage_system"))
+        self.assertContains(page, "/payment/stripe/webhook/")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_add_card_recovers_from_missing_customer(self):
+        import stripe as _stripe
+        from .models import Profile
+        Profile.objects.create(user=self.staff, referral_code="BOSS4X", stripe_customer_id="cus_old")
+        missing = _stripe.error.InvalidRequestError("No such customer: 'cus_old'", "customer", code="resource_missing", http_status=400)
+        ok = mock.MagicMock(url="https://checkout.stripe.com/c/pay/cs_1")
+        with mock.patch("stripe.checkout.Session.create", side_effect=[missing, ok]) as create, \
+                mock.patch("stripe.Customer.create", return_value=mock.MagicMock(id="cus_new")):
+            r = self.client.post(reverse("add_card"))
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://checkout.stripe.com/c/pay/cs_1")
+        self.assertEqual(create.call_args.kwargs["customer"], "cus_new")
+        self.assertEqual(Profile.objects.get(user=self.staff).stripe_customer_id, "cus_new")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_add_card_failure_shows_reason_to_staff_and_is_logged(self):
+        import stripe as _stripe
+        from .models import Profile
+        Profile.objects.create(user=self.staff, referral_code="BOSS4Y", stripe_customer_id="cus_1")
+        err = _stripe.error.InvalidRequestError("Something specific is wrong", None, http_status=400)
+        with mock.patch("stripe.checkout.Session.create", side_effect=err), \
+                mock.patch("stripe.Customer.list_payment_methods", return_value={"data": []}):
+            r = self.client.post(reverse("add_card"), follow=True)
+        self.assertContains(r, "Admin info: Stripe error 400")
+        self.assertTrue(AuditLog.objects.filter(action__contains="saved-card page").exists())

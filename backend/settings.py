@@ -298,6 +298,10 @@ if STRIPE_API_BASE and not STRIPE_API_BASE.startswith('https://'):
 # base commission rate). Checked top to bottom.
 COMMISSION_TIERS = [(25000, 5), (5000, 2)]
 
+# Back up automatically the first time staff open the admin each day, if
+# the daily scheduled task hasn't made a backup (off while running tests).
+AUTO_BACKUP = env_bool('AUTO_BACKUP', 'test' not in sys.argv)
+
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 LOGIN_URL = 'login'

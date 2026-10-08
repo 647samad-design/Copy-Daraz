@@ -92,8 +92,32 @@ def _back(request, fallback):
 # Dashboard
 # ---------------------------------------------------------------------------
 
+def _auto_backup():
+    """Safety net when the PythonAnywhere daily task isn't set up: the first
+    time staff open the admin each day, make a backup if the newest one is
+    more than a day old. Never breaks the page."""
+    from django.conf import settings as dj
+    if not getattr(dj, "AUTO_BACKUP", False) or cache.get("manage:auto_backup"):
+        return
+    cache.set("manage:auto_backup", True, 6 * 3600)
+    try:
+        from datetime import datetime
+        from django.core.management import call_command
+        from .management.commands.backup_data import list_backups
+        newest = list_backups()[:1]
+        if newest:
+            stamp = datetime.strptime(newest[0][7:20], "%Y%m%d-%H%M")
+            if (timezone.now().replace(tzinfo=None) - stamp) < timedelta(hours=24):
+                return
+        call_command("backup_data")
+    except Exception as exc:
+        from .alerts import log
+        log(f"Automatic backup failed: {str(exc)[:200]}")
+
+
 @staff_required
 def dashboard(request):
+    _auto_backup()
     today = timezone.localdate()
     days = 30 if request.GET.get("range") == "30" else 7
     start = today - timedelta(days=days - 1)
@@ -577,7 +601,7 @@ def system_check(request):
     from django.core.mail import EmailMultiAlternatives
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
-    from .alerts import EMAIL_FAILED, PAYMENT_FAILED, REFUND_FAILED, STRIPE_EVENT
+    from .alerts import EMAIL_FAILED, PAYMENT_FAILED, PAYMENT_OK, REFUND_FAILED, STRIPE_EVENT
     from .management.commands.backup_data import list_backups
 
     if request.method == "POST":
@@ -603,9 +627,22 @@ def system_check(request):
             else:
                 try:
                     payments._stripe().Balance.retrieve()
+                    from .alerts import payments_working
+                    payments_working("connection test passed")
                     messages.success(request, "Stripe connection works" + (" through the Supabase relay." if dj.STRIPE_API_BASE else "."))
                 except Exception as exc:
                     messages.error(request, _stripe_error_text(exc))
+        elif action in ("backup", "daily"):
+            from io import StringIO
+            from django.core.management import call_command
+            out = StringIO()
+            try:
+                call_command("backup_data" if action == "backup" else "daily_tasks", stdout=out, stderr=out)
+                messages.success(request, "Backup saved." if action == "backup" else "Daily tasks finished: unpaid orders released, cart reminders sent, backup saved.")
+                _log(request, "Ran " + ("a backup" if action == "backup" else "the daily tasks") + " from System check")
+            except (Exception, SystemExit) as exc:
+                messages.error(request, f"That didn't finish: {str(exc)[:200] or out.getvalue()[-300:]}")
+            cache.delete("manage:auto_backup")
         elif action == "storage":
             from django.core.files.base import ContentFile
             from django.core.files.storage import default_storage
@@ -663,9 +700,22 @@ def system_check(request):
     add("Payments", "Unpaid card orders older than 2 hours", stuck == 0,
         "None." if not stuck else f"{stuck} - the daily task or Stripe's 'expired' webhook releases them.", level=None if not stuck else "warn")
     pay_fail = AuditLog.objects.filter(action__startswith=PAYMENT_FAILED, created_at__gte=week_ago).order_by("-created_at")
-    latest_pay_fail = pay_fail.first()
-    add("Payments", "Payment page errors (7 days)", latest_pay_fail is None,
-        "None." if latest_pay_fail is None else f"{pay_fail.count()}. Latest reason: {latest_pay_fail.action.split(' - ', 1)[-1][:300]}")
+    # Errors from before payments last worked have already been fixed.
+    worked = [t for t in (
+        AuditLog.objects.filter(action__startswith=PAYMENT_OK).order_by("-created_at").values_list("created_at", flat=True).first(),
+        SiteSettings.objects.filter(pk=1).values_list("stripe_last_webhook", flat=True).first(),
+    ) if t]
+    last_worked = max(worked) if worked else None
+    open_fail = pay_fail.filter(created_at__gt=last_worked) if last_worked else pay_fail
+    latest_pay_fail = open_fail.first()
+    if latest_pay_fail is None:
+        earlier = pay_fail.count()
+        detail = "None." if not earlier else (
+            f"None since payments last worked ({timezone.localtime(last_worked):%b %d, %H:%M}). "
+            f"{earlier} earlier error{'s were' if earlier != 1 else ' was'} already fixed.")
+    else:
+        detail = f"{open_fail.count()}. Latest reason: {latest_pay_fail.action.split(' - ', 1)[-1][:300]} Fix it, then press 'Test Stripe connection' above."
+    add("Payments", "Payment page errors (7 days)", latest_pay_fail is None, detail)
     refund_fail = AuditLog.objects.filter(action__startswith=REFUND_FAILED, created_at__gte=week_ago)
     add("Payments", "Failed refunds (7 days)", not refund_fail.exists(),
         "None." if not refund_fail.exists() else "; ".join(a.action[len(REFUND_FAILED) + 2:][:120] for a in refund_fail[:3]))
@@ -687,7 +737,7 @@ def system_check(request):
             age = (timezone.now().replace(tzinfo=None) - stamp).days
             add("Files & backups", "Backups", age <= 2, f"{len(backups)} kept. Newest: {stamp:%b %d, %Y %H:%M} UTC." + (" Older than 2 days - is the daily task running?" if age > 2 else ""))
         else:
-            add("Files & backups", "Backups", False, "No backups yet. Add the daily task on PythonAnywhere (Tasks tab): cd ~/Lumen-Market && venv/bin/python manage.py daily_tasks")
+            add("Files & backups", "Backups", False, "No backups yet. Press 'Back up now' above. For automatic daily backups, add the daily task on PythonAnywhere (Tasks tab): cd ~/Lumen-Market && venv/bin/python manage.py daily_tasks")
 
     # Security
     add("Security", "Debug mode", not dj.DEBUG, "Off." if not dj.DEBUG else "ON - turn DEBUG off in .env on the live site.")

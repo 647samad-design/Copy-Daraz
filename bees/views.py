@@ -1643,6 +1643,8 @@ def stripe_webhook(request):
 
     event_type = event.get("type", "")
     SiteSettings.objects.filter(pk=1).update(stripe_last_webhook=timezone.now())
+    from .alerts import payments_working
+    payments_working("message received from Stripe")
     session = (event.get("data") or {}).get("object") or {}
     if event_type.startswith("charge."):
         _stripe_charge_event(event_type, session)

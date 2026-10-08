@@ -2643,3 +2643,92 @@ class ProfileReferralCodeTests(TestCase):
         b, _ = Profile.objects.get_or_create(user=User.objects.create_user("pb", "pb@example.com", "x"))
         self.assertTrue(a.referral_code and b.referral_code)
         self.assertNotEqual(a.referral_code, b.referral_code)
+
+
+class SystemCheckPaymentHistoryTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("boss2", "boss2@example.com", "pass12345", is_staff=True)
+        self.client.force_login(self.staff)
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_old_payment_errors_clear_once_stripe_works(self):
+        from .alerts import PAYMENT_FAILED, log
+        log(f"{PAYMENT_FAILED}: order #1 - The Supabase relay refused the request: RELAY_SECRET mismatch")
+        page = self.client.get(reverse("manage_system"))
+        self.assertContains(page, "RELAY_SECRET mismatch")
+        with mock.patch("stripe.Balance.retrieve", return_value={}):
+            self.client.post(reverse("manage_system"), {"action": "stripe"})
+        page = self.client.get(reverse("manage_system"))
+        self.assertNotContains(page, "RELAY_SECRET mismatch")
+        self.assertContains(page, "1 earlier error was already fixed")
+        # A new failure after that is reported again
+        log(f"{PAYMENT_FAILED}: order #2 - Stripe rejected the secret key")
+        self.assertContains(self.client.get(reverse("manage_system")), "Stripe rejected the secret key")
+
+    def test_success_marker_is_a_single_entry(self):
+        from .alerts import PAYMENT_OK, payments_working
+        for _ in range(3):
+            payments_working("test")
+        self.assertEqual(AuditLog.objects.filter(action__startswith=PAYMENT_OK).count(), 1)
+
+
+class BackupButtonTests(TransactionTestCase):
+    def test_back_up_now_button(self):
+        import tempfile
+        staff = User.objects.create_user("boss3", "boss3@example.com", "pass12345", is_staff=True)
+        from .models import SiteSettings
+        SiteSettings.objects.update_or_create(pk=1, defaults={"require_staff_2fa": False})
+        self.client.force_login(staff)
+        with tempfile.TemporaryDirectory() as tmp, override_settings(BASE_DIR=tmp, MEDIA_ROOT=os.path.join(tmp, "m")):
+            r = self.client.post(reverse("manage_system"), {"action": "backup"}, follow=True)
+            self.assertContains(r, "Backup saved.")
+            self.assertEqual(len(os.listdir(os.path.join(tmp, "backups"))), 1)
+            self.assertNotContains(r, "No backups yet")
+class StripeObjectCompatibilityTests(TestCase):
+    """stripe-python v15+ returns objects that are not dicts; saved cards
+    must still work (this used to crash the Saved cards page)."""
+
+    def _obj(self, data):
+        from stripe import StripeObject
+        return StripeObject.construct_from(data, "sk_test")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_saved_cards_page_with_real_stripe_objects(self):
+        from .models import Profile
+        user = User.objects.create_user("cardy", "c@example.com", "pass12345")
+        Profile.objects.create(user=user, referral_code="CARDY1", stripe_customer_id="cus_1")
+        listing = self._obj({"object": "list", "data": [
+            {"id": "pm_1", "object": "payment_method", "card": {"brand": "visa", "last4": "4242", "exp_month": 4, "exp_year": 2030}},
+        ]})
+        self.client.force_login(user)
+        with mock.patch("stripe.Customer.list_payment_methods", return_value=listing):
+            r = self.client.get(reverse("payment_methods"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Visa ending in 4242")
+        self.assertContains(r, "Expires 04/2030")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_stripe_outage_shows_message_not_error_page(self):
+        from .models import Profile
+        user = User.objects.create_user("cardz", "z@example.com", "pass12345")
+        Profile.objects.create(user=user, referral_code="CARDZ1", stripe_customer_id="cus_2")
+        self.client.force_login(user)
+        with mock.patch("stripe.Customer.list_payment_methods", side_effect=Exception("down")):
+            r = self.client.get(reverse("payment_methods"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "couldn&#x27;t load your saved cards")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_remove_and_finish_setup_with_real_stripe_objects(self):
+        from . import payments
+        with mock.patch("stripe.PaymentMethod.retrieve", return_value=self._obj({"id": "pm_1", "customer": "cus_1"})), \
+                mock.patch("stripe.PaymentMethod.detach") as detach:
+            self.assertTrue(payments.remove_card("cus_1", "pm_1"))
+            detach.assert_called_once()
+        with mock.patch("stripe.PaymentMethod.retrieve", return_value=self._obj({"id": "pm_9", "customer": "cus_other"})):
+            self.assertFalse(payments.remove_card("cus_1", "pm_9"))
+        session = self._obj({"id": "cs_1", "customer": "cus_1", "status": "complete", "setup_intent": {"id": "seti_1", "payment_method": "pm_1"}})
+        with mock.patch("stripe.checkout.Session.retrieve", return_value=session), \
+                mock.patch("stripe.PaymentMethod.modify") as modify:
+            self.assertTrue(payments.finish_card_setup("cs_1", "cus_1"))
+            modify.assert_called_once_with("pm_1", allow_redisplay="always")

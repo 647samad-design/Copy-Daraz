@@ -44,7 +44,7 @@ class StaffTwoFactorMiddleware:
 # flows, but can't change store settings, passwords or security, so the
 # demo stays usable for the next visitor.
 DEMO_BLOCKED = (
-    "/admin/", "/manage/settings/", "/manage/setup/", "/manage/system/", "/manage/plans/",
+    "/admin/", "/manage/settings/", "/manage/setup/", "/manage/system/", "/manage/plans/", "/manage/currencies/",
     "/account/", "/profile/", "/password-reset/", "/seller/team/",
     "/seller/settings/", "/seller/holiday/",
 )

@@ -71,7 +71,7 @@
         .demo-ribbon { background: #111827; color: #F9FAFB; text-align: center; font-size: .86rem; padding: 6px 12px; }
         .demo-ribbon a { color: #FCD34D; font-weight: 700; }
         .locale-menu .menu-label { display: block; padding: 8px 14px 2px; font-size: .75rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-        .locale-menu .menu-panel { max-height: min(70vh, 560px); overflow-y: auto; }
+        .locale-menu .menu-panel { max-height: min(75vh, 600px); overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 6px; min-width: min(340px, 92vw); }
         .locale-menu .menu-panel a { gap: 6px; }
         .locale-menu .menu-panel a.on { font-weight: 800; color: var(--brand); }
         html[data-theme="dark"] .locale-menu .menu-panel a.on { color: var(--accent); }
@@ -554,15 +554,15 @@
                 <details class="menu locale-menu">
                     <summary class="icon-btn" aria-label="{{ t.language }} / {{ t.currency }}">{% if brand.show_language_menu %}{{ current_lang|upper|slice:":2" }}{% endif %}{% if brand.show_language_menu and currencies %} · {% endif %}{% if currencies %}{{ current_currency }}{% endif %}</summary>
                     <div class="menu-panel">
-                        {% if brand.show_language_menu %}
+                        {% if brand.show_language_menu %}<div>
                         <span class="menu-label">{{ t.language }}</span>
                         {% for code, name in language_names.items %}<a href="{% url 'set_language' code %}" lang="{{ code }}" {% if code == current_lang %}aria-current="true" class="on"{% endif %}>{{ name }}</a>{% endfor %}
-                        {% endif %}
-                        {% if currencies %}
+                        </div>{% endif %}
+                        {% if currencies %}<div>
                         <span class="menu-label">{{ t.currency }}</span>
                         <a href="{% url 'set_currency' store_currency_code %}" {% if current_currency == store_currency_code %}aria-current="true" class="on"{% endif %}>{{ store_currency_code }}</a>
-                        {% for c in currencies %}<a href="{% url 'set_currency' c.code %}" {% if current_currency == c.code %}aria-current="true" class="on"{% endif %}>{{ c.code }} <span class="muted">{{ c.symbol }}</span></a>{% endfor %}
-                        {% endif %}
+                        {% for c in currencies %}<a href="{% url 'set_currency' c.code %}" {% if current_currency == c.code %}aria-current="true" class="on"{% endif %}>{{ c.code }}{% if c.symbol|cut:" " != c.code %} <span class="muted">{{ c.symbol }}</span>{% endif %}</a>{% endfor %}
+                        </div>{% endif %}
                     </div>
                 </details>
                 {% endif %}

@@ -16,7 +16,7 @@
             <tbody>
             {% for c in rows %}
             <tr>
-                <td><strong>{{ c.code }}</strong> <span class="muted">{{ c.symbol }}</span> {% if c.active %}<span class="pill ok">In the shop</span>{% else %}<span class="pill">Hidden</span>{% endif %}</td>
+                <td><strong>{{ c.code }}</strong>{% if c.symbol|cut:" " != c.code %} <span class="muted">{{ c.symbol }}</span>{% endif %} {% if c.active %}<span class="pill ok">In the shop</span>{% else %}<span class="pill">Hidden</span>{% endif %}</td>
                 <td class="num">{{ c.rate|floatformat:"-4" }}</td>
                 <td>{{ c.example }}</td>
                 <td class="small">{% if c.updated_at %}{{ c.updated_at|timesince }} ago{% else %}<span class="muted">Starting rate</span>{% endif %}</td>

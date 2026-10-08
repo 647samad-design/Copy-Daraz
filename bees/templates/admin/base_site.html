@@ -9,6 +9,6 @@
 <link rel="stylesheet" href="{% static 'bees/css/admin_theme.css' %}">
 {% endblock %}
 {% block branding %}
-<h1 id="site-name"><a href="{% url 'admin:index' %}">{{ site_header }}</a></h1>
+<div id="site-name"><a href="{% url 'admin:index' %}">{% if brand.logo %}<img src="{{ brand.logo }}" alt="{{ site_header }}">{% else %}{{ site_header }}{% endif %}<span class="lm-tag">Database admin</span></a></div>
 {% endblock %}
 {% block userlinks %}<a href="{% url 'manage_dashboard' %}">Store admin</a> / <a href="/">View store</a> / {{ block.super }}{% endblock %}

@@ -2898,3 +2898,104 @@ class ImageUploadTests(TestCase):
         from PIL import Image
         with Image.open(self.seller.store_logo.path) as img:
             self.assertLessEqual(max(img.size), 600)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy", STRIPE_WEBHOOK_SECRET="whsec_dummy")
+class PaymentResilienceTests(TestCase):
+    """Saved-card problems must never stop a customer from paying."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("payer2", "payer2@example.com", "pass12345")
+        self.product = make_product(price=Decimal("10.00"), stock=5)
+        self.client.force_login(self.user)
+        from .models import Profile
+        Profile.objects.create(user=self.user, referral_code="PAYER2", stripe_customer_id="cus_stale")
+
+    def _ok(self):
+        fake = mock.MagicMock()
+        fake.id, fake.url = "cs_ok", "https://checkout.stripe.com/c/pay/cs_ok"
+        return fake
+
+    def _pay(self, side_effect):
+        self.client.post(reverse("add_to_cart", args=[self.product.id]))
+        with mock.patch("stripe.checkout.Session.create", side_effect=side_effect) as create:
+            r = self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "card"})
+        return r, create
+
+    def test_stale_customer_falls_back_to_guest_payment(self):
+        import stripe as _stripe
+        from .models import Profile
+        missing = _stripe.error.InvalidRequestError("No such customer: 'cus_stale'", "customer", code="resource_missing", http_status=400)
+        r, create = self._pay([missing, self._ok()])
+        self.assertEqual(r["Location"], "https://checkout.stripe.com/c/pay/cs_ok")
+        second = create.call_args_list[1].kwargs
+        self.assertNotIn("customer", second)
+        self.assertEqual(second["customer_email"], "jane@example.com")
+        self.assertEqual(Profile.objects.get(user=self.user).stripe_customer_id, "")
+        self.assertTrue(AuditLog.objects.filter(action__contains="retried without saved cards").exists())
+
+    def test_saved_card_option_rejected_falls_back(self):
+        import stripe as _stripe
+        bad = _stripe.error.InvalidRequestError("Invalid saved_payment_method_options", "saved_payment_method_options", http_status=400)
+        r, create = self._pay([bad, self._ok()])
+        self.assertEqual(r.status_code, 302)
+        self.assertNotIn("saved_payment_method_options", create.call_args_list[1].kwargs)
+
+    def test_network_errors_are_not_retried_as_guest(self):
+        r, create = self._pay(Exception("network down"))
+        self.assertEqual(create.call_count, 1)
+        self.assertRedirects(r, reverse("cart"))
+
+    def test_saved_cards_page_forgets_stale_customer(self):
+        import stripe as _stripe
+        from .models import Profile
+        missing = _stripe.error.InvalidRequestError("No such customer: 'cus_stale'", "customer", code="resource_missing", http_status=400)
+        with mock.patch("stripe.Customer.list_payment_methods", side_effect=missing):
+            r = self.client.get(reverse("payment_methods"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "No saved cards yet")
+        self.assertEqual(Profile.objects.get(user=self.user).stripe_customer_id, "")
+
+    def test_new_customer_uses_fresh_idempotency_key(self):
+        from . import payments
+        from .models import Profile
+        Profile.objects.filter(user=self.user).update(stripe_customer_id="")
+        with mock.patch("stripe.Customer.create", return_value=mock.MagicMock(id="cus_a")) as create:
+            payments.ensure_customer(self.user)
+            Profile.objects.filter(user=self.user).update(stripe_customer_id="")
+            payments.ensure_customer(self.user)
+        keys = [c.kwargs["idempotency_key"] for c in create.call_args_list]
+        self.assertNotEqual(keys[0], keys[1])
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_dummy")
+class PaymentSelfTestTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user("boss9", "boss9@example.com", "pass12345", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def test_all_steps_pass(self):
+        sess = mock.MagicMock(id="cs_1", url="https://checkout.stripe.com/x")
+        with mock.patch("stripe.Balance.retrieve", return_value={}), \
+                mock.patch("stripe.Customer.create", return_value=mock.MagicMock(id="cus_1")), \
+                mock.patch("stripe.checkout.Session.create", return_value=sess) as create, \
+                mock.patch("stripe.checkout.Session.expire") as expire, \
+                mock.patch("stripe.Customer.delete") as delete:
+            r = self.client.post(reverse("manage_system"), {"action": "stripe_full"}, follow=True)
+        self.assertContains(r, "Full payment test passed")
+        self.assertContains(r, "Add-a-card page")
+        self.assertEqual(create.call_count, 3)
+        self.assertEqual(expire.call_count, 3)
+        delete.assert_called_once()
+
+    def test_failing_step_is_explained(self):
+        import stripe as _stripe
+        err = _stripe.error.InvalidRequestError("The currency provided is not supported", "currency", http_status=400)
+        sess = mock.MagicMock(id="cs_1")
+        with mock.patch("stripe.Balance.retrieve", return_value={}), \
+                mock.patch("stripe.Customer.create", return_value=mock.MagicMock(id="cus_1")), \
+                mock.patch("stripe.checkout.Session.create", side_effect=[sess, sess, err]), \
+                mock.patch("stripe.checkout.Session.expire"), mock.patch("stripe.Customer.delete"):
+            r = self.client.post(reverse("manage_system"), {"action": "stripe_full"}, follow=True)
+        self.assertContains(r, "found a problem")
+        self.assertContains(r, "The currency provided is not supported")

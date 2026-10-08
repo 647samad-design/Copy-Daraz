@@ -114,7 +114,7 @@ def payment_methods(request):
     cards, error = [], None
     if enabled and profile.stripe_customer_id:
         try:
-            cards = payments.list_cards(profile.stripe_customer_id)
+            cards = payments.list_cards(profile.stripe_customer_id, user=request.user)
         except payments.PaymentError as exc:
             error = str(exc)
     return render(request, "bees/account/payment_methods.html", {

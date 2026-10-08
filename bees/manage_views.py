@@ -631,6 +631,17 @@ def system_check(request):
                     messages.success(request, "Stripe connection works" + (" through the Supabase relay." if dj.STRIPE_API_BASE else "."))
                 except Exception as exc:
                     messages.error(request, _stripe_error_text(exc))
+        elif action == "stripe_full":
+            if not payments.is_configured():
+                messages.error(request, "STRIPE_SECRET_KEY isn't set in .env.")
+            else:
+                steps = payments.self_test(request)
+                request.session["stripe_test"] = [[n, ok, d] for n, ok, d in steps]
+                if all(ok for _, ok, _ in steps):
+                    messages.success(request, "Full payment test passed: every Stripe step works.")
+                else:
+                    messages.error(request, "The payment test found a problem. See the results below.")
+                _log(request, "Ran the full payment test")
         elif action in ("backup", "daily"):
             from io import StringIO
             from django.core.management import call_command
@@ -740,8 +751,9 @@ def system_check(request):
             f"None since payments last worked ({timezone.localtime(last_worked):%b %d, %H:%M}). "
             f"{earlier} earlier error{'s were' if earlier != 1 else ' was'} already fixed.")
     else:
-        detail = (f"{open_fail.count()}. Latest ({timezone.localtime(latest_pay_fail.created_at):%b %d, %H:%M}): "
-                  f"{latest_pay_fail.action.split(' - ', 1)[-1][:300]} Fix it, then press 'Test Stripe connection' above.")
+        recent = "; ".join(
+            f"{timezone.localtime(a.created_at):%b %d %H:%M}: {a.action.split(' - ', 1)[-1][:160]}" for a in open_fail[:3])
+        detail = f"{open_fail.count()}. Latest: {recent}. Press 'Full payment test' above to see which step fails."
     add("Payments", "Payment page errors (7 days)", latest_pay_fail is None, detail)
     refund_fail = AuditLog.objects.filter(action__startswith=REFUND_FAILED, created_at__gte=week_ago)
     add("Payments", "Failed refunds (7 days)", not refund_fail.exists(),
@@ -776,7 +788,9 @@ def system_check(request):
     groups = {}
     for c in checks:
         groups.setdefault(c["group"], []).append(c)
+    stripe_test = request.session.pop("stripe_test", None)
     return _render(request, "system.html", {
+        "stripe_test": stripe_test,
         "section": "system", "groups": groups,
         "problems": sum(1 for c in checks if c["level"] == "bad"),
         "warnings": sum(1 for c in checks if c["level"] == "warn"),

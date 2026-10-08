@@ -283,20 +283,47 @@ def remove_card(customer_id, payment_method_id):
     return True
 
 
-def create_card_setup_session(request, customer_id):
-    """Stripe-hosted page where the customer adds a card for later."""
-    try:
-        session = _stripe().checkout.Session.create(
+def _is_missing_customer(exc):
+    return getattr(exc, "code", "") == "resource_missing" and "customer" in str(exc).lower()
+
+
+def create_card_setup_session(request, customer_id, user=None):
+    """Stripe-hosted page where the customer adds a card for later.
+    If the saved Stripe customer no longer exists (for example after
+    switching Stripe accounts or test/live keys), a new one is created and
+    the request is tried once more."""
+    def _create(cid):
+        return _stripe().checkout.Session.create(
             mode="setup",
-            customer=customer_id,
+            customer=cid,
+            currency=settings.STORE_CURRENCY.lower(),
             payment_method_types=["card"],
             success_url=_absolute(request, reverse("payment_methods")) + "?added={CHECKOUT_SESSION_ID}",
             cancel_url=_absolute(request, reverse("payment_methods")),
-            idempotency_key=f"setup-{customer_id}-{uuid.uuid4().hex}",
+            idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}",
         )
+    try:
+        try:
+            session = _create(customer_id)
+        except Exception as exc:
+            if not (user and _is_missing_customer(exc)):
+                raise
+            from .models import Profile
+            Profile.objects.filter(user=user, stripe_customer_id=customer_id).update(stripe_customer_id="")
+            new_id = ensure_customer(user)
+            if not new_id:
+                raise
+            session = _create(new_id)
     except Exception as exc:
+        reason = explain_error(exc)
         logger.exception("Could not start card setup for %s", customer_id)
-        raise PaymentError("We couldn't open the secure card page. Please try again in a moment.") from exc
+        from .alerts import PAYMENT_FAILED, log
+        log(f"{PAYMENT_FAILED}: saved-card page - {reason}")
+        error = PaymentError("We couldn't open the secure card page. Please try again in a moment.")
+        error.reason = reason
+        raise error from exc
+    from .alerts import payments_working
+    payments_working("saved-card page opened")
     return session.url
 
 

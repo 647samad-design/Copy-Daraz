@@ -133,9 +133,11 @@ def add_card(request):
         messages.error(request, "We couldn't reach our payment provider. Please try again shortly.")
         return redirect("payment_methods")
     try:
-        return redirect(payments.create_card_setup_session(request, customer_id))
+        return redirect(payments.create_card_setup_session(request, customer_id, user=request.user))
     except payments.PaymentError as exc:
-        messages.error(request, str(exc))
+        reason = getattr(exc, "reason", "")
+        # Staff see the technical reason so they can fix the setup.
+        messages.error(request, str(exc) + (f" (Admin info: {reason})" if reason and request.user.is_staff else ""))
         return redirect("payment_methods")
 
 

@@ -10,6 +10,21 @@ REFUND_FAILED = "Refund failed"
 STRIPE_EVENT = "Stripe"
 PAYMENT_FAILED = "Payment page failed"
 PAYMENT_OK = "Payments working"
+WEBHOOK_REJECTED = "Webhook rejected"
+
+
+def log_once(prefix, message, minutes=10):
+    """Keeps one, refreshed entry for a repeating event instead of many."""
+    from django.utils import timezone
+    from .models import AuditLog
+    try:
+        latest = AuditLog.objects.filter(action__startswith=prefix).order_by("-created_at").first()
+        if latest and (timezone.now() - latest.created_at).total_seconds() < minutes * 60:
+            return
+        AuditLog.objects.filter(action__startswith=prefix).delete()
+        AuditLog.objects.create(user=None, action=f"{prefix}: {message}"[:255])
+    except Exception:
+        logger.exception("Could not write audit log entry")
 
 
 def payments_working(note):

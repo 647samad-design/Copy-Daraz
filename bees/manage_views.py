@@ -601,7 +601,7 @@ def system_check(request):
     from django.core.mail import EmailMultiAlternatives
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
-    from .alerts import EMAIL_FAILED, PAYMENT_FAILED, PAYMENT_OK, REFUND_FAILED, STRIPE_EVENT
+    from .alerts import EMAIL_FAILED, PAYMENT_FAILED, PAYMENT_OK, REFUND_FAILED, STRIPE_EVENT, WEBHOOK_REJECTED
     from .management.commands.backup_data import list_backups
 
     if request.method == "POST":
@@ -692,21 +692,48 @@ def system_check(request):
         add("Payments", "Webhook secret", payments.webhook_configured(),
             "Set." if payments.webhook_configured() else "STRIPE_WEBHOOK_SECRET missing - paid orders won't be confirmed automatically.")
         last = SiteSettings.objects.filter(pk=1).values_list("stripe_last_webhook", flat=True).first()
-        add("Payments", "Last message from Stripe", bool(last),
-            timezone.localtime(last).strftime("%b %d, %Y %H:%M") if last else "None yet. After a test payment this should show a time; if not, check the webhook URL in Stripe.",
-            level=None if last else "warn")
+        rejected = AuditLog.objects.filter(action__startswith=WEBHOOK_REJECTED).order_by("-created_at").first()
+        hook_url = request.build_absolute_uri(reverse("stripe_webhook")).replace("http://", "https://")
+        events = "checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, charge.refunded, charge.dispute.created"
+        if rejected and (not last or rejected.created_at > last):
+            add("Payments", "Last message from Stripe", False,
+                f"Stripe is reaching your site ({timezone.localtime(rejected.created_at):%b %d, %H:%M}) but the webhook secret doesn't match. "
+                "In Stripe > Developers > Webhooks, open the endpoint, reveal its Signing secret (whsec_...) and put it in "
+                "STRIPE_WEBHOOK_SECRET in .env, then reload the web app.")
+        elif last:
+            add("Payments", "Last message from Stripe", True, timezone.localtime(last).strftime("%b %d, %Y %H:%M"))
+        else:
+            add("Payments", "Last message from Stripe", False,
+                f"None yet. Payments still work (the order is confirmed when the customer returns), but Stripe should also notify the site. "
+                f"In Stripe > Developers > Webhooks add the endpoint {hook_url} with these events: {events}. "
+                "Copy its Signing secret into STRIPE_WEBHOOK_SECRET, reload, then make a test payment.", level="warn")
         add("Payments", "Route", True, "Through the Supabase relay (PythonAnywhere free)." if dj.STRIPE_API_BASE else "Direct to api.stripe.com.", level="ok")
     stuck = Order.objects.filter(payment_status="pending", created_at__lt=timezone.now() - timedelta(hours=2)).count()
     add("Payments", "Unpaid card orders older than 2 hours", stuck == 0,
         "None." if not stuck else f"{stuck} - the daily task or Stripe's 'expired' webhook releases them.", level=None if not stuck else "warn")
     pay_fail = AuditLog.objects.filter(action__startswith=PAYMENT_FAILED, created_at__gte=week_ago).order_by("-created_at")
-    # Errors from before payments last worked have already been fixed.
-    worked = [t for t in (
-        AuditLog.objects.filter(action__startswith=PAYMENT_OK).order_by("-created_at").values_list("created_at", flat=True).first(),
-        SiteSettings.objects.filter(pk=1).values_list("stripe_last_webhook", flat=True).first(),
-    ) if t]
-    last_worked = max(worked) if worked else None
-    open_fail = pay_fail.filter(created_at__gt=last_worked) if last_worked else pay_fail
+
+    def _open_failures():
+        # Errors from before payments last worked have already been fixed.
+        worked = [t for t in (
+            AuditLog.objects.filter(action__startswith=PAYMENT_OK).order_by("-created_at").values_list("created_at", flat=True).first(),
+            SiteSettings.objects.filter(pk=1).values_list("stripe_last_webhook", flat=True).first(),
+        ) if t]
+        when = max(worked) if worked else None
+        return (pay_fail.filter(created_at__gt=when) if when else pay_fail), when
+
+    open_fail, last_worked = _open_failures()
+    if stripe_on and open_fail.exists() and not cache.get("manage:stripe_autocheck"):
+        # Re-test the connection once (cached 5 minutes): if Stripe works now,
+        # the old errors were already fixed.
+        cache.set("manage:stripe_autocheck", True, 300)
+        try:
+            payments._stripe().Balance.retrieve()
+            from .alerts import payments_working
+            payments_working("connection test passed (automatic)")
+            open_fail, last_worked = _open_failures()
+        except Exception:
+            pass
     latest_pay_fail = open_fail.first()
     if latest_pay_fail is None:
         earlier = pay_fail.count()
@@ -714,7 +741,8 @@ def system_check(request):
             f"None since payments last worked ({timezone.localtime(last_worked):%b %d, %H:%M}). "
             f"{earlier} earlier error{'s were' if earlier != 1 else ' was'} already fixed.")
     else:
-        detail = f"{open_fail.count()}. Latest reason: {latest_pay_fail.action.split(' - ', 1)[-1][:300]} Fix it, then press 'Test Stripe connection' above."
+        detail = (f"{open_fail.count()}. Latest ({timezone.localtime(latest_pay_fail.created_at):%b %d, %H:%M}): "
+                  f"{latest_pay_fail.action.split(' - ', 1)[-1][:300]} Fix it, then press 'Test Stripe connection' above.")
     add("Payments", "Payment page errors (7 days)", latest_pay_fail is None, detail)
     refund_fail = AuditLog.objects.filter(action__startswith=REFUND_FAILED, created_at__gte=week_ago)
     add("Payments", "Failed refunds (7 days)", not refund_fail.exists(),

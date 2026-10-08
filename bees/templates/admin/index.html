@@ -3,10 +3,13 @@
 
 {% block content %}
 <p class="bees-admin-welcome">
-    {% trans "Welcome" %}, {{ request.user.get_full_name|default:request.user.username }}. Manage products, orders,
-    sellers and customers here. Select a number below to jump straight to that list. Store name, logo, colours,
-    shipping and tax live under <a href="{% url 'admin:bees_sitesettings_changelist' %}">Site settings</a>.
+    {% trans "Welcome" %}, {{ request.user.get_full_name|default:request.user.username }}. This is the full database view:
+    every record, with search, filters and bulk actions. Select a number to jump straight to that list.
 </p>
+<div class="lm-shortcut">
+    <span><strong>Day-to-day work is quicker in the Store admin</strong>: orders, products, sellers, payouts, returns and settings.</span>
+    <a class="button" href="{% url 'manage_dashboard' %}">Open Store admin</a>
+</div>
 
 {% if bees_stats %}
 <div class="bees-admin-summary">
@@ -22,15 +25,15 @@
         <div class="num">{{ bees_stats.total_products }}</div>
         <div class="label">Total products</div>
     </a>
-    <a class="bees-admin-card" href="{% url 'admin:bees_selleraccount_changelist' %}?status__exact=pending">
+    <a class="bees-admin-card{% if bees_stats.pending_sellers %} hot{% endif %}" href="{% url 'admin:bees_selleraccount_changelist' %}?status__exact=pending">
         <div class="num">{{ bees_stats.pending_sellers }}</div>
         <div class="label">Pending seller approvals</div>
     </a>
-    <a class="bees-admin-card" href="{% url 'admin:bees_product_changelist' %}?approval_status__exact=pending">
+    <a class="bees-admin-card{% if bees_stats.pending_products %} hot{% endif %}" href="{% url 'admin:bees_product_changelist' %}?approval_status__exact=pending">
         <div class="num">{{ bees_stats.pending_products }}</div>
         <div class="label">Pending product approvals</div>
     </a>
-    <a class="bees-admin-card" href="{% url 'admin:bees_product_changelist' %}?stock__lte=5&stock__gt=0">
+    <a class="bees-admin-card{% if bees_stats.low_stock %} hot{% endif %}" href="{% url 'admin:bees_product_changelist' %}?stock__lte=5&stock__gt=0">
         <div class="num">{{ bees_stats.low_stock }}</div>
         <div class="label">Low stock products</div>
     </a>

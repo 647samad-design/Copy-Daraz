@@ -30,7 +30,7 @@ from django.utils.html import format_html
 from . import payments
 from .templatetags.bees_extras import money
 
-admin.site.index_title = "Store management"
+admin.site.index_title = "Database admin"
 _original_each_context = admin.site.each_context
 
 
@@ -41,7 +41,7 @@ def _branded_each_context(request):
         name = SiteSettings.load().site_name
     except Exception:
         name = "Store"
-    context["site_header"] = f"{name} Administration"
+    context["site_header"] = name
     context["site_title"] = f"{name} Admin"
     return context
 

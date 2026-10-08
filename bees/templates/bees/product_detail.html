@@ -5,14 +5,14 @@
 {% block og_type %}product{% endblock %}
 {% block og_title %}{{ product.name }} — {{ product.price|money }}{% endblock %}
 {% block og_description %}{{ product.description|truncatewords:25 }}{% endblock %}
-{% block og_image_tag %}<meta property="og:image" content="{{ product.image_url }}">{% endblock %}
+{% block og_image_tag %}<meta property="og:image" content="{{ product.image_url|abs_url }}">{% endblock %}
 {% block structured_data %}
 <script type="application/ld+json">
 {
     "@context": "https://schema.org",
     "@type": "Product",
     "name": "{{ product.name|escapejs }}",
-    "image": "{{ product.image_url|escapejs }}",
+    "image": "{{ product.image_url|abs_url|escapejs }}",
     "description": "{{ product.description|truncatewords:40|escapejs }}",
     "sku": "{{ product.id }}",
     "brand": {"@type": "Brand", "name": "{{ product.seller_name|escapejs }}"},
@@ -285,7 +285,9 @@
 {% block extra_js %}
 <script>
     function showImage(btn, src) {
-        document.getElementById('main-image').src = src;
+        const main = document.getElementById('main-image');
+        delete main.dataset.fallback;
+        main.src = src;
         document.querySelectorAll('.thumbs button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
     }

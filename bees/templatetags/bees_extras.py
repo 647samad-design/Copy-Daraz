@@ -70,3 +70,14 @@ def site_brand():
         return SiteSettings.load()
     except Exception:
         return SiteSettings()
+
+
+@register.filter
+def abs_url(value):
+    """Full https:// address for links and pictures in emails (email apps
+    can't open site-relative paths like /media/x.jpg)."""
+    value = str(value or "")
+    if value.startswith("/") and not value.startswith("//"):
+        from ..order_emails import absolute
+        return absolute(value)
+    return value

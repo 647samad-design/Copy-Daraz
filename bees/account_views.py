@@ -367,9 +367,10 @@ def store_settings(request):
                 seller.business_name = name
             for field, limit in STORE_TEXT_FIELDS.items():
                 setattr(seller, field, request.POST.get(field, "").strip()[:limit])
+            from .images import BANNER_MAX, LOGO_MAX, optimize
             for field in ("store_logo", "store_banner"):
                 if request.FILES.get(field):
-                    setattr(seller, field, request.FILES[field])
+                    setattr(seller, field, optimize(request.FILES[field], LOGO_MAX if field == "store_logo" else BANNER_MAX))
                 elif request.POST.get(f"remove_{field}"):
                     setattr(seller, field, None)
             seller.save()

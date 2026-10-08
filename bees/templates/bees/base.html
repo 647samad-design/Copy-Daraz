@@ -16,7 +16,7 @@
     <meta property="og:title" content="{% block og_title %}{{ brand.site_name }}{% endblock %}">
     <meta property="og:description" content="{% block og_description %}{{ brand.tagline }}{% endblock %}">
     <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}">
-    {% block og_image_tag %}{% if brand.logo %}<meta property="og:image" content="{{ brand.logo }}">{% endif %}{% endblock %}
+    {% block og_image_tag %}{% if brand.logo %}<meta property="og:image" content="{{ brand.logo|abs_url }}">{% endif %}{% endblock %}
     <meta name="twitter:card" content="summary_large_image">
 
     {% block structured_data %}
@@ -67,6 +67,7 @@
 
         /* ================= Base ================= */
         *, *::before, *::after { box-sizing: border-box; }
+        [hidden] { display: none !important; } /* layout rules (display:grid/flex) must never un-hide an element */
         * { margin: 0; padding: 0; }
         html { -webkit-text-size-adjust: 100%; }
         body {
@@ -164,7 +165,7 @@
         .table th { text-align: left; font-weight: 700; color: var(--muted); padding: 10px 12px; border-bottom: 1.5px solid var(--line); }
         .table td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
         .table-scroll { overflow-x: auto; }
-        .stars { color: #C98A06; letter-spacing: 1px; }
+        .stars { color: #B07400; letter-spacing: 1px; }
         html[data-theme="dark"] .stars { color: var(--accent); }
 
         .pay-option { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border: 1.5px solid var(--line); border-radius: var(--radius); cursor: pointer; }
@@ -434,6 +435,16 @@
         (function () {
             try { if (localStorage.getItem('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) {}
         })();
+        // A picture that can't load (dead link, site blocks hot-linking ...)
+        // shows a neat placeholder instead of the browser's broken icon.
+        window.addEventListener('error', function (e) {
+            var img = e.target;
+            if (!img || img.tagName !== 'IMG' || img.dataset.fallback || img.hasAttribute('data-preview-img') || !img.getAttribute('src')) return;
+            img.dataset.fallback = '1';
+            img.classList.add('img-missing');
+            img.alt = img.alt || 'Image unavailable';
+            img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect width="400" height="400" fill="#EDF0F2"/><g fill="none" stroke="#A7B1BA" stroke-width="10" stroke-linejoin="round"><rect x="120" y="135" width="160" height="130" rx="12"/><circle cx="165" cy="180" r="14"/><path d="m130 255 50-50 35 35 25-25 40 40"/></g></svg>');
+        }, true);
     </script>
 </head>
 <body>

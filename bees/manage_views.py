@@ -27,7 +27,7 @@ from django.views.decorators.http import require_POST
 from . import payments
 from .models import (
     AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
-    Payout, Product, ProductImage, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
+    Payout, Product, Profile, Question, ReturnRequest, Review, SellerAccount, ShippingZone, SiteSettings,
 )
 from .templatetags.bees_extras import money
 from .security import safe_next_url
@@ -350,12 +350,14 @@ def products_bulk(request):
 
 @staff_required
 def product_form(request, pk=None):
-    from .views import _product_fields_from_post, parse_variant_rows, apply_variant_rows, variant_rows_for_form
+    from .views import (_product_fields_from_post, parse_variant_rows, apply_variant_rows, variant_rows_for_form,
+                        gallery_from_post, save_gallery)
     product = get_object_or_404(Product, pk=pk) if pk else None
     if request.method == "POST":
         try:
-            fields = _product_fields_from_post(request)
             variant_rows = parse_variant_rows(request)
+            gallery = gallery_from_post(request, product)
+            fields = _product_fields_from_post(request)
             if not fields["image_url"]:
                 if product:
                     fields["image_url"] = product.image_url
@@ -381,9 +383,7 @@ def product_form(request, pk=None):
         with transaction.atomic():
             product.save()
             apply_variant_rows(product, variant_rows)
-        extra = [u.strip() for u in request.POST.get("extra_images", "").splitlines() if u.strip().startswith("https://")]
-        product.extra_images.all().delete()
-        ProductImage.objects.bulk_create([ProductImage(product=product, image_url=u[:500]) for u in extra[:8]])
+            save_gallery(product, *gallery)
         if old_approval and old_approval != approval and approval in ("approved", "rejected"):
             _notify_seller(product, f"'{product.name}' was {'approved and is now live' if approval == 'approved' else 'not approved'}.")
         _log(request, f"{'Created' if is_new else 'Edited'} product #{product.id} ({product.name})")
@@ -393,7 +393,6 @@ def product_form(request, pk=None):
     return _render(request, "product_form.html", {
         "section": "products", "product": product, "categories": Product.CATEGORY_CHOICES,
         "approval_choices": Product.APPROVAL_CHOICES,
-        "extra_images": "\n".join(product.extra_images.values_list("image_url", flat=True)) if product else "",
         "variant_rows": variant_rows_for_form(request, product),
     })
 
@@ -1048,15 +1047,21 @@ class SiteSettingsForm(forms.ModelForm):
 @staff_required
 def store_settings(request):
     obj = SiteSettings.objects.get_or_create(pk=1)[0]
-    form = SiteSettingsForm(request.POST or None, request.FILES or None, instance=obj)
+    files = request.FILES or None
+    upload_error = None
+    if request.method == "POST" and request.FILES.get("logo_file"):
+        from .images import LOGO_MAX, optimize
+        from .security import validate_image_upload
+        try:
+            validate_image_upload(request.FILES["logo_file"])
+            files = request.FILES.copy()
+            files["logo_file"] = optimize(request.FILES["logo_file"], LOGO_MAX)
+        except ValidationError as exc:
+            upload_error = exc
+    form = SiteSettingsForm(request.POST or None, files, instance=obj)
     if request.method == "POST":
-        upload = request.FILES.get("logo_file")
-        if upload:
-            from .security import validate_image_upload
-            try:
-                validate_image_upload(upload)
-            except ValidationError as exc:
-                form.add_error("logo_file", exc)
+        if upload_error:
+            form.add_error("logo_file", upload_error)
         if form.is_valid():
             form.save()
             _log(request, "Updated store settings")

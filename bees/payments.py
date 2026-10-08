@@ -161,10 +161,30 @@ def create_checkout_session(request, order):
                 max_redemptions=1,
             )
             params["discounts"] = [{"coupon": coupon.id}]
-        session = stripe.checkout.Session.create(
-            idempotency_key=f"order-{order.id}-{uuid.uuid4().hex}",
-            **params,
-        )
+        try:
+            session = stripe.checkout.Session.create(
+                idempotency_key=f"order-{order.id}-{uuid.uuid4().hex}",
+                **params,
+            )
+        except Exception as first:
+            # Saved-card features must never block a payment. If Stripe
+            # rejects the request because of the saved customer (deleted,
+            # or made with other keys) or the card-saving option, pay as a
+            # guest checkout instead and note why.
+            if not (customer_id and _is_request_error(first)):
+                raise
+            from .alerts import PAYMENT_FAILED, log
+            log(f"{PAYMENT_FAILED}: order #{order.id} retried without saved cards - {explain_error(first)}")
+            if _is_missing_customer(first):
+                forget_customer(order.user, customer_id)
+            params.pop("customer", None)
+            params.pop("saved_payment_method_options", None)
+            if email:
+                params["customer_email"] = email
+            session = stripe.checkout.Session.create(
+                idempotency_key=f"order-{order.id}-{uuid.uuid4().hex}",
+                **params,
+            )
     except Exception as exc:  # stripe.StripeError and network failures
         logger.exception("Stripe Checkout Session creation failed for order %s", order.id)
         from .alerts import PAYMENT_FAILED, log
@@ -232,22 +252,37 @@ def ensure_customer(user):
             email=user.email or None,
             name=user.get_full_name() or user.username,
             metadata={"user_id": str(user.pk)},
-            idempotency_key=f"customer-{user.pk}",
+            # A fresh key each time: a fixed key would make Stripe replay an
+            # old (possibly deleted) customer for 24 hours.
+            idempotency_key=f"customer-{user.pk}-{uuid.uuid4().hex[:16]}",
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("Could not create Stripe customer for user %s", user.pk)
+        from .alerts import PAYMENT_FAILED, log
+        log(f"{PAYMENT_FAILED}: creating Stripe customer - {explain_error(exc)}")
         return None
     Profile.objects.filter(pk=profile.pk, stripe_customer_id="").update(stripe_customer_id=customer.id)
     return Profile.objects.filter(pk=profile.pk).values_list("stripe_customer_id", flat=True).first()
 
 
-def list_cards(customer_id):
+def forget_customer(user, customer_id):
+    """The saved Stripe customer doesn't exist for the current keys (keys
+    or account switched): drop it so a new one is made next time."""
+    from .models import Profile
+    if user and customer_id:
+        Profile.objects.filter(user=user, stripe_customer_id=customer_id).update(stripe_customer_id="")
+
+
+def list_cards(customer_id, user=None):
     """Saved cards as plain dicts. Raises PaymentError if Stripe fails."""
     if not customer_id:
         return []
     try:
         result = _plain(_stripe().Customer.list_payment_methods(customer_id, type="card", limit=20))
     except Exception as exc:
+        if _is_missing_customer(exc):
+            forget_customer(user, customer_id)
+            return []
         logger.exception("Could not list cards for %s", customer_id)
         raise PaymentError("We couldn't load your saved cards right now. Please try again shortly.") from exc
     cards = []
@@ -283,6 +318,12 @@ def remove_card(customer_id, payment_method_id):
     return True
 
 
+def _is_request_error(exc):
+    """Stripe said the request itself was wrong (HTTP 400/404), as opposed
+    to a network problem or a bad API key."""
+    return getattr(exc, "http_status", None) in (400, 404)
+
+
 def _is_missing_customer(exc):
     return getattr(exc, "code", "") == "resource_missing" and "customer" in str(exc).lower()
 
@@ -293,15 +334,22 @@ def create_card_setup_session(request, customer_id, user=None):
     switching Stripe accounts or test/live keys), a new one is created and
     the request is tried once more."""
     def _create(cid):
-        return _stripe().checkout.Session.create(
+        params = dict(
             mode="setup",
             customer=cid,
             currency=settings.STORE_CURRENCY.lower(),
             payment_method_types=["card"],
             success_url=_absolute(request, reverse("payment_methods")) + "?added={CHECKOUT_SESSION_ID}",
             cancel_url=_absolute(request, reverse("payment_methods")),
-            idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}",
         )
+        try:
+            return _stripe().checkout.Session.create(idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}", **params)
+        except Exception as exc:
+            # Older Stripe API versions don't take a currency in setup mode.
+            if getattr(exc, "param", "") != "currency":
+                raise
+            params.pop("currency")
+            return _stripe().checkout.Session.create(idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}", **params)
     try:
         try:
             session = _create(customer_id)
@@ -541,3 +589,66 @@ def restock(order):
             order.credit_returned = True
             Profile.objects.get_or_create(user_id=order.user_id)
             Profile.objects.filter(user_id=order.user_id).update(store_credit=F("store_credit") + order.credit_used)
+
+
+def self_test(request):
+    """Runs the same Stripe calls a real customer triggers, with a $1 test
+    order, and reports each step in plain words. Everything it creates is
+    cleaned up again. Used by Admin > System check."""
+    stripe = _stripe()
+    currency = settings.STORE_CURRENCY.lower()
+    steps, made = [], {}
+
+    def step(name, fn):
+        try:
+            result = fn()
+            steps.append((name, True, "Works."))
+            return result
+        except Exception as exc:
+            raw = getattr(exc, "user_message", None) or str(exc)
+            steps.append((name, False, f"{explain_error(exc)} [{raw[:200]}]"))
+            return None
+
+    step("Connection and secret key", lambda: stripe.Balance.retrieve())
+    if not steps[-1][1]:
+        return steps
+    customer = step("Create a customer (for saved cards)", lambda: stripe.Customer.create(
+        email="system-check@example.com", name="System check", metadata={"system_check": "1"},
+        idempotency_key=f"check-{uuid.uuid4().hex}"))
+    if customer:
+        made["customer"] = customer.id
+    base = {
+        "success_url": _absolute(request, reverse("payment_success")) + "?session_id={CHECKOUT_SESSION_ID}",
+        "cancel_url": _absolute(request, reverse("home")),
+    }
+    pay = step("Payment page for a guest", lambda: stripe.checkout.Session.create(
+        mode="payment", customer_email="system-check@example.com", **base,
+        line_items=[{"quantity": 1, "price_data": {"currency": currency, "unit_amount": to_cents(1, currency),
+                                                   "product_data": {"name": "System check"}}}],
+        idempotency_key=f"check-{uuid.uuid4().hex}"))
+    if customer:
+        pay2 = step("Payment page for a signed-in customer (saved cards)", lambda: stripe.checkout.Session.create(
+            mode="payment", customer=customer.id, saved_payment_method_options={"payment_method_save": "enabled"}, **base,
+            line_items=[{"quantity": 1, "price_data": {"currency": currency, "unit_amount": to_cents(1, currency),
+                                                       "product_data": {"name": "System check"}}}],
+            idempotency_key=f"check-{uuid.uuid4().hex}"))
+        setup = step("Add-a-card page", lambda: stripe.checkout.Session.create(
+            mode="setup", customer=customer.id, currency=currency, payment_method_types=["card"], **base,
+            idempotency_key=f"check-{uuid.uuid4().hex}"))
+    else:
+        pay2 = setup = None
+    for session in (pay, pay2, setup):
+        if session is not None:
+            try:
+                stripe.checkout.Session.expire(session.id)
+            except Exception:
+                pass
+    if made.get("customer"):
+        try:
+            stripe.Customer.delete(made["customer"])
+        except Exception:
+            pass
+    if all(ok for _, ok, _ in steps):
+        from .alerts import payments_working
+        payments_working("full payment test passed")
+    return steps

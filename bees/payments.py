@@ -202,6 +202,61 @@ def create_checkout_session(request, order):
     return session.url
 
 
+def create_plan_checkout(request, payment):
+    """Stripe payment page for a seller plan (one-off payment for
+    ``payment.months`` months; nothing renews automatically)."""
+    stripe = _stripe()
+    currency = settings.STORE_CURRENCY.lower()
+    months = payment.months
+    params = {
+        "mode": "payment",
+        "line_items": [{
+            "quantity": months,
+            "price_data": {
+                "currency": currency,
+                "unit_amount": to_cents(payment.amount / months, currency),
+                "product_data": {"name": f"{payment.plan_name} seller plan - 1 month"},
+            },
+        }],
+        "client_reference_id": f"plan-{payment.id}",
+        "metadata": {"plan_payment_id": str(payment.id)},
+        "payment_intent_data": {"metadata": {"plan_payment_id": str(payment.id)}},
+        "success_url": _absolute(request, reverse("seller_plan_done")) + "?session_id={CHECKOUT_SESSION_ID}",
+        "cancel_url": _absolute(request, reverse("seller_plan")),
+        "expires_at": int(time.time()) + CHECKOUT_SESSION_LIFETIME_SECONDS,
+    }
+    if payment.seller.user.email:
+        params["customer_email"] = payment.seller.user.email
+    try:
+        session = stripe.checkout.Session.create(idempotency_key=f"plan-{payment.id}-{uuid.uuid4().hex}", **params)
+    except Exception as exc:
+        logger.exception("Stripe plan checkout failed for plan payment %s", payment.id)
+        from .alerts import PAYMENT_FAILED, log
+        log(f"{PAYMENT_FAILED}: seller plan payment #{payment.id} - {explain_error(exc)}")
+        raise PaymentError("Card payment is temporarily unavailable. Please try again in a few minutes.") from exc
+    payment.stripe_session_id = session.id
+    payment.save(update_fields=["stripe_session_id"])
+    return session.url
+
+
+def confirm_plan_payment(payment_id, session):
+    """Activates a plan payment once Stripe says it's paid and the amount
+    matches. Returns the PlanPayment (or None)."""
+    from .models import PlanPayment
+    payment = PlanPayment.objects.select_related("seller").filter(pk=payment_id).first()
+    if not payment or (payment.stripe_session_id and session.get("id") != payment.stripe_session_id):
+        return None
+    if session.get("payment_status") != "paid":
+        return payment
+    currency = settings.STORE_CURRENCY.lower()
+    expected = to_cents(payment.amount / payment.months, currency) * payment.months
+    if int(session.get("amount_total") or 0) < expected:
+        logger.error("Plan payment %s: Stripe total %s < expected %s", payment.id, session.get("amount_total"), expected)
+        return payment
+    payment.activate()
+    return payment
+
+
 def explain_error(exc):
     """Plain-language reason for a failed Stripe call (for the owner)."""
     text = str(exc)
@@ -337,18 +392,21 @@ def create_card_setup_session(request, customer_id, user=None):
         params = dict(
             mode="setup",
             customer=cid,
+            # Stripe's current API takes the payment methods from the
+            # Dashboard settings; passing payment_method_types is rejected.
             currency=settings.STORE_CURRENCY.lower(),
-            payment_method_types=["card"],
             success_url=_absolute(request, reverse("payment_methods")) + "?added={CHECKOUT_SESSION_ID}",
             cancel_url=_absolute(request, reverse("payment_methods")),
         )
         try:
             return _stripe().checkout.Session.create(idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}", **params)
         except Exception as exc:
-            # Older Stripe API versions don't take a currency in setup mode.
-            if getattr(exc, "param", "") != "currency":
+            # Older Stripe API versions need payment_method_types instead of
+            # a currency in setup mode.
+            if getattr(exc, "param", "") not in ("currency", "payment_method_types") and "payment_method_types" not in str(exc):
                 raise
-            params.pop("currency")
+            params.pop("currency", None)
+            params["payment_method_types"] = ["card"]
             return _stripe().checkout.Session.create(idempotency_key=f"setup-{cid}-{uuid.uuid4().hex}", **params)
     try:
         try:
@@ -633,7 +691,7 @@ def self_test(request):
                                                        "product_data": {"name": "System check"}}}],
             idempotency_key=f"check-{uuid.uuid4().hex}"))
         setup = step("Add-a-card page", lambda: stripe.checkout.Session.create(
-            mode="setup", customer=customer.id, currency=currency, payment_method_types=["card"], **base,
+            mode="setup", customer=customer.id, currency=currency, **base,
             idempotency_key=f"check-{uuid.uuid4().hex}"))
     else:
         pay2 = setup = None

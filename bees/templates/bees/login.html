@@ -1,9 +1,32 @@
 {% extends "bees/base.html" %}
 {% block title %}{{ t.login }} — {{ brand.site_name }}{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .demo-panel { border: 2px solid var(--accent); margin-bottom: 16px; }
+    .demo-panel h2 { font-size: 1.3rem; margin: 0 0 4px; }
+    .demo-roles { display: grid; gap: 10px; }
+    .demo-roles form { margin: 0; }
+    .demo-role { width: 100%; display: grid; gap: 2px; text-align: left; padding: 14px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+    .demo-role:hover, .demo-role:focus-visible { border-color: var(--brand); background: var(--surface-2); }
+    .demo-role strong { font-size: 1.02rem; }
+    .demo-role span { color: var(--muted); font-size: .92rem; }
+{% endblock %}
 {% block content %}
 <div class="wrap">
     <div class="auth-shell">
+        {% if demo_mode %}
+        <div class="panel demo-panel">
+            <h2>Try the live demo</h2>
+            <p class="lede" style="margin-bottom:14px;">One click, no sign-up. Explore the store from every side.</p>
+            <div class="demo-roles">
+                {% for role, title, text in demo_roles %}
+                <form method="post" action="{% url 'demo_login' role %}">{% csrf_token %}
+                    <button type="submit" class="demo-role"><strong>{{ title }}</strong><span>{{ text }}</span></button>
+                </form>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         <div class="panel">
             <h1>{{ t.login_title }}</h1>
             <p class="lede">Welcome back. Sign in to check out faster and track your orders.</p>

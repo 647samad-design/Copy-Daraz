@@ -1,0 +1,162 @@
+{% extends "bees/manage/base.html" %}
+{% load bees_extras %}
+{% block page_title %}Set up your store{% endblock %}
+{% block page_css %}
+    .steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; list-style: none; margin: 0; padding: 0; counter-reset: step; }
+    .steps li { counter-increment: step; }
+    .steps a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--muted); font-weight: 700; background: var(--surface); border: 1.5px solid var(--line); min-width: 0; }
+    .steps a::before { content: counter(step); display: grid; place-items: center; flex-shrink: 0; width: 26px; height: 26px; border-radius: 999px; border: 2px solid var(--line); font-size: .85rem; }
+    .steps li.done a::before { content: "✓"; background: var(--ok); border-color: var(--ok); color: #fff; }
+    .steps li.on a { color: var(--ink); border-color: var(--brand); }
+    html[data-theme="dark"] .steps li.on a { border-color: var(--accent); }
+    .steps li.on a::before { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+    .steps span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wiz { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+    .wiz.single { grid-template-columns: minmax(0, 1fr); }
+    .errorlist { list-style: none; margin: 0; padding: 0; color: var(--sale); font-size: .9rem; }
+    .field input[type=color] { width: 72px; min-height: 44px; padding: 4px; cursor: pointer; }
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+    .presets button { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 700; color: var(--ink); min-height: 40px; }
+    .presets i { width: 26px; height: 26px; border-radius: 999px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+    .preview { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--surface); position: sticky; top: 84px; }
+    .preview .bar { display: flex; align-items: center; gap: 10px; padding: 14px 16px; color: #fff; font-weight: 800; }
+    .preview .bar img { height: 26px; max-width: 120px; object-fit: contain; }
+    .preview .ann { padding: 6px 16px; font-size: .82rem; font-weight: 700; }
+    .preview .hero { padding: 26px 18px; }
+    .preview .hero h3 { font-size: 1.35rem; margin: 0 0 6px; }
+    .preview .hero p { color: var(--muted); margin: 0 0 14px; font-size: .95rem; }
+    .preview .cta { display: inline-block; padding: 10px 16px; border-radius: 999px; color: #fff; font-weight: 800; }
+    .preview .chip { display: inline-block; margin-left: 8px; padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: .8rem; }
+    .check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+    .check-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .check-list li:first-child { border-top: 0; }
+    .check-list .t { width: 24px; height: 24px; border-radius: 999px; flex-shrink: 0; display: grid; place-items: center; font-weight: 800; font-size: .8rem; border: 2px solid var(--line); }
+    .check-list li.ok .t { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .check-list li > span:nth-child(2) { flex: 1; min-width: 0; }
+    .calc { padding: 14px 16px; border-radius: var(--radius-sm); background: var(--surface-2); }
+    .wiz-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 22px; }
+    .wiz-actions .grow { margin-left: auto; }
+    @media (max-width: 960px) { .wiz { grid-template-columns: minmax(0, 1fr); } .preview { position: static; } }
+    @media (max-width: 760px) { .steps { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; } .steps span { display: none; } .steps a { justify-content: center; padding: 8px; } }
+{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><h1>Set up your store</h1><p>Five quick steps. Everything can be changed later in Store settings.</p></div>
+    <form method="post" class="actions">{% csrf_token %}<button class="btn btn-ghost btn-sm" name="skip_all" value="1" type="submit">Skip setup</button></form>
+</div>
+
+<ol class="steps" aria-label="Setup steps">
+    {% for key, title, hint, fields in steps %}
+    <li class="{% if forloop.counter0 < step_index %}done{% elif forloop.counter0 == step_index %}on{% endif %}"><a href="?step={{ key }}" {% if forloop.counter0 == step_index %}aria-current="step"{% endif %} title="{{ title }}"><span>{{ title }}</span></a></li>
+    {% endfor %}
+</ol>
+
+<div class="wiz {% if step_key != 'look' %}single{% endif %}">
+<section class="panel">
+    <h2 style="margin-bottom:4px;">Step {{ step_index|add:1 }} · {{ step_title }}</h2>
+    <p class="muted" style="margin-bottom:18px;">{{ step_hint }}</p>
+
+    {% if step_key == "launch" %}
+        <ul class="check-list">
+            {% for label, ok, url, query in checklist %}
+            <li class="{% if ok %}ok{% endif %}"><span class="t" aria-hidden="true">{% if ok %}✓{% endif %}</span><span>{{ label }}</span>{% if not ok %}<a class="link small" href="{% url url %}{{ query }}">Set up</a>{% else %}<span class="pill ok">Done</span>{% endif %}</li>
+            {% endfor %}
+        </ul>
+        <p class="muted small" style="margin-top:14px;">You can open the store now and finish the rest later. Card payments and emails are switched on in the server's .env file; System check shows exactly what to add.</p>
+        <form method="post" class="wiz-actions">{% csrf_token %}
+            <a class="btn btn-ghost" href="?step={{ prev_key }}">← Back</a>
+            <button class="btn btn-primary grow" type="submit" name="finish" value="1">Finish setup and open my dashboard</button>
+        </form>
+    {% else %}
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}<input type="hidden" name="step" value="{{ step_key }}">
+        {% if step_key == "look" %}
+        <div class="field" style="margin-bottom:16px;"><span class="label">Quick colour themes</span>
+            <div class="presets">{% for name, primary, accent in presets %}<button type="button" data-primary="{{ primary }}" data-accent="{{ accent }}"><i style="background:linear-gradient(135deg,{{ primary }} 50%,{{ accent }} 50%);"></i>{{ name }}</button>{% endfor %}</div>
+        </div>
+        {% endif %}
+        <div class="form-grid">
+            {% for f in form %}
+            {% if f.field.widget.input_type == "checkbox" %}
+            <div class="span-2"><label class="check"><input type="checkbox" name="{{ f.html_name }}" id="{{ f.id_for_label }}" {% if f.value %}checked{% endif %}> {{ f.label }}</label>{% if f.help_text %}<span class="hint muted small" style="display:block;margin-left:30px;">{{ f.help_text }}</span>{% endif %}</div>
+            {% else %}
+            <div class="field {% if f.name == 'tagline' or f.name == 'company_address' or f.name == 'hero_subtitle' or f.name == 'hero_title' %}span-2{% endif %}">
+                <label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}
+                {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{{ f.errors }}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+
+        {% if step_key == "selling" %}
+        <div class="calc" style="margin-top:18px;" data-calc>
+            <strong>Example:</strong> an individual seller sells a <strong>{{ 100|money }}</strong> item → you earn <strong data-earn-i>…</strong>, the seller gets <strong data-keep-i>…</strong>.
+            A business sells the same → you earn <strong data-earn-o>…</strong>.
+        </div>
+        <p class="muted small" style="margin-top:12px;">Prices are in <strong>{{ currency }}</strong> (set by STORE_CURRENCY in .env). Sellers can lower their commission with a {% if plans %}<a class="link" href="{% url 'manage_plans' %}" target="_blank">seller plan</a> ({% for p in plans %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% endfor %}){% else %}seller plan{% endif %}, and it drops automatically as their sales grow.</p>
+        {% endif %}
+
+        {% if step_key == "checkout" %}
+        <div class="callout {% if stripe_ready %}ok{% else %}warn{% endif %}" style="margin:18px 0 0;">
+            {% if stripe_ready %}<strong>Card payments are connected.</strong> {% if not webhook_ready %}Add the Stripe webhook so orders are marked paid automatically — <a class="link" href="{% url 'manage_system' %}">see how</a>.{% else %}Customers can pay by card, Apple Pay and Google Pay.{% endif %}
+            {% else %}<strong>Card payments aren't connected yet.</strong> Add your Stripe keys to the server's .env file — <a class="link" href="{% url 'manage_system' %}">System check</a> shows exactly what to add. Until then customers can use Cash on delivery.{% endif %}
+        </div>
+        {% endif %}
+
+        <div class="wiz-actions">
+            {% if prev_key %}<a class="btn btn-ghost" href="?step={{ prev_key }}">← Back</a>{% endif %}
+            <button class="btn btn-primary grow" type="submit">Save and continue →</button>
+        </div>
+    </form>
+    {% endif %}
+</section>
+
+{% if step_key == "look" %}
+<aside class="preview" aria-label="Live preview">
+    <div class="bar" data-pv-bar style="background:{{ site.primary_color }};">{% if site.logo %}<img src="{{ site.logo }}" alt="" data-pv-logo>{% else %}<img alt="" data-pv-logo hidden>{% endif %}<span data-pv-name>{{ site.site_name }}</span></div>
+    <div class="ann" data-pv-ann style="background:{{ site.accent_color }};color:#1a1a1a;">Free delivery this week</div>
+    <div class="hero">
+        <h3 data-pv-title>{{ site.hero_title }}</h3>
+        <p data-pv-sub>{{ site.hero_subtitle }}</p>
+        <span class="cta" data-pv-cta style="background:{{ site.primary_color }};">Shop now</span><span class="chip" data-pv-chip style="background:{{ site.accent_color }};color:#1a1a1a;">−20%</span>
+    </div>
+    <p class="muted small" style="padding:0 18px 16px;">Live preview</p>
+</aside>
+{% endif %}
+</div>
+
+<script>
+(function () {
+    var $ = function (s) { return document.querySelector(s); };
+    var primary = $('[name=primary_color]'), accent = $('[name=accent_color]');
+    function paint() {
+        if (primary) ['[data-pv-bar]', '[data-pv-cta]'].forEach(function (s) { var el = $(s); if (el) el.style.background = primary.value; });
+        if (accent) ['[data-pv-ann]', '[data-pv-chip]'].forEach(function (s) { var el = $(s); if (el) el.style.background = accent.value; });
+    }
+    document.querySelectorAll('.presets button').forEach(function (b) {
+        b.addEventListener('click', function () { if (primary) primary.value = b.dataset.primary; if (accent) accent.value = b.dataset.accent; paint(); });
+    });
+    if (primary) primary.addEventListener('input', paint);
+    if (accent) accent.addEventListener('input', paint);
+    var bind = function (name, target) { var i = $('[name=' + name + ']'), t = $(target); if (i && t) i.addEventListener('input', function () { t.textContent = i.value; }); };
+    bind('hero_title', '[data-pv-title]'); bind('hero_subtitle', '[data-pv-sub]');
+    var logoFile = $('[name=logo_file]'), logoUrl = $('[name=logo_url]'), logo = $('[data-pv-logo]');
+    if (logoFile && logo) logoFile.addEventListener('change', function () { if (logoFile.files[0]) { logo.src = URL.createObjectURL(logoFile.files[0]); logo.hidden = false; } });
+    if (logoUrl && logo) logoUrl.addEventListener('change', function () { if (/^https:\/\//.test(logoUrl.value)) { logo.src = logoUrl.value; logo.hidden = false; } });
+    var calc = $('[data-calc]');
+    if (calc) {
+        var ri = $('[name=commission_individual]'), ro = $('[name=commission_organization]');
+        var fmt = function (n) { return (Math.round(n * 100) / 100).toFixed(2); };
+        var sym = "{{ 0|money|escapejs }}".replace(/[0-9.,\s]+/g, '') || '$';
+        var upd = function () {
+            var a = parseFloat(ri && ri.value) || 0, b = parseFloat(ro && ro.value) || 0;
+            calc.querySelector('[data-earn-i]').textContent = sym + fmt(a);
+            calc.querySelector('[data-keep-i]').textContent = sym + fmt(100 - a);
+            calc.querySelector('[data-earn-o]').textContent = sym + fmt(b);
+        };
+        [ri, ro].forEach(function (i) { if (i) i.addEventListener('input', upd); });
+        upd();
+    }
+})();
+</script>
+{% endblock %}

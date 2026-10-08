@@ -1,8 +1,10 @@
+{% load bees_extras %}
 <div class="wrap page">
     <div class="page-head">
         <div>
             <h1>{{ listing_title }}</h1>
-            <p>{{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}</p>
+            <p>{{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}{% if smart.price or smart.cheap or smart.fallback %}
+                <span class="smart-chips">{% if smart.min is not None and smart.max is not None %}<span>{{ smart.min|money }} – {{ smart.max|money }}</span>{% elif smart.max is not None %}<span>Under {{ smart.max|money }}</span>{% elif smart.min is not None %}<span>Over {{ smart.min|money }}</span>{% endif %}{% if smart.cheap %}<span>Lowest price first</span>{% endif %}{% if smart.fallback %}<span>Close matches</span>{% endif %}</span>{% endif %}</p>
         </div>
         <div class="result-bar" style="margin:0;">{% include "bees/partials/sort_bar.html" %}</div>
     </div>

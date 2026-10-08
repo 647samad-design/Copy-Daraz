@@ -3,6 +3,7 @@ import uuid
 from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 hex_color = RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Enter a 6-digit hex colour like #0E3B43.")
 
@@ -724,10 +725,46 @@ class SellerAccount(models.Model):
     vacation_mode = models.BooleanField(default=False)
     vacation_message = models.CharField(max_length=200, blank=True)
 
+    # Seller plan (see SellerPlan). A paid plan is active until
+    # ``plan_expires_at``; free plans never expire.
+    plan = models.ForeignKey("SellerPlan", null=True, blank=True, on_delete=models.SET_NULL, related_name="sellers")
+    plan_expires_at = models.DateTimeField(null=True, blank=True)
+    plan_reminder_sent = models.BooleanField(default=False)
+
     def save(self, *args, **kwargs):
         if self.pk is None and not kwargs.get("update_fields"):
-            self.commission_rate = 20 if self.account_type == "organization" else 10
+            site = SiteSettings.load()
+            self.commission_rate = (
+                site.commission_organization if self.account_type == "organization" else site.commission_individual
+            )
         super().save(*args, **kwargs)
+
+    @property
+    def active_plan(self):
+        """The plan the seller is on right now: their paid plan while it
+        hasn't run out, otherwise the store's free plan (or None)."""
+        if not hasattr(self, "_active_plan"):
+            plan = self.plan if self.plan_id and self.plan.active else None
+            if plan and plan.price > 0 and not (self.plan_expires_at and self.plan_expires_at > timezone.now()):
+                plan = None
+            self._active_plan = plan or SellerPlan.free_plan()
+        return self._active_plan
+
+    @property
+    def product_limit(self):
+        """Most products the seller may list (None = no limit)."""
+        plan = self.active_plan
+        return plan.product_limit if plan else None
+
+    @property
+    def can_add_product(self):
+        limit = self.product_limit
+        return limit is None or self.products.count() < limit
+
+    @property
+    def has_badge(self):
+        plan = self.active_plan
+        return bool(plan and plan.badge)
 
     def _totals(self):
         if not hasattr(self, "_totals_cache"):
@@ -778,7 +815,11 @@ class SellerAccount(models.Model):
             if sales >= threshold:
                 discount = reduction
                 break
-        return max(base - discount, 3)
+        rate = max(base - discount, 3)
+        plan = self.active_plan
+        if plan and plan.commission_discount:
+            rate = max(rate - float(plan.commission_discount), 0)
+        return rate
 
     @property
     def average_rating(self):
@@ -789,6 +830,94 @@ class SellerAccount(models.Model):
 
     def __str__(self):
         return f"{self.display_name} ({self.get_account_type_display()}, {self.status})"
+
+
+class SellerPlan(models.Model):
+    """Monthly plans sellers can buy for a lower commission, more products
+    and a badge. The cheapest free plan is what every seller starts on."""
+    name = models.CharField(max_length=40)
+    price = models.DecimalField("Price per month", max_digits=8, decimal_places=2, default=0,
+                                help_text="0 = free plan.")
+    commission_discount = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        help_text="Percentage points taken off the seller's commission, e.g. 3 turns 10% into 7%.")
+    product_limit = models.PositiveIntegerField(null=True, blank=True, help_text="Leave empty for unlimited products.")
+    badge = models.BooleanField(default=False, help_text="Show a 'Pro seller' badge on the store and its products.")
+    perks = models.TextField(blank=True, help_text="Extra benefits shown on the plan card, one per line.")
+    highlight = models.BooleanField("Most popular", default=False)
+    position = models.PositiveSmallIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["position", "price"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_free(self):
+        return not self.price or self.price <= 0
+
+    @property
+    def perk_list(self):
+        return [line.strip() for line in self.perks.splitlines() if line.strip()]
+
+    @classmethod
+    def free_plan(cls):
+        return cls.objects.filter(active=True, price__lte=0).order_by("position", "id").first()
+
+
+class PlanPayment(models.Model):
+    """One month (or more) of a seller plan, paid by card or recorded by staff."""
+    STATUS_CHOICES = [("pending", "Waiting for payment"), ("paid", "Paid"), ("failed", "Not completed")]
+    METHOD_CHOICES = [("card", "Card"), ("manual", "Recorded by staff")]
+
+    seller = models.ForeignKey("SellerAccount", related_name="plan_payments", on_delete=models.CASCADE)
+    plan = models.ForeignKey(SellerPlan, null=True, on_delete=models.SET_NULL, related_name="payments")
+    plan_name = models.CharField(max_length=40)
+    months = models.PositiveSmallIntegerField(default=1)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending", db_index=True)
+    method = models.CharField(max_length=10, choices=METHOD_CHOICES, default="card")
+    stripe_session_id = models.CharField(max_length=255, blank=True, db_index=True)
+    created_by = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.plan_name} x{self.months} for {self.seller} ({self.status})"
+
+    def activate(self):
+        """Marks the payment paid and extends the seller's plan. Safe to
+        call twice (the second call does nothing). Returns True if it
+        changed anything."""
+        from datetime import timedelta
+        from django.db import transaction
+        with transaction.atomic():
+            me = PlanPayment.objects.select_for_update().get(pk=self.pk)
+            if me.status == "paid":
+                return False
+            seller = SellerAccount.objects.select_for_update().get(pk=me.seller_id)
+            now = timezone.now()
+            start = now
+            if seller.plan_id == me.plan_id and seller.plan_expires_at and seller.plan_expires_at > now:
+                start = seller.plan_expires_at  # renewing early adds to the time left
+            seller.plan_id = me.plan_id
+            seller.plan_expires_at = start + timedelta(days=30 * me.months)
+            seller.plan_reminder_sent = False
+            seller.save(update_fields=["plan", "plan_expires_at", "plan_reminder_sent"])
+            me.status, me.paid_at = "paid", now
+            me.save(update_fields=["status", "paid_at"])
+        self.status, self.paid_at = me.status, me.paid_at
+        Notification.objects.create(
+            user=seller.user,
+            message=f"Your {me.plan_name} plan is active until {seller.plan_expires_at:%b %d, %Y}.",
+            link="/seller/plan/",
+        )
+        return True
 
 
 class Payout(models.Model):
@@ -1024,6 +1153,13 @@ class SiteSettings(models.Model):
         "Require two-step sign-in for staff", default=True,
         help_text="Staff must use an authenticator app code to open the store admin.",
     )
+    commission_individual = models.DecimalField(
+        "Commission for individual sellers (%)", max_digits=5, decimal_places=2, default=10,
+        help_text="Taken from each sale by new individual sellers. Existing sellers keep their own rate.")
+    commission_organization = models.DecimalField(
+        "Commission for organizations (%)", max_digits=5, decimal_places=2, default=20,
+        help_text="Taken from each sale by new business / organization sellers.")
+    setup_completed = models.BooleanField(default=False, editable=False)
     allow_cash_on_delivery = models.BooleanField(default=True, help_text="Show 'Cash on delivery' at checkout. Card payments appear automatically once Stripe keys are set.")
     show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")
     banner_text = models.CharField(

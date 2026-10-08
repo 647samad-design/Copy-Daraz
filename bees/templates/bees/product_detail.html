@@ -122,7 +122,7 @@
 
         <div class="buybox">
             <h1>{{ product.name }}</h1>
-            {% if product.seller_name %}<p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a></p>{% endif %}
+            {% if product.seller_name %}<p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a>{% if product.seller_account.has_badge %} <span class="pro-badge">★ Pro seller</span>{% endif %}</p>{% endif %}
             {% if product.rating_count %}
             <div class="rating-line"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span><strong>{{ product.average_rating }}</strong><a href="#reviews">{{ product.rating_count }} review{{ product.rating_count|pluralize }}</a></div>
             {% endif %}

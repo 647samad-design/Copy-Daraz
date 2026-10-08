@@ -6,7 +6,9 @@ PythonAnywhere scheduled task covers it:
   1. cancel card orders that were never paid (safety net for webhooks)
   2. email cart reminders
   3. back up the database and images
-  4. delete expired sign-in sessions
+  4. remind sellers whose paid plan ends soon
+  5. delete expired sign-in sessions
+  (on a demo copy with DEMO_MODE=True: also reset the demo accounts)
 Each step runs even if an earlier one fails.
 """
 from django.core.management import call_command
@@ -18,10 +20,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         failed = []
-        for name in ("release_unpaid_orders", "send_cart_reminders", "backup_data", "clearsessions"):
+        from django.conf import settings
+        jobs = [("release_unpaid_orders",), ("send_cart_reminders",), ("plan_reminders",), ("backup_data",), ("clearsessions",)]
+        if getattr(settings, "DEMO_MODE", False):
+            jobs.append(("demo_setup", "--reset"))
+        for job in jobs:
+            name = job[0]
             self.stdout.write(f"- {name}")
             try:
-                call_command(name, stdout=self.stdout)
+                call_command(*job, stdout=self.stdout)
             except Exception as exc:  # keep going, report at the end
                 failed.append(name)
                 self.stderr.write(f"  {name} failed: {exc}")

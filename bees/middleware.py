@@ -29,9 +29,39 @@ class StaffTwoFactorMiddleware:
         path = request.path
         user = getattr(request, "user", None)
         if user is not None and path.startswith(PROTECTED) and user.is_authenticated and user.is_staff:
+            from django.conf import settings
+            if getattr(settings, "DEMO_MODE", False) and user.username == "demo_admin":
+                return self.get_response(request)
             from .models import Profile, SiteSettings
             if SiteSettings.load().require_staff_2fa:
                 if not Profile.objects.filter(user=user, totp_enabled=True).exists():
                     messages.info(request, "Please set up two-step sign-in to open the store admin. It takes a minute and protects the store if your password is ever stolen.")
                     return redirect("two_factor_setup")
+        return self.get_response(request)
+
+
+# Demo mode: the demo accounts can look at everything and try the normal
+# flows, but can't change store settings, passwords or security, so the
+# demo stays usable for the next visitor.
+DEMO_BLOCKED = (
+    "/admin/", "/manage/settings/", "/manage/setup/", "/manage/system/", "/manage/plans/",
+    "/account/", "/profile/", "/password-reset/", "/seller/team/",
+    "/seller/settings/", "/seller/holiday/",
+)
+
+
+class DemoGuardMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.conf import settings
+        user = getattr(request, "user", None)
+        if (getattr(settings, "DEMO_MODE", False) and request.method == "POST" and user is not None
+                and user.is_authenticated and request.path.startswith(DEMO_BLOCKED)):
+            from .management.commands.demo_setup import DEMO_USERNAMES
+            if user.username in DEMO_USERNAMES:
+                messages.info(request, "This is a demo account, so this change is turned off. Everything else works as normal.")
+                from .security import safe_next_url
+                return redirect(safe_next_url(request, request.META.get("HTTP_REFERER"), request.path))
         return self.get_response(request)

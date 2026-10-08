@@ -470,6 +470,9 @@ def duplicate_product(request, pk):
     """Copies a listing (with its sizes/colours and photos) as a new draft
     that goes through review like any new product."""
     original = get_object_or_404(Product, pk=pk, seller_account=request.seller)
+    if not request.seller.can_add_product:
+        messages.error(request, f"Your plan allows {request.seller.product_limit} products. Upgrade your plan to add more.")
+        return redirect("seller_plan")
     with transaction.atomic():
         variants = list(original.variants.all())
         images = list(ProductImage.objects.filter(product=original))
@@ -681,3 +684,92 @@ def vacation(request):
     else:
         messages.success(request, "Welcome back! Your products are visible in the shop again.")
     return _back(request, "seller_store_settings")
+
+
+# ---------------------------------------------------------------------------
+# Seller plans
+# ---------------------------------------------------------------------------
+
+PLAN_MONTH_CHOICES = (1, 3, 6, 12)
+
+
+@seller_required(roles=MONEY_ROLES)
+def plan(request):
+    from . import payments
+    from .models import PlanPayment, SellerPlan
+    seller = request.seller
+    plans = list(SellerPlan.objects.filter(active=True))
+    current = seller.active_plan
+    used = seller.products.count()
+    limit = seller.product_limit
+    return _render(request, "plan.html", {
+        "section": "plan", "plans": plans, "current": current,
+        "paid_until": seller.plan_expires_at if current and not current.is_free else None,
+        "used": used, "limit": limit,
+        "used_pct": min(round(used / limit * 100), 100) if limit else 0,
+        "rate": seller.effective_commission_rate,
+        "history": PlanPayment.objects.filter(seller=seller).exclude(status="pending")[:12],
+        "card_ready": payments.is_configured(),
+        "month_choices": PLAN_MONTH_CHOICES,
+    })
+
+
+@seller_required(roles=MONEY_ROLES)
+@require_POST
+def buy_plan(request, pk):
+    from . import payments
+    from .models import PlanPayment, SellerPlan
+    seller = request.seller
+    chosen = get_object_or_404(SellerPlan, pk=pk, active=True)
+    if chosen.is_free:
+        current = seller.active_plan
+        if current and not current.is_free:
+            messages.info(request, f"You're on {current.name} until {seller.plan_expires_at:%b %d, %Y}. "
+                                   f"You'll move to {chosen.name} automatically when it ends.")
+            return redirect("seller_plan")
+        seller.plan, seller.plan_expires_at = chosen, None
+        seller.save(update_fields=["plan", "plan_expires_at"])
+        messages.success(request, f"You're on the {chosen.name} plan.")
+        return redirect("seller_plan")
+    try:
+        months = int(request.POST.get("months", "1"))
+    except ValueError:
+        months = 1
+    if months not in PLAN_MONTH_CHOICES:
+        months = 1
+    if not payments.is_configured():
+        messages.error(request, "Card payments aren't switched on for this store yet. Please contact the store team to upgrade.")
+        return redirect("seller_plan")
+    payment = PlanPayment.objects.create(
+        seller=seller, plan=chosen, plan_name=chosen.name, months=months,
+        amount=chosen.price * months, created_by=request.user,
+    )
+    try:
+        url = payments.create_plan_checkout(request, payment)
+    except payments.PaymentError as exc:
+        payment.status = "failed"
+        payment.save(update_fields=["status"])
+        messages.error(request, str(exc))
+        return redirect("seller_plan")
+    return redirect(url)
+
+
+@seller_required(roles=MONEY_ROLES)
+def plan_done(request):
+    """Stripe sends the seller back here after paying. The webhook also
+    activates the plan; whichever comes first wins."""
+    from . import payments
+    from .models import PlanPayment
+    session_id = request.GET.get("session_id", "")
+    payment = PlanPayment.objects.filter(seller=request.seller, stripe_session_id=session_id).first() if session_id else None
+    if payment and payment.status != "paid":
+        session = payments.retrieve_session(session_id)
+        if session:
+            payments.confirm_plan_payment(payment.id, session)
+            payment.refresh_from_db()
+    if payment and payment.status == "paid":
+        request.seller.refresh_from_db()
+        messages.success(request, f"Thank you! Your {payment.plan_name} plan is active until {request.seller.plan_expires_at:%b %d, %Y}.")
+    elif payment:
+        messages.info(request, "We're waiting for Stripe to confirm your payment. Your plan switches on as soon as it does.")
+    return redirect("seller_plan")

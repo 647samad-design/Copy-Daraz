@@ -44,7 +44,7 @@ def client_ip(request):
 
 IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
 DOCUMENT_EXTENSIONS = IMAGE_EXTENSIONS | {"pdf"}
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # phone photos; they are resized on save
 
 
 def _extension(name):
@@ -58,8 +58,12 @@ def validate_image_upload(uploaded):
     if uploaded is None:
         return None
     if uploaded.size > MAX_UPLOAD_BYTES:
-        raise ValidationError("Images must be 5 MB or smaller.")
-    if _extension(uploaded.name) not in IMAGE_EXTENSIONS:
+        raise ValidationError("Images must be 10 MB or smaller.")
+    ext = _extension(uploaded.name)
+    if ext in ("heic", "heif"):
+        raise ValidationError("iPhone HEIC photos can't be shown on the web. On the iPhone choose Settings > Camera > Formats > "
+                              "Most Compatible, or export the photo as JPG, then upload it again.")
+    if ext not in IMAGE_EXTENSIONS:
         raise ValidationError("Please upload a JPG, PNG, WebP or GIF image.")
     try:
         from PIL import Image

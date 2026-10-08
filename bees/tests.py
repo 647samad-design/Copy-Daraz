@@ -2792,3 +2792,109 @@ class PaymentDiagnosticsTests(TestCase):
             r = self.client.post(reverse("add_card"), follow=True)
         self.assertContains(r, "Admin info: Stripe error 400")
         self.assertTrue(AuditLog.objects.filter(action__contains="saved-card page").exists())
+
+
+class ImageUploadTests(TestCase):
+    """Uploads are turned upright, resized, stored and shown; links work."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self._media = override_settings(MEDIA_ROOT=self._tmp.name)
+        self._media.enable()
+        owner = User.objects.create_user("imgshop", "imgshop@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=owner, business_name="Img Co")
+        self.seller.status = "approved"
+        self.seller.save()
+        self.client.force_login(owner)
+
+    def tearDown(self):
+        self._media.disable()
+        self._tmp.cleanup()
+
+    def _photo(self, name="phone.jpg", size=(4000, 3000), orientation=6, fmt="JPEG", mode="RGB"):
+        from io import BytesIO
+        from PIL import Image
+        img = Image.new(mode, size, (200, 30, 30) if mode == "RGB" else (200, 30, 30, 120))
+        buf = BytesIO()
+        if fmt == "JPEG":
+            exif = Image.Exif()
+            exif[0x0112] = orientation  # camera says "rotate 90°"
+            exif[0x8825] = {1: "N"}     # GPS info that must be stripped
+            img.save(buf, fmt, exif=exif.tobytes())
+        else:
+            img.save(buf, fmt)
+        return SimpleUploadedFile(name, buf.getvalue(), content_type="image/jpeg" if fmt == "JPEG" else "image/png")
+
+    def _open_saved(self, url):
+        from PIL import Image
+        from django.conf import settings
+        return Image.open(os.path.join(settings.MEDIA_ROOT, url.replace(settings.MEDIA_URL, "", 1)))
+
+    def _form(self, **extra):
+        data = {"name": "Lamp", "category": "table-lamp", "price": "20", "stock": "5", "description": "x"}
+        data.update(extra)
+        return data
+
+    def test_phone_photo_is_rotated_resized_and_stripped(self):
+        r = self.client.post(reverse("seller_add_product"), self._form(image_file=self._photo()))
+        self.assertEqual(r.status_code, 302)
+        p = Product.objects.get(name="Lamp")
+        img = self._open_saved(p.image_url)
+        self.assertEqual(max(img.size), 1600)
+        self.assertGreater(img.height, img.width)  # turned upright (was 4000x3000 landscape + rotate)
+        self.assertFalse(img.getexif())
+        self.assertTrue(p.image_url.endswith(".jpg"))
+
+    def test_transparent_png_stays_png(self):
+        self.client.post(reverse("seller_add_product"), self._form(image_file=self._photo("logo.png", (300, 300), fmt="PNG", mode="RGBA")))
+        self.assertTrue(Product.objects.get(name="Lamp").image_url.endswith(".png"))
+
+    def test_gallery_upload_links_and_remove(self):
+        files = [self._photo("a.jpg", (800, 600)), self._photo("b.jpg", (800, 600))]
+        self.client.post(reverse("seller_add_product"), self._form(
+            image_url="https://example.com/main.jpg", extra_files=files, extra_image_links="https://example.com/c.jpg"))
+        p = Product.objects.get(name="Lamp")
+        self.assertEqual(p.extra_images.count(), 3)
+        page = self.client.get(reverse("product_detail", args=[p.id]))
+        self.assertContains(page, "https://example.com/c.jpg")
+        # remove one, keep the others
+        first = p.extra_images.first()
+        self.client.post(reverse("seller_edit_product", args=[p.id]), self._form(image_url=p.image_url, remove_extra=[first.id]))
+        self.assertEqual(p.extra_images.count(), 2)
+        self.assertFalse(p.extra_images.filter(pk=first.pk).exists())
+
+    def test_too_many_gallery_pictures_rejected(self):
+        links = "\n".join(f"https://example.com/{i}.jpg" for i in range(9))
+        r = self.client.post(reverse("seller_add_product"), self._form(image_url="https://example.com/m.jpg", extra_image_links=links))
+        self.assertContains(r, "up to 8")
+        self.assertFalse(Product.objects.exists())
+
+    def test_bad_links_and_heic_rejected(self):
+        r = self.client.post(reverse("seller_add_product"), self._form(image_url="http://example.com/x.jpg"))
+        self.assertContains(r, "must start with https://")
+        heic = SimpleUploadedFile("IMG_0001.HEIC", b"\x00" * 100, content_type="image/heic")
+        r = self.client.post(reverse("seller_add_product"), self._form(image_file=heic))
+        self.assertContains(r, "Most Compatible")
+
+    def test_admin_can_edit_product_with_uploaded_image_path(self):
+        staff = User.objects.create_user("imgboss", "ib@example.com", "pass12345", is_staff=True)
+        p = make_product(image_url="/media/products/abc.jpg")
+        self.client.force_login(staff)
+        page = self.client.get(reverse("manage_product_edit", args=[p.id]))
+        self.assertNotContains(page, 'type="url" name="image_url"')  # a /media/ path must not be blocked by the browser
+        r = self.client.post(reverse("manage_product_edit", args=[p.id]), {
+            "name": p.name, "category": p.category, "price": "9.99", "stock": "3", "image_url": p.image_url,
+            "approval_status": "approved",
+        })
+        self.assertEqual(r.status_code, 302)
+        p.refresh_from_db()
+        self.assertEqual(p.price, Decimal("9.99"))
+
+    def test_store_logo_is_resized(self):
+        r = self.client.post(reverse("seller_store_settings"), {"store_name": "Img Co", "store_logo": self._photo("logo.jpg", (3000, 3000))})
+        self.assertEqual(r.status_code, 302)
+        self.seller.refresh_from_db()
+        from PIL import Image
+        with Image.open(self.seller.store_logo.path) as img:
+            self.assertLessEqual(max(img.size), 600)

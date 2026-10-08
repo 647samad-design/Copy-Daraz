@@ -36,6 +36,7 @@ from .models import (
     OrganizationMember, ChatThread, ChatMessage, ProductVariant,
 )
 from .cart import persist as _persist_cart
+from .images import BANNER_MAX, LOGO_MAX, optimize
 from .ratelimit import ratelimit
 from .security import (
     safe_next_url, redirect_back, validate_image_upload, validate_document_upload, random_upload_name,
@@ -563,8 +564,8 @@ def signup_view(request):
                         bank_details=request.POST.get("bank_details", "")[:255],
                         business_certificate=request.FILES.get("business_certificate"),
                         id_document=request.FILES.get("id_document"),
-                        store_logo=request.FILES.get("store_logo"),
-                        store_banner=request.FILES.get("store_banner"),
+                        store_logo=optimize(request.FILES.get("store_logo"), LOGO_MAX),
+                        store_banner=optimize(request.FILES.get("store_banner"), BANNER_MAX),
                     )
                     AuditLog.objects.create(user=user, action=f"Submitted {user_type} seller application")
                 AuditLog.objects.create(user=user, action="Account created")
@@ -1882,19 +1883,62 @@ def _product_fields_from_post(request):
     discount = _parse_int(request.POST.get("discount_percent"), "Discount", minimum=0, maximum=95)
     stock = _parse_int(request.POST.get("stock"), "Stock", minimum=0, maximum=1_000_000)
     image_url = request.POST.get("image_url", "").strip()[:500]
-    if image_url and not (image_url.startswith("https://") or image_url.startswith(settings.MEDIA_URL)):
-        raise ValidationError("Image link must start with https://")
+    if image_url and not is_image_link(image_url):
+        raise ValidationError("Image link must start with https:// (a direct link to the picture).")
     uploaded = request.FILES.get("image_file")
     if uploaded:
         validate_image_upload(uploaded)
-        from django.core.files.storage import default_storage
-        path = default_storage.save(random_upload_name("products", uploaded), uploaded)
-        image_url = default_storage.url(path)
+        from .images import save_public
+        image_url = save_public(uploaded, "products")
     return {
         "name": name, "category": category, "price": price, "old_price": old_price,
         "discount_percent": discount, "stock": stock, "image_url": image_url,
         "description": request.POST.get("description", "").strip()[:10000],
     }
+
+
+MAX_GALLERY = 8
+
+
+def is_image_link(url):
+    return url.startswith("https://") or url.startswith(settings.MEDIA_URL)
+
+
+def gallery_from_post(request, product=None):
+    """Extra product pictures after this form: the existing ones minus any
+    ticked "Remove", plus pasted links and uploaded files (up to 8).
+    Validates everything before saving any file."""
+    remove = {int(i) for i in request.POST.getlist("remove_extra") if i.isdigit()}
+    urls = [img.image_url for img in product.extra_images.all() if img.id not in remove] if product and product.pk else []
+    # Older admin form: one textarea with every gallery link.
+    legacy = "extra_images" in request.POST and "extra_image_links" not in request.POST
+    if legacy:
+        urls = []
+        links = request.POST.get("extra_images", "")
+    else:
+        links = request.POST.get("extra_image_links", "")
+    for line in links.splitlines():
+        line = line.strip()[:500]
+        if not line or (legacy and not is_image_link(line)):
+            continue
+        if not is_image_link(line):
+            raise ValidationError(f"Gallery links must start with https:// ({line[:60]}).")
+        if line not in urls:
+            urls.append(line)
+    files = [f for f in request.FILES.getlist("extra_files") if f]
+    if len(urls) + len(files) > MAX_GALLERY:
+        raise ValidationError(f"The gallery can hold up to {MAX_GALLERY} extra pictures.")
+    for f in files:
+        validate_image_upload(f)
+    return urls, files
+
+
+def save_gallery(product, urls, files):
+    from .images import save_public
+    urls = list(urls) + [save_public(f, "products") for f in files]
+    product.extra_images.all().delete()
+    ProductImage.objects.bulk_create([ProductImage(product=product, image_url=u[:500]) for u in urls[:MAX_GALLERY]])
+    return urls
 
 
 def parse_variant_rows(request):
@@ -1954,8 +1998,9 @@ def seller_add_product(request):
     seller, role = _approved_seller_or_404(request.user)
     if request.method == "POST":
         try:
-            fields = _product_fields_from_post(request)
             variant_rows = parse_variant_rows(request)
+            gallery = gallery_from_post(request)
+            fields = _product_fields_from_post(request)
             if not fields["image_url"]:
                 raise ValidationError("Please add a product image (upload a file or paste an https:// link).")
         except ValidationError as exc:
@@ -1972,6 +2017,7 @@ def seller_add_product(request):
             )
             if variant_rows:
                 apply_variant_rows(product, variant_rows)
+            save_gallery(product, *gallery)
         messages.success(request, "Product submitted for review. It will go live once approved by an admin.")
         return redirect("seller_products")
     return _seller_form(request, seller, role, {
@@ -1990,8 +2036,9 @@ def seller_edit_product(request, pk):
     product = get_object_or_404(Product, pk=pk, seller_account=seller)
     if request.method == "POST":
         try:
-            fields = _product_fields_from_post(request)
             variant_rows = parse_variant_rows(request)
+            gallery = gallery_from_post(request, product)
+            fields = _product_fields_from_post(request)
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
             return _seller_form(request, seller, role, {
@@ -2000,7 +2047,8 @@ def seller_edit_product(request, pk):
             })
         if not fields["image_url"]:
             fields["image_url"] = product.image_url
-        needs_review = any(getattr(product, f) != fields[f] for f in REVIEWED_FIELDS)
+        old_gallery = list(product.extra_images.values_list("image_url", flat=True))
+        needs_review = any(getattr(product, f) != fields[f] for f in REVIEWED_FIELDS) or bool(gallery[1]) or bool(set(gallery[0]) - set(old_gallery))
         for key, value in fields.items():
             setattr(product, key, value)
         if needs_review and product.approval_status != "pending":
@@ -2011,6 +2059,7 @@ def seller_edit_product(request, pk):
         with transaction.atomic():
             product.save()
             apply_variant_rows(product, variant_rows)
+            save_gallery(product, *gallery)
         return redirect("seller_products")
     return _seller_form(request, seller, role, {
         "categories": Product.CATEGORY_CHOICES,

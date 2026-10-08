@@ -41,7 +41,7 @@
         {% include "bees/partials/order_status.html" %}
         {% if order.status != "cancelled" and order.tracking_number or order.status != "cancelled" and order.estimated_delivery %}
         <div class="tracking">
-            {% if order.tracking_number %}<span>Tracking number <strong>{{ order.tracking_number }}</strong>{% if order.courier_name %} with {{ order.courier_name }}{% endif %}</span>{% endif %}
+            {% if order.tracking_number %}<span>Tracking number <strong>{{ order.tracking_number }}</strong>{% if order.courier_name %} with {{ order.courier_name }}{% endif %}</span>{% if order.tracking_link %}<a class="btn btn-secondary btn-sm" href="{{ order.tracking_link }}" target="_blank" rel="noopener">{{ t.track_package }}</a>{% endif %}{% endif %}
             {% if order.estimated_delivery %}<span>{% if order.status == "delivered" %}Delivered{% else %}Arrives by <strong>{{ order.estimated_delivery|date:"M j, Y" }}</strong>{% endif %}</span>{% endif %}
         </div>
         {% endif %}

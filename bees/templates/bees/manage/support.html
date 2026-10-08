@@ -16,7 +16,7 @@
 {% endblock %}
 {% block admin %}
 <div class="adm-head"><div><h1>Messages</h1><p>Conversations from the chat bubble in your store.</p></div>
-<div class="tabs"><a href="?show=open" class="{% if show == 'open' %}on{% endif %}">Open</a><a href="?show=closed" class="{% if show == 'closed' %}on{% endif %}">Closed</a></div></div>
+<div class="tabs"><a href="?show=open" class="{% if show == 'open' %}on{% endif %}">Open</a><a href="?show=closed" class="{% if show == 'closed' %}on{% endif %}">Closed</a><a href="{% url 'manage_conversations' %}">Buyer ↔ seller{% if attention.reported %}<span class="n">{{ attention.reported }}</span>{% endif %}</a></div></div>
 <div class="inbox">
     <section class="panel threads" aria-label="Conversations">
         {% for t in threads %}

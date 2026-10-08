@@ -530,3 +530,37 @@ def login_code(request):
         request.session["2fa_pending"] = pending
         messages.error(request, "That code didn't match. Use the newest code from your app, or a backup code.")
     return render(request, "bees/auth/login_code.html", {})
+
+
+@login_required
+def referrals(request):
+    """The customer's referral dashboard: their link, share buttons, who
+    joined, and the rewards they've earned."""
+    from .models import Coupon, Order, SiteSettings
+    site = SiteSettings.load()
+    if not site.referral_enabled:
+        messages.info(request, "The referral program isn't running right now.")
+        return redirect("profile")
+    profile = _profile(user=request.user)
+    friends = list(Profile.objects.filter(referred_by=profile.referral_code).exclude(user=request.user)
+                   .select_related("user").order_by("-user__date_joined")[:100])
+    for f in friends:
+        name = f.user.first_name or f.user.username
+        f.masked = name[:2] + "•" * max(len(name) - 2, 2)
+    rewards = list(Coupon.objects.filter(owner=request.user, purpose__in=["referral_reward", "referral_welcome"]).order_by("-id"))
+    used_codes = set(Order.objects.filter(coupon_code__in=[c.code for c in rewards]).exclude(status="cancelled")
+                     .values_list("coupon_code", flat=True))
+    today = timezone.localdate()
+    for c in rewards:
+        c.state = "used" if c.code in used_codes else ("expired" if c.expiry_date and c.expiry_date < today else "ready")
+    link = request.build_absolute_uri(reverse("signup")) + f"?ref={profile.referral_code}"
+    shop_link = request.build_absolute_uri(reverse("home")) + f"?ref={profile.referral_code}"
+    return render(request, "bees/account/referrals.html", {
+        "tab": "referrals", "profile": profile, "link": link, "shop_link": shop_link,
+        "friends": friends, "rewards": rewards,
+        "stats": {"joined": len(friends), "bought": sum(1 for f in friends if f.referral_rewarded),
+                  "earned": sum(1 for c in rewards if c.purpose == "referral_reward")},
+        "site": site,
+        "share_text": f"Here's {site.referral_friend_percent}% off your first order at {site.site_name}: {link}",
+        "share_short": f"Get {site.referral_friend_percent}% off your first order at {site.site_name}",
+    })

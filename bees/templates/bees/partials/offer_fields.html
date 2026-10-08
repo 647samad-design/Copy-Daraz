@@ -1,0 +1,19 @@
+{# Quantity offer ("Buy 3 or more, save 10%") for the product forms. Needs: p (form values). #}
+<div class="offer-fields">
+    <span class="label">Quantity offer <span class="muted">(optional)</span></span>
+    <div class="offer-row">
+        <span>Buy</span>
+        <label class="sr-only" for="bulk_qty">Minimum quantity</label>
+        <input type="number" id="bulk_qty" name="bulk_min_qty" min="2" max="1000" step="1" value="{{ p.bulk_min_qty|default_if_none:'' }}" placeholder="3">
+        <span>or more and save</span>
+        <label class="sr-only" for="bulk_pct">Discount percent</label>
+        <input type="number" id="bulk_pct" name="bulk_percent" min="0" max="50" step="1" value="{% if p.bulk_percent and p.bulk_percent != '0' %}{{ p.bulk_percent }}{% endif %}" placeholder="10">
+        <span>%</span>
+    </div>
+    <span class="hint">Encourages bigger orders. The discount is applied automatically in the cart.</span>
+</div>
+<style>
+    .offer-fields { display: grid; gap: 6px; }
+    .offer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .offer-row input { width: 90px; min-height: 44px; }
+</style>

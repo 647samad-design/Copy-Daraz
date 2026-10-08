@@ -24,9 +24,10 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from . import badges as seller_badges
 from . import payments
 from .models import (
-    AuditLog, ChatMessage, ChatThread, Coupon, Notification, Order, OrderItem,
+    AuditLog, ChatMessage, ChatThread, Conversation, Coupon, Currency, Notification, Order, OrderItem,
     Payout, Product, Profile, Question, ReturnRequest, Review, SellerAccount, SellerPlan, ShippingZone, SiteSettings,
 )
 from .templatetags.bees_extras import money
@@ -62,7 +63,9 @@ def attention_counts(force=False):
             "returns": ReturnRequest.objects.filter(status="requested").count(),
             "questions": Question.objects.filter(answer="").count(),
             "messages": ChatThread.objects.filter(is_resolved=False).filter(Exists(unread_user_msgs)).count(),
+            "reported": Conversation.objects.filter(reported=True).count(),
         }
+        data["messages"] += data["reported"]
         data["total"] = data["orders"] + data["products"] + data["sellers"] + data["returns"] + data["messages"]
         cache.set("manage:attention", data, 30)
     return data
@@ -259,6 +262,8 @@ def order_detail(request, pk):
             was = order.status
             order.tracking_number = request.POST.get("tracking_number", "").strip()[:60]
             order.courier_name = request.POST.get("courier_name", "").strip()[:60]
+            turl = request.POST.get("tracking_url", "").strip()[:300]
+            order.tracking_url = turl if turl.startswith("https://") else ""
             eta = request.POST.get("estimated_delivery", "").strip()
             try:
                 order.estimated_delivery = date.fromisoformat(eta) if eta else None
@@ -386,6 +391,14 @@ def product_form(request, pk=None):
             setattr(product, key, value)
         product.seller_name = (request.POST.get("seller_name", "").strip() or product.seller_name or "Official Store")[:100]
         product.is_flash_sale = bool(request.POST.get("is_flash_sale"))
+        ends = request.POST.get("flash_sale_ends", "").strip()
+        product.flash_sale_ends = None
+        if ends and product.is_flash_sale:
+            from datetime import datetime
+            try:
+                product.flash_sale_ends = timezone.make_aware(datetime.fromisoformat(ends))
+            except ValueError:
+                messages.error(request, "Deal end time wasn't a valid date and time, so the deal has no end date.")
         product.approval_status = approval
         with transaction.atomic():
             product.save()
@@ -457,6 +470,14 @@ def seller_detail(request, pk):
             seller.save(update_fields=["commission_rate"])
             _log(request, f"Seller #{seller.id} commission set to {rate}%")
             messages.success(request, "Commission rate saved.")
+        elif action in ("verify", "unverify"):
+            seller.verified_at = timezone.now() if action == "verify" else None
+            seller.save(update_fields=["verified_at"])
+            if action == "verify":
+                Notification.objects.create(user=seller.user, link="/seller/dashboard/",
+                                            message="Your store is now a Verified seller. The badge shows on your store and products.")
+            _log(request, f"Seller #{seller.id} {'verified' if action == 'verify' else 'verification removed'}")
+            messages.success(request, f"{seller.display_name} is {'now verified' if action == 'verify' else 'no longer verified'}.")
         elif action == "grant_plan":
             from .models import PlanPayment
             plan = SellerPlan.objects.filter(pk=request.POST.get("plan"), price__gt=0).first()
@@ -530,6 +551,7 @@ def seller_detail(request, pk):
         "payouts": seller.payouts.select_related("recorded_by")[:20],
         "payout_request": seller.payouts.filter(status="requested").first(),
         "balance": balance(seller), "method_choices": Payout.METHOD_CHOICES,
+        "badge_rules": seller_badges.rules(),
         "paid_plans": SellerPlan.objects.filter(active=True, price__gt=0),
         "month_choices": PLAN_MONTH_CHOICES,
     })
@@ -910,8 +932,18 @@ EU = "AT, BE, BG, HR, CY, CZ, DK, EE, FI, FR, DE, GR, HU, IE, IT, LV, LT, LU, MT
 class ShippingZoneForm(forms.ModelForm):
     class Meta:
         model = ShippingZone
-        fields = ["name", "countries", "fee", "free_over", "delivery_days", "active"]
+        fields = ["name", "countries", "fee", "per_item_fee", "free_over", "delivery_days", "active"]
         widgets = {"countries": forms.Textarea(attrs={"rows": 3, "placeholder": "US, CA  — or * for all other countries"})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["per_item_fee"].required = False
+
+    def clean_per_item_fee(self):
+        value = self.cleaned_data.get("per_item_fee") or Decimal("0")
+        if value < 0:
+            raise ValidationError("Can't be negative.")
+        return value
 
     def clean_countries(self):
         from .countries import COUNTRIES
@@ -1155,8 +1187,10 @@ class SiteSettingsForm(forms.ModelForm):
         ("Shipping, tax & payment", "Applied at checkout.", ["shipping_flat_fee", "free_shipping_threshold", "tax_percent", "delivery_days", "return_days", "allow_cash_on_delivery"]),
         ("Contact & social", "Shown in the footer, emails and help page.",
          ["support_email", "support_phone", "company_address", "facebook_url", "instagram_url", "twitter_url", "youtube_url"]),
+        ("Referral program", "Customers invite friends with their own link. Discount codes are created automatically.",
+         ["referral_enabled", "referral_friend_percent", "referral_reward_percent"]),
         ("Security", "Protects the admin even if a staff password is stolen.", ["require_staff_2fa"]),
-        ("Language", "", ["show_language_menu"]),
+        ("Language & currency", "Show a menu where shoppers pick their language (English, Arabic, Spanish, French, Urdu) and currency. Add currencies under Store settings > Currencies.", ["show_language_menu"]),
     ]
 
     def groups(self):
@@ -1164,9 +1198,25 @@ class SiteSettingsForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for name in ("commission_individual", "commission_organization"):
+        for name in self.OPTIONAL:
             if name in self.fields:
-                self.fields[name].required = False  # left out = keep the current rate
+                self.fields[name].required = False  # left out = keep the current value
+
+    OPTIONAL = ("commission_individual", "commission_organization", "referral_friend_percent", "referral_reward_percent")
+
+    def _clean_percent(self, name):
+        value = self.cleaned_data.get(name)
+        if value is None:
+            return getattr(self.instance, name)
+        if value > 90:
+            raise ValidationError("Use a number between 0 and 90.")
+        return value
+
+    def clean_referral_friend_percent(self):
+        return self._clean_percent("referral_friend_percent")
+
+    def clean_referral_reward_percent(self):
+        return self._clean_percent("referral_reward_percent")
 
     def _clean_rate(self, name):
         value = self.cleaned_data[name]
@@ -1317,3 +1367,141 @@ def setup_wizard(request):
         "checklist": _launch_checklist(site) if key == "launch" else None,
         "plans": SellerPlan.objects.filter(active=True) if key == "selling" else None,
     })
+
+
+# ---------------------------------------------------------------------------
+# Buyer-seller messages (moderation)
+# ---------------------------------------------------------------------------
+
+@staff_required
+def conversations(request):
+    from .models import Conversation
+    qs = Conversation.objects.select_related("buyer", "seller").exclude(last_message_at=None).order_by("-reported", "-last_message_at")
+    if request.GET.get("tab") == "reported":
+        qs = qs.filter(reported=True)
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(Q(buyer__username__icontains=q) | Q(buyer__email__icontains=q) | Q(seller__business_name__icontains=q)
+                       | Q(seller__organization_name__icontains=q) | Q(messages__body__icontains=q)).distinct()
+    return _render(request, "conversations.html", {
+        "section": "support", "page_obj": _page(request, qs), "q": q, "tab": request.GET.get("tab", ""),
+        "reported_count": Conversation.objects.filter(reported=True).count(),
+    })
+
+
+@staff_required
+def conversation_detail(request, pk):
+    from . import messaging
+    from .models import Conversation
+    conv = get_object_or_404(Conversation.objects.select_related("buyer", "seller"), pk=pk)
+    if request.method == "POST" and request.POST.get("action") == "resolve":
+        Conversation.objects.filter(pk=pk).update(reported=False)
+        _log(request, f"Reviewed reported conversation #{pk}")
+        _refresh_attention()
+        messages.success(request, "Marked as reviewed.")
+        return redirect("manage_conversations")
+    return _render(request, "conversation.html", {
+        "section": "support", "conv": conv,
+        "thread": messaging.serialize(conv.messages.select_related("product"), "buyer"),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Currencies
+# ---------------------------------------------------------------------------
+
+class CurrencyForm(forms.ModelForm):
+    class Meta:
+        model = Currency
+        fields = ["code", "symbol", "rate", "decimals", "position", "active"]
+
+    def clean_code(self):
+        code = self.cleaned_data["code"].strip().upper()
+        if len(code) != 3 or not code.isalpha():
+            raise ValidationError("Use the three-letter code, e.g. EUR.")
+        from . import currency as cur
+        if code == cur.store_code():
+            raise ValidationError("That's the store currency already.")
+        return code
+
+    def clean_rate(self):
+        rate = self.cleaned_data["rate"]
+        if rate is None or rate <= 0:
+            raise ValidationError("The rate must be more than 0.")
+        return rate
+
+
+@staff_required
+def currencies(request):
+    from . import currency as cur
+    edit = None
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "update_rates":
+            updated, error = cur.update_rates()
+            if error:
+                messages.error(request, error)
+            else:
+                _log(request, f"Updated {updated} currency rates")
+                messages.success(request, f"{updated} rate{'s' if updated != 1 else ''} updated from today's market rates.")
+            return redirect("manage_currencies")
+        if action in ("toggle", "delete"):
+            c = get_object_or_404(Currency, pk=request.POST.get("id"))
+            if action == "toggle":
+                c.active = not c.active
+                c.save()
+                messages.success(request, f"{c.code} is now {'shown in the shop' if c.active else 'hidden'}.")
+            else:
+                c.delete()
+                from django.core.cache import cache as _cache
+                _cache.delete(cur.CACHE_KEY)
+                messages.success(request, "Currency removed.")
+            return redirect("manage_currencies")
+        instance = get_object_or_404(Currency, pk=request.POST.get("id")) if request.POST.get("id") else None
+        edit = CurrencyForm(request.POST, instance=instance)
+        if edit.is_valid():
+            c = edit.save()
+            _log(request, f"Saved currency {c.code}")
+            messages.success(request, f"{c.code} saved.")
+            return redirect("manage_currencies")
+        messages.error(request, "Please fix the currency details below.")
+    elif request.GET.get("edit"):
+        edit = CurrencyForm(instance=get_object_or_404(Currency, pk=request.GET["edit"]))
+    elif request.GET.get("new"):
+        edit = CurrencyForm(initial={"decimals": 2, "active": True, "position": Currency.objects.count() + 1})
+    rows = list(Currency.objects.all())
+    for c in rows:
+        c.example = cur.fmt(Decimal("100"), c)
+    return _render(request, "currencies.html", {
+        "section": "settings", "rows": rows, "edit": edit, "store_code": cur.store_code(),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Referral program
+# ---------------------------------------------------------------------------
+
+@staff_required
+def referrals(request):
+    referred = Profile.objects.exclude(referred_by="")
+    by_code = {}
+    for code, rewarded in referred.values_list("referred_by", "referral_rewarded"):
+        row = by_code.setdefault(code, {"joined": 0, "bought": 0})
+        row["joined"] += 1
+        row["bought"] += 1 if rewarded else 0
+    referrers = {p.referral_code: p for p in Profile.objects.filter(referral_code__in=by_code).select_related("user")}
+    top = sorted(
+        ({"profile": referrers[c], **v} for c, v in by_code.items() if c in referrers),
+        key=lambda r: (-r["bought"], -r["joined"]),
+    )[:50]
+    welcome = Coupon.objects.filter(purpose="referral_welcome")
+    rewards = Coupon.objects.filter(purpose="referral_reward")
+    used = set(Order.objects.exclude(status="cancelled").exclude(coupon_code="").values_list("coupon_code", flat=True))
+    stats = {
+        "joined": referred.count(),
+        "bought": referred.filter(referral_rewarded=True).count(),
+        "rewards": rewards.count(),
+        "rewards_used": rewards.filter(code__in=used).count(),
+        "welcome_used": welcome.filter(code__in=used).count(),
+    }
+    return _render(request, "referrals.html", {"section": "customers", "top": top, "stats": stats, "brand": SiteSettings.load()})

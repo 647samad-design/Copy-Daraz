@@ -316,3 +316,11 @@ TRANSLATIONS = {
 }
 
 LANGUAGE_NAMES = {"en": "English", "ur": "اردو", "roman": "Roman Urdu"}
+
+# Arabic, Spanish, French and strings for newer features.
+from .translations_extra import EXTRA_LANGUAGES, EXTRA_NAMES, NEW_KEYS, RTL_LANGUAGES  # noqa: E402
+
+TRANSLATIONS.update(EXTRA_LANGUAGES)
+for _lang, _strings in NEW_KEYS.items():
+    TRANSLATIONS.setdefault(_lang, {}).update(_strings)
+LANGUAGE_NAMES.update(EXTRA_NAMES)

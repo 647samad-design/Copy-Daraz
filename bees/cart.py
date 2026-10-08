@@ -55,10 +55,11 @@ def lines(cart):
             variant.product = product
         elif product.has_variants:
             continue  # sizes were added after this went in the cart
-        unit = variant.unit_price if variant else product.price
+        base = variant.unit_price if variant else product.price
+        unit = product.bulk_unit_price(base, qty)
         rows.append({
             "key": key, "product": product, "variant": variant, "qty": qty,
-            "unit_price": unit, "subtotal": unit * qty,
+            "unit_price": unit, "subtotal": unit * qty, "base_price": base, "bundle": unit != base,
             "label": variant.label if variant else "",
             "stock": variant.stock if variant else product.stock,
         })

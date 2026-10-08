@@ -1,0 +1,29 @@
+{% extends "bees/manage/base.html" %}
+{% block page_title %}Referral program{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'manage_customers' %}">← Customers</a><h1 style="margin-top:6px;">Referral program</h1>
+        <p>{% if brand.referral_enabled %}On: friends get {{ brand.referral_friend_percent }}% off, the customer who shared gets {{ brand.referral_reward_percent }}% after the friend's first delivery.{% else %}Switched off.{% endif %}</p></div>
+    <div class="actions"><a class="btn btn-ghost btn-sm" href="{% url 'manage_settings' %}">Change rewards</a></div>
+</div>
+<div class="kpis five" style="margin:0;">
+    <div class="kpi"><strong>{{ stats.joined }}</strong><span>Customers who joined from a link</span></div>
+    <div class="kpi"><strong>{{ stats.bought }}</strong><span>Of them made a delivered order</span></div>
+    <div class="kpi"><strong>{{ stats.welcome_used }}</strong><span>Welcome codes used</span></div>
+    <div class="kpi"><strong>{{ stats.rewards }}</strong><span>Rewards given</span></div>
+    <div class="kpi"><strong>{{ stats.rewards_used }}</strong><span>Rewards used</span></div>
+</div>
+<section class="panel" style="padding:8px 20px;">
+    <h2 style="margin:12px 0 4px;">Top referrers</h2>
+    <div class="table-scroll">
+        <table class="table" style="min-width:480px;">
+            <thead><tr><th>Customer</th><th>Code</th><th class="num">Friends joined</th><th class="num">Friends who bought</th></tr></thead>
+            <tbody>
+            {% for r in top %}
+            <tr><td><strong>{{ r.profile.user.get_full_name|default:r.profile.user.username }}</strong><div class="muted small">{{ r.profile.user.email }}</div></td><td><code>{{ r.profile.referral_code }}</code></td><td class="num">{{ r.joined }}</td><td class="num">{{ r.bought }}</td></tr>
+            {% empty %}<tr class="empty-row"><td colspan="4">Nobody has joined from a referral link yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "bees/base.html" %}
+{% block title %}{{ t.invite_friends }} — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block extra_css %}
+    .ref-hero { display: grid; gap: 14px; padding: 28px; border-radius: var(--radius); background: var(--brand); color: var(--on-brand); }
+    .ref-hero h2 { color: var(--on-brand); font-size: clamp(1.4rem, 3vw, 2rem); margin: 0; }
+    .ref-hero p { margin: 0; opacity: .9; max-width: 60ch; }
+    .ref-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .ref-steps div { padding: 14px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--on-brand) 10%, transparent); }
+    .ref-steps strong { display: block; font-size: 1.05rem; margin-bottom: 2px; }
+    .ref-link { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ref-link input { flex: 1 1 260px; min-width: 0; }
+    .ref-share { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ref-share a, .ref-share button { min-height: 40px; }
+    .ref-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .ref-kpis div { padding: 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); }
+    .ref-kpis strong { display: block; font-family: var(--font-display); font-size: 1.8rem; line-height: 1.1; }
+    .ref-kpis span { color: var(--muted); font-weight: 700; }
+    .reward { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--line); }
+    .reward:first-of-type { border-top: 0; }
+    .reward code { font-size: 1.05rem; font-weight: 800; letter-spacing: .04em; }
+    @media (max-width: 640px) { .ref-steps, .ref-kpis { grid-template-columns: minmax(0, 1fr); } .ref-hero { padding: 20px; } }
+{% endblock %}
+{% block content %}
+<div class="wrap page" style="max-width:920px;">
+    <div class="page-head"><div><h1>Your account</h1><p>Signed in as {{ request.user.username }}</p></div></div>
+    {% include "bees/partials/account_tabs.html" %}
+    <div style="display:grid;gap:20px;">
+        <section class="ref-hero">
+            <h2>Give {{ site.referral_friend_percent }}%, get {{ site.referral_reward_percent }}%</h2>
+            <p>Share your link. Friends get {{ site.referral_friend_percent }}% off their first order, and you get a {{ site.referral_reward_percent }}% discount code when their order is delivered. No limit on how many friends you invite.</p>
+            <div class="ref-steps">
+                <div><strong>1. Share</strong>Send your link to friends or post it anywhere.</div>
+                <div><strong>2. They shop</strong>They sign up and get {{ site.referral_friend_percent }}% off.</div>
+                <div><strong>3. You earn</strong>A {{ site.referral_reward_percent }}% code for each friend's first delivered order.</div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Your link</h2>
+            <div class="ref-link" style="margin:10px 0 12px;">
+                <label for="ref-link" class="sr-only">Your referral link</label>
+                <input class="input" id="ref-link" type="text" readonly value="{{ link }}" onclick="this.select()">
+                <button type="button" class="btn btn-primary" data-copy="#ref-link">Copy link</button>
+            </div>
+            <div class="ref-share">
+                <a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}">WhatsApp</a>
+                <a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u={{ link|urlencode }}">Facebook</a>
+                <a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?url={{ link|urlencode }}&amp;text={{ share_short|urlencode }}">X</a>
+                <a class="btn btn-secondary btn-sm" href="mailto:?subject={{ brand.site_name|urlencode }}&amp;body={{ link|urlencode }}">Email</a>
+                <button type="button" class="btn btn-ghost btn-sm" data-share data-url="{{ link }}" hidden>More…</button>
+            </div>
+            <p class="muted small" style="margin-top:12px;">Tip: any product link works too. Add <code>?ref={{ profile.referral_code }}</code> to the end, or use the “Share” button on a product page.</p>
+        </section>
+
+        <div class="ref-kpis">
+            <div><strong>{{ stats.joined }}</strong><span>Friends joined</span></div>
+            <div><strong>{{ stats.bought }}</strong><span>Made their first order</span></div>
+            <div><strong>{{ stats.earned }}</strong><span>Rewards earned</span></div>
+        </div>
+
+        <div class="two-col" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:20px;">
+            <section class="panel">
+                <h2>Your rewards</h2>
+                {% for c in rewards %}
+                <div class="reward"><div><code>{{ c.code }}</code><div class="muted small">{{ c.percent_off }}% off · {% if c.purpose == "referral_welcome" %}welcome gift{% else %}thank-you reward{% endif %}{% if c.expiry_date %} · until {{ c.expiry_date|date:"M j, Y" }}{% endif %}</div></div>
+                    {% if c.state == "ready" %}<span class="pill ok">Ready to use</span>{% elif c.state == "used" %}<span class="pill">Used</span>{% else %}<span class="pill bad">Expired</span>{% endif %}</div>
+                {% empty %}<p class="muted">Your rewards will appear here.</p>{% endfor %}
+            </section>
+            <section class="panel">
+                <h2>Friends</h2>
+                {% for f in friends %}
+                <div class="reward"><div><strong>{{ f.masked }}</strong><div class="muted small">Joined {{ f.user.date_joined|date:"M j, Y" }}</div></div>
+                    {% if f.referral_rewarded %}<span class="pill ok">First order delivered</span>{% else %}<span class="pill">Joined</span>{% endif %}</div>
+                {% empty %}<p class="muted">No friends yet. Share your link to get started.</p>{% endfor %}
+            </section>
+        </div>
+    </div>
+</div>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (b) {
+    b.addEventListener('click', function () { var i = document.querySelector(b.dataset.copy); i.select(); (navigator.clipboard ? navigator.clipboard.writeText(i.value) : Promise.reject()).then(function () { b.textContent = 'Link copied'; }).catch(function () { document.execCommand('copy'); b.textContent = 'Link copied'; }); });
+});
+document.querySelectorAll('[data-share]').forEach(function (b) {
+    if (!navigator.share) return; b.hidden = false;
+    b.addEventListener('click', function () { navigator.share({ url: b.dataset.url, title: document.title }).catch(function () {}); });
+});
+</script>
+{% endblock %}

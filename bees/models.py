@@ -49,6 +49,11 @@ class ProductQuerySet(models.QuerySet):
             | models.Q(seller_account__status="approved", seller_account__vacation_mode=False)
         )
 
+    def flash(self):
+        """Live products in a running flash sale (ended deals drop out)."""
+        return self.live().filter(is_flash_sale=True).filter(
+            models.Q(flash_sale_ends__isnull=True) | models.Q(flash_sale_ends__gt=timezone.now()))
+
 
 class Product(models.Model):
     CATEGORY_CHOICES = [
@@ -83,6 +88,11 @@ class Product(models.Model):
     category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default="grocery", db_index=True)
     description = models.TextField(blank=True)
     is_flash_sale = models.BooleanField(default=False, db_index=True)
+    flash_sale_ends = models.DateTimeField(null=True, blank=True,
+                                           help_text="When the deal ends. A countdown is shown until then; empty = no end date.")
+    # Quantity offer, e.g. "Buy 3 or more, save 10%".
+    bulk_min_qty = models.PositiveSmallIntegerField(null=True, blank=True)
+    bulk_percent = models.PositiveSmallIntegerField(default=0)
     stock = models.PositiveIntegerField(default=50)
     seller_name = models.CharField(max_length=100, default="Official Store", db_index=True)
     seller_account = models.ForeignKey("SellerAccount", related_name="products", on_delete=models.SET_NULL, null=True, blank=True)
@@ -116,6 +126,26 @@ class Product(models.Model):
         self.has_variants = has
         if has:
             self.stock = total
+
+    @property
+    def flash_active(self):
+        return self.is_flash_sale and (self.flash_sale_ends is None or self.flash_sale_ends > timezone.now())
+
+    @property
+    def flash_countdown(self):
+        """True when a deal with an end date is running (show a timer)."""
+        return self.flash_active and self.flash_sale_ends is not None
+
+    @property
+    def has_bulk_offer(self):
+        return bool(self.bulk_min_qty and self.bulk_min_qty > 1 and self.bulk_percent)
+
+    def bulk_unit_price(self, unit, qty):
+        """Unit price after the quantity offer for ``qty`` pieces."""
+        from decimal import Decimal, ROUND_HALF_UP
+        if self.has_bulk_offer and qty >= self.bulk_min_qty:
+            return (Decimal(unit) * (100 - self.bulk_percent) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return unit
 
     @property
     def is_live(self):
@@ -274,6 +304,8 @@ class Order(models.Model):
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     tracking_number = models.CharField(max_length=60, blank=True)
     courier_name = models.CharField(max_length=60, blank=True)
+    tracking_url = models.CharField(max_length=300, blank=True,
+                                    help_text="Optional. Leave empty to build the link from the courier and tracking number.")
     estimated_delivery = models.DateField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
     # Store credit spent on this order (a payment method, so it doesn't
@@ -344,6 +376,11 @@ class Order(models.Model):
     def total_cents(self):
         from .payments import to_cents
         return to_cents(self.total, self.currency)
+
+    @property
+    def tracking_link(self):
+        from .tracking import tracking_link
+        return tracking_link(self.courier_name, self.tracking_number, self.tracking_url)
 
     @property
     def contact_email(self):
@@ -418,12 +455,17 @@ def _reward_referrer_for(user):
     referrer = Profile.objects.filter(referral_code=ref).exclude(user=user).select_related("user").first()
     if not referrer:
         return
+    site = SiteSettings.load()
+    if not site.referral_enabled or not site.referral_reward_percent:
+        return
+    percent = site.referral_reward_percent
     code = "REF-" + secrets.token_hex(3).upper()
-    Coupon.objects.create(code=code, percent_off=10, usage_limit=1, per_user_limit=1,
-                          expiry_date=timezone.localdate() + timedelta(days=90))
+    Coupon.objects.create(code=code, percent_off=percent, usage_limit=1, per_user_limit=1,
+                          expiry_date=timezone.localdate() + timedelta(days=90),
+                          owner=referrer.user, purpose="referral_reward")
     Notification.objects.create(
-        user=referrer.user, link="/profile/",
-        message=f"{user.username} made their first purchase with your referral link! Here's 10% off your next order: {code}",
+        user=referrer.user, link="/account/referrals/",
+        message=f"{user.username} made their first purchase with your referral link! Here's {percent}% off your next order: {code}",
     )
 
 
@@ -499,7 +541,12 @@ class Wishlist(models.Model):
 
 
 class Coupon(models.Model):
+    PURPOSE_CHOICES = [("", "Store coupon"), ("referral_welcome", "Referral welcome"), ("referral_reward", "Referral reward")]
     code = models.CharField(max_length=30, unique=True)
+    # Referral coupons belong to one customer (shown on their referrals page).
+    owner = models.ForeignKey("auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="owned_coupons")
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
     percent_off = models.PositiveIntegerField(default=10)
     active = models.BooleanField(default=True)
     expiry_date = models.DateField(
@@ -731,6 +778,11 @@ class SellerAccount(models.Model):
     plan_expires_at = models.DateTimeField(null=True, blank=True)
     plan_reminder_sent = models.BooleanField(default=False)
 
+    # Badges: "Verified" is given by staff after checking ID / business
+    # papers; "Top seller" is worked out every day from sales and ratings.
+    verified_at = models.DateTimeField(null=True, blank=True)
+    top_seller = models.BooleanField(default=False, db_index=True)
+
     def save(self, *args, **kwargs):
         if self.pk is None and not kwargs.get("update_fields"):
             site = SiteSettings.load()
@@ -760,6 +812,10 @@ class SellerAccount(models.Model):
     def can_add_product(self):
         limit = self.product_limit
         return limit is None or self.products.count() < limit
+
+    @property
+    def is_verified(self):
+        return self.verified_at is not None
 
     @property
     def has_badge(self):
@@ -1085,6 +1141,8 @@ class ShippingZone(models.Model):
     name = models.CharField(max_length=60, help_text="e.g. United States, Europe, Rest of world")
     countries = models.TextField(help_text="Two-letter country codes separated by commas (US, CA), or * for every other country.")
     fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    per_item_fee = models.DecimalField("Each extra item", max_digits=10, decimal_places=2, default=0,
+                                       help_text="Added for every item after the first. 0 = same fee for any number of items.")
     free_over = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
                                     help_text="Orders at or above this amount (after discounts) ship free. Empty = never free.")
     delivery_days = models.PositiveSmallIntegerField(null=True, blank=True,
@@ -1105,11 +1163,12 @@ class ShippingZone(models.Model):
     def country_codes(self):
         return [c.strip().upper() for c in self.countries.replace("\n", ",").split(",") if c.strip() and c.strip() != "*"]
 
-    def fee_for(self, amount):
+    def fee_for(self, amount, items=1):
         from decimal import Decimal
         if self.free_over is not None and amount >= self.free_over:
             return Decimal("0")
-        return self.fee
+        extra = max(int(items or 1) - 1, 0)
+        return self.fee + (self.per_item_fee or 0) * extra
 
 
 class SiteSettings(models.Model):
@@ -1160,6 +1219,10 @@ class SiteSettings(models.Model):
         "Commission for organizations (%)", max_digits=5, decimal_places=2, default=20,
         help_text="Taken from each sale by new business / organization sellers.")
     setup_completed = models.BooleanField(default=False, editable=False)
+    referral_enabled = models.BooleanField("Referral program on", default=True,
+                                           help_text="Customers share a link; friends get a welcome discount and the customer is rewarded after the friend's first delivered order.")
+    referral_friend_percent = models.PositiveSmallIntegerField("Friend's welcome discount (%)", default=10)
+    referral_reward_percent = models.PositiveSmallIntegerField("Reward for the customer who shared (%)", default=10)
     allow_cash_on_delivery = models.BooleanField(default=True, help_text="Show 'Cash on delivery' at checkout. Card payments appear automatically once Stripe keys are set.")
     show_language_menu = models.BooleanField(default=False, help_text="Show the English / Urdu / Roman Urdu language switcher.")
     banner_text = models.CharField(
@@ -1208,6 +1271,69 @@ class SiteSettings(models.Model):
         if self.free_shipping_threshold and subtotal >= self.free_shipping_threshold:
             return Decimal("0")
         return Decimal(self.shipping_flat_fee or 0)
+
+
+class Currency(models.Model):
+    """Extra currencies shoppers can see prices in. Prices are converted
+    for display only; checkout charges the store currency (STORE_CURRENCY)."""
+    code = models.CharField(max_length=3, unique=True, help_text="Three letters, e.g. EUR")
+    symbol = models.CharField(max_length=6, help_text="Shown before the amount, e.g. €")
+    rate = models.DecimalField(max_digits=14, decimal_places=6,
+                               help_text="How many of this currency one unit of the store currency buys.")
+    decimals = models.PositiveSmallIntegerField(default=2)
+    active = models.BooleanField(default=False)
+    position = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "code"]
+        verbose_name_plural = "Currencies"
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        self.code = self.code.upper()
+        super().save(*args, **kwargs)
+        from django.core.cache import cache
+        cache.delete("currencies:v1")
+
+
+class Conversation(models.Model):
+    """Private messages between a shopper and a seller (optionally about
+    one product)."""
+    buyer = models.ForeignKey("auth.User", related_name="seller_conversations", on_delete=models.CASCADE)
+    seller = models.ForeignKey(SellerAccount, related_name="conversations", on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_message_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    buyer_unread = models.PositiveIntegerField(default=0)
+    seller_unread = models.PositiveIntegerField(default=0)
+    buyer_emailed_at = models.DateTimeField(null=True, blank=True)
+    seller_emailed_at = models.DateTimeField(null=True, blank=True)
+    reported = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        ordering = ["-last_message_at", "-id"]
+        constraints = [models.UniqueConstraint(fields=["buyer", "seller"], name="one_conversation_per_buyer_seller")]
+
+    def __str__(self):
+        return f"{self.buyer} <-> {self.seller.display_name}"
+
+
+class Message(models.Model):
+    conversation = models.ForeignKey(Conversation, related_name="messages", on_delete=models.CASCADE)
+    sender = models.ForeignKey("auth.User", null=True, on_delete=models.SET_NULL, related_name="+")
+    from_seller = models.BooleanField(default=False)
+    body = models.TextField(max_length=2000)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return self.body[:40]
 
 
 class AuditLog(models.Model):

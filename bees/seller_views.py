@@ -25,7 +25,9 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from . import badges as seller_badges
 from . import seller_center as sc
+from .messaging import unread_for_seller
 from .models import (
     AuditLog, Notification, Order, OrderItem, Payout, Product, ProductImage, Question, ReturnRequest, Review,
     SellerReview,
@@ -71,6 +73,7 @@ def _nav_counts(seller):
         "products": seller.products.filter(Q(stock__lte=0) | Q(approval_status="rejected")).count(),
         "returns": ReturnRequest.objects.filter(order_item__seller_account=seller, status="requested").count(),
         "questions": Question.objects.filter(product__seller_account=seller, answer="").count(),
+        "messages": unread_for_seller(seller),
     }
 
 
@@ -164,6 +167,7 @@ def overview(request):
         "queue": sc.queue_counts(seller),
         "balance": sc.balance(seller) if request.seller_role in MONEY_ROLES else None,
         "tier": tier_progress(seller),
+        "badge": seller_badges.progress(seller),
         "setup": sc.setup_steps(seller),
         "recent": recent,
         "live_count": products.live().count(),
@@ -773,3 +777,30 @@ def plan_done(request):
     elif payment:
         messages.info(request, "We're waiting for Stripe to confirm your payment. Your plan switches on as soon as it does.")
     return redirect("seller_plan")
+
+
+# ---------------------------------------------------------------------------
+# Messages from shoppers
+# ---------------------------------------------------------------------------
+
+@seller_required()
+def messages_inbox(request):
+    from .models import Conversation
+    convs = Conversation.objects.filter(seller=request.seller).select_related("buyer").exclude(last_message_at=None)
+    return _render(request, "messages.html", {"section": "messages", "conversations": convs, "conv": None})
+
+
+@seller_required()
+def conversation(request, pk):
+    from . import messaging
+    from .models import Conversation
+    conv = get_object_or_404(Conversation.objects.select_related("buyer", "seller"), pk=pk, seller=request.seller)
+    messaging.mark_read(conv, "seller")
+    orders = (OrderItem.objects.filter(seller_account=request.seller, order__user=conv.buyer)
+              .values("order_id").distinct().count())
+    convs = Conversation.objects.filter(seller=request.seller).select_related("buyer").exclude(last_message_at=None)
+    return _render(request, "messages.html", {
+        "section": "messages", "conversations": convs, "conv": conv,
+        "thread": messaging.serialize(conv.messages.select_related("product"), "seller"),
+        "buyer_orders": orders,
+    })

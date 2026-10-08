@@ -1,0 +1,13 @@
+{% extends "bees/manage/base.html" %}
+{% block page_title %}Conversation{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'manage_conversations' %}">← All conversations</a><h1 style="margin-top:6px;">{{ conv.buyer.get_full_name|default:conv.buyer.username }} ↔ {{ conv.seller.display_name }}</h1><p>Read-only view for the store team. Shopper's messages are on the right.</p></div>
+    <div class="actions">
+        <a class="btn btn-ghost btn-sm" href="{% url 'manage_seller' conv.seller_id %}">Seller page</a>
+        {% if conv.reported %}<form method="post" style="margin:0;">{% csrf_token %}<button class="btn btn-primary btn-sm" name="action" value="resolve">Mark as reviewed</button></form>{% endif %}
+    </div>
+</div>
+{% if conv.reported %}<div class="callout warn" style="margin:0;"><strong>Reported.</strong> Someone in this conversation asked the store team to take a look.</div>{% endif %}
+{% include "bees/partials/chat_thread.html" with side="buyer" title=conv.seller.display_name subtitle=conv.buyer.email readonly=True back_url="" %}
+{% endblock %}

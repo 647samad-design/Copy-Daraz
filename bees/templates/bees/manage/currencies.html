@@ -1,0 +1,49 @@
+{% extends "bees/manage/base.html" %}
+{% block page_title %}Currencies{% endblock %}
+{% block page_css %}.errorlist { list-style: none; margin: 0; padding: 0; color: var(--sale); font-size: .9rem; }{% endblock %}
+{% block admin %}
+<div class="adm-head">
+    <div><a class="link small" href="{% url 'manage_settings' %}">← Store settings</a><h1 style="margin-top:6px;">Currencies</h1><p>Let shoppers see prices in their own currency. Checkout always charges <strong>{{ store_code }}</strong>; converted prices are shown as a guide.</p></div>
+    <div class="actions">
+        <form method="post" style="margin:0;">{% csrf_token %}<button class="btn btn-secondary btn-sm" name="action" value="update_rates">Update rates now</button></form>
+        <a class="btn btn-primary btn-sm" href="?new=1#edit">+ Add currency</a>
+    </div>
+</div>
+<section class="panel" style="padding:8px 20px;">
+    <div class="table-scroll">
+        <table class="table" style="min-width:600px;">
+            <thead><tr><th>Currency</th><th class="num">1 {{ store_code }} =</th><th>{{ store_code }} 100 shows as</th><th>Updated</th><th></th></tr></thead>
+            <tbody>
+            {% for c in rows %}
+            <tr>
+                <td><strong>{{ c.code }}</strong>{% if c.symbol|cut:" " != c.code %} <span class="muted">{{ c.symbol }}</span>{% endif %} {% if c.active %}<span class="pill ok">In the shop</span>{% else %}<span class="pill">Hidden</span>{% endif %}</td>
+                <td class="num">{{ c.rate|floatformat:"-4" }}</td>
+                <td>{{ c.example }}</td>
+                <td class="small">{% if c.updated_at %}{{ c.updated_at|timesince }} ago{% else %}<span class="muted">Starting rate</span>{% endif %}</td>
+                <td style="white-space:nowrap;text-align:right;">
+                    <form method="post" style="display:inline;">{% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}"><button class="btn btn-ghost btn-sm" name="action" value="toggle">{% if c.active %}Hide{% else %}Show{% endif %}</button></form>
+                    <a class="btn btn-ghost btn-sm" href="?edit={{ c.id }}#edit">Edit</a>
+                    <form method="post" style="display:inline;" class="del-form">{% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}"><button class="btn btn-ghost btn-sm" name="action" value="delete" style="color:var(--sale);">Delete</button></form>
+                </td>
+            </tr>
+            {% empty %}<tr class="empty-row"><td colspan="5">No extra currencies yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="muted small" style="margin:6px 0 10px;">Rates update every day with the daily task (and with the button above). If your server can't reach the rates service, type the rate in by hand. The menu appears in the shop header as soon as one currency is shown.</p>
+</section>
+{% if edit %}
+<section class="panel" id="edit" style="max-width:640px;">
+    <h2>{% if edit.instance.pk %}Edit {{ edit.instance.code }}{% else %}Add a currency{% endif %}</h2>
+    <form method="post">{% csrf_token %}{% if edit.instance.pk %}<input type="hidden" name="id" value="{{ edit.instance.pk }}">{% endif %}
+        <div class="form-grid">
+            {% for f in edit %}
+            {% if f.field.widget.input_type == "checkbox" %}<div class="span-2"><label class="check"><input type="checkbox" name="{{ f.html_name }}" {% if f.value %}checked{% endif %}> Show in the shop</label></div>
+            {% else %}<div class="field"><label for="{{ f.id_for_label }}">{% if f.name == "decimals" %}Decimal places{% else %}{{ f.label }}{% endif %}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{{ f.errors }}</div>{% endif %}
+            {% endfor %}
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;"><button class="btn btn-primary" type="submit">Save</button><a class="btn btn-ghost" href="{% url 'manage_currencies' %}">Cancel</a></div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

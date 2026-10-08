@@ -3296,3 +3296,299 @@ class DemoModeTests(TestCase):
     def test_demo_login_off_by_default(self):
         self.assertEqual(self.client.post(reverse("demo_login", args=["admin"])).status_code, 404)
         self.assertNotContains(self.client.get(reverse("login")), "Try the live demo")
+
+
+# ---------------------------------------------------------------------------
+# Marketplace pro: currencies, languages, messages, deals, referrals,
+# shipping/tracking, seller badges
+# ---------------------------------------------------------------------------
+
+from .models import Conversation, Coupon, Currency, Message, Profile, ShippingZone  # noqa: E402
+
+
+class CurrencyAndLanguageTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        Currency.objects.all().delete()
+        self.eur = Currency.objects.create(code="EUR", symbol="€", rate=Decimal("0.5"), active=True)
+        self.product = make_product(name="Mug", price=Decimal("20.00"))
+
+    def test_prices_shown_in_chosen_currency_but_cart_stays_in_store_currency(self):
+        self.client.get(reverse("set_currency", args=["EUR"]))
+        r = self.client.get(reverse("product_detail", args=[self.product.id]))
+        self.assertContains(r, "€10.00")
+        self.client.post(reverse("add_to_cart", args=[self.product.id]), {"quantity": 1})
+        r = self.client.get(reverse("cart"))
+        self.assertContains(r, "$20.00")
+        self.assertContains(r, "charged in")
+        self.client.get(reverse("set_currency", args=["USD"]))
+        self.assertContains(self.client.get(reverse("product_detail", args=[self.product.id])), "$20.00")
+
+    def test_unknown_or_hidden_currency_ignored(self):
+        self.eur.active = False
+        self.eur.save()
+        self.client.get(reverse("set_currency", args=["EUR"]))
+        self.assertContains(self.client.get(reverse("product_detail", args=[self.product.id])), "$20.00")
+
+    def test_rates_update(self):
+        from . import currency
+        reply = mock.MagicMock()
+        reply.__enter__.return_value.read.return_value = json.dumps({"result": "success", "rates": {"EUR": 0.9}}).encode()
+        with mock.patch("urllib.request.urlopen", return_value=reply):
+            updated, error = currency.update_rates()
+        self.assertEqual((updated, error), (1, None))
+        self.eur.refresh_from_db()
+        self.assertEqual(self.eur.rate, Decimal("0.9"))
+        with mock.patch("urllib.request.urlopen", side_effect=OSError("blocked")):
+            updated, error = currency.update_rates()
+        self.assertEqual(updated, 0)
+        self.assertIn("by hand", error)
+
+    def test_admin_manages_currencies(self):
+        admin = User.objects.create_superuser("cadmin", "c@example.com", "pass12345")
+        self.client.force_login(admin)
+        self.assertContains(self.client.get(reverse("manage_currencies")), "EUR")
+        self.client.post(reverse("manage_currencies"), {"code": "jpy", "symbol": "¥", "rate": "150", "decimals": "0", "position": "2", "active": "on"})
+        self.assertTrue(Currency.objects.filter(code="JPY", active=True).exists())
+        r = self.client.post(reverse("manage_currencies"), {"code": "USD", "symbol": "$", "rate": "1", "decimals": "2", "position": "3"})
+        self.assertContains(r, "store currency")
+
+    def test_new_languages_and_rtl(self):
+        site = SiteSettings.load()
+        site.show_language_menu = True
+        site.save()
+        self.client.get(reverse("set_language", args=["ar"]))
+        r = self.client.get(reverse("home"))
+        self.assertContains(r, 'dir="rtl"')
+        self.assertContains(r, "أضف إلى السلة")
+        c = Client(HTTP_ACCEPT_LANGUAGE="es-ES,es;q=0.9")
+        self.assertContains(c.get(reverse("home")), 'lang="es"')
+
+
+class BuyerSellerMessageTests(TestCase):
+    def setUp(self):
+        from django.core import mail as _mail
+        self.mail = _mail
+        owner = User.objects.create_user("maker", "maker@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=owner, business_name="Maker Co")
+        self.seller.status = "approved"
+        self.seller.save()
+        self.product = make_product(name="Vase", seller_account=self.seller, seller_name="Maker Co")
+        self.buyer = User.objects.create_user("asker", "asker@example.com", "pass12345")
+
+    def _send(self, user, conv, body, **extra):
+        self.client.force_login(user)
+        return self.client.post(reverse("message_send", args=[conv.id]), {"body": body, **extra}, HTTP_X_REQUESTED_WITH="fetch")
+
+    def test_full_conversation(self):
+        self.client.force_login(self.buyer)
+        r = self.client.get(reverse("message_seller", args=[self.product.id]))
+        conv = Conversation.objects.get()
+        self.assertIn(f"/messages/{conv.id}/?about={self.product.id}", r.url)
+        self.assertContains(self.client.get(r.url), "About <strong>Vase</strong>")
+        r = self._send(self.buyer, conv, "Is it hand made?", about=str(self.product.id))
+        self.assertTrue(r.json()["message"]["mine"])
+        conv.refresh_from_db()
+        self.assertEqual(conv.seller_unread, 1)
+        self.assertTrue(Notification.objects.filter(user=self.seller.user, message__icontains="New message").exists())
+        self.assertTrue(any("maker@example.com" in m.to for m in self.mail.outbox))
+        # seller sees and answers
+        self.client.force_login(self.seller.user)
+        r = self.client.get(reverse("seller_conversation", args=[conv.id]))
+        self.assertContains(r, "Is it hand made?")
+        conv.refresh_from_db()
+        self.assertEqual(conv.seller_unread, 0)
+        self._send(self.seller.user, conv, "Yes, by hand!")
+        conv.refresh_from_db()
+        self.assertEqual(conv.buyer_unread, 1)
+        self.client.force_login(self.buyer)
+        first = Message.objects.order_by("id").first()
+        data = self.client.get(reverse("message_poll", args=[conv.id]) + f"?after={first.id}").json()
+        self.assertEqual([m["body"] for m in data["messages"]], ["Yes, by hand!"])
+        self.assertFalse(data["messages"][0]["mine"])
+
+    def test_outsiders_cannot_read_or_post(self):
+        conv = Conversation.objects.create(buyer=self.buyer, seller=self.seller)
+        other = User.objects.create_user("snoop", "s@example.com", "pass12345")
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(reverse("conversation", args=[conv.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("message_poll", args=[conv.id])).status_code, 404)
+        self.assertEqual(self._send(other, conv, "hi").status_code, 404)
+
+    def test_empty_and_rate_limited_messages(self):
+        conv = Conversation.objects.create(buyer=self.buyer, seller=self.seller)
+        self.assertEqual(self._send(self.buyer, conv, "   ").status_code, 400)
+        cache.set(f"msg-rate:{self.buyer.pk}", 999, 60)
+        self.assertEqual(self._send(self.buyer, conv, "hello").status_code, 400)
+        cache.delete(f"msg-rate:{self.buyer.pk}")
+
+    def test_report_reaches_admin(self):
+        conv = Conversation.objects.create(buyer=self.buyer, seller=self.seller)
+        self._send(self.buyer, conv, "Hello")
+        self.client.post(reverse("message_report", args=[conv.id]))
+        conv.refresh_from_db()
+        self.assertTrue(conv.reported)
+        admin = User.objects.create_superuser("mod", "mod@example.com", "pass12345")
+        self.client.force_login(admin)
+        self.assertContains(self.client.get(reverse("manage_conversations") + "?tab=reported"), "Reported")
+        self.assertContains(self.client.get(reverse("manage_conversation", args=[conv.id])), "Hello")
+        self.client.post(reverse("manage_conversation", args=[conv.id]), {"action": "resolve"})
+        conv.refresh_from_db()
+        self.assertFalse(conv.reported)
+
+    def test_seller_cannot_message_own_store(self):
+        self.client.force_login(self.seller.user)
+        r = self.client.get(reverse("message_seller", args=[self.product.id]))
+        self.assertRedirects(r, reverse("seller_messages"), fetch_redirect_response=False)
+        self.assertFalse(Conversation.objects.exists())
+
+
+class DealsAndOffersTests(TestCase):
+    def test_flash_sale_ends(self):
+        live = make_product(name="Live deal", is_flash_sale=True, flash_sale_ends=timezone.now() + timedelta(hours=3))
+        make_product(name="Old deal", is_flash_sale=True, flash_sale_ends=timezone.now() - timedelta(minutes=1))
+        names = list(Product.objects.flash().values_list("name", flat=True))
+        self.assertEqual(names, ["Live deal"])
+        r = self.client.get(reverse("product_detail", args=[live.id]))
+        self.assertContains(r, "data-ends=")
+        self.assertContains(r, "Deal ends in")
+
+    def test_admin_sets_deal_end(self):
+        admin = User.objects.create_superuser("deals", "d@example.com", "pass12345")
+        p = make_product(name="Lamp")
+        self.client.force_login(admin)
+        self.client.post(reverse("manage_product_edit", args=[p.id]), {
+            "name": "Lamp", "category": "skincare", "price": "10", "stock": "5", "discount_percent": "0",
+            "image_url": "https://example.com/a.jpg", "is_flash_sale": "1", "flash_sale_ends": "2030-01-02T10:30",
+            "approval_status": "approved", "bulk_min_qty": "3", "bulk_percent": "10"})
+        p.refresh_from_db()
+        self.assertEqual((p.flash_sale_ends.year, p.bulk_min_qty, p.bulk_percent), (2030, 3, 10))
+
+    def test_quantity_offer_in_cart_and_order(self):
+        p = make_product(name="Socks", price=Decimal("10.00"), stock=20, bulk_min_qty=3, bulk_percent=10)
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"quantity": 2})
+        r = self.client.get(reverse("cart"))
+        self.assertContains(r, "Buy 3 or more and save 10%")
+        self.client.post(reverse("add_to_cart", args=[p.id]), {"quantity": 1})
+        r = self.client.get(reverse("cart"))
+        self.assertContains(r, "$27.00")
+        self.assertContains(r, "Bundle discount applied")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("checkout"), {**CHECKOUT_FORM, "payment_method": "cod"})
+        item = OrderItem.objects.get(product=p)
+        self.assertEqual((item.price, item.quantity), (Decimal("9.00"), 3))
+
+    def test_offer_validation(self):
+        owner = User.objects.create_user("offer", "o@example.com", "pass12345")
+        seller = SellerAccount.objects.create(user=owner, business_name="Offer Co")
+        seller.status = "approved"
+        seller.save()
+        self.client.force_login(owner)
+        r = self.client.post(reverse("seller_add_product"), {"name": "X", "category": "skincare", "price": "5", "stock": "1",
+                                                             "discount_percent": "0", "image_url": "https://example.com/x.jpg",
+                                                             "bulk_min_qty": "3"}, follow=True)
+        self.assertContains(r, "fill in both")
+
+
+class ReferralProgramTests(TestCase):
+    def setUp(self):
+        self.friend_of = User.objects.create_user("sharer", "sharer@example.com", "pass12345")
+        self.code = Profile.objects.get_or_create(user=self.friend_of)[0].referral_code
+        site = SiteSettings.load()
+        site.referral_friend_percent, site.referral_reward_percent = 15, 20
+        site.save()
+
+    def test_link_on_any_page_credits_signup(self):
+        product = make_product(name="Shared thing")
+        self.client.get(reverse("product_detail", args=[product.id]) + f"?ref={self.code}")
+        self.client.post(reverse("signup"), {"username": "newbie", "email": "newbie@example.com",
+                                             "password": "Str0ng-pass-123", "confirm_password": "Str0ng-pass-123",
+                                             "password1": "Str0ng-pass-123", "password2": "Str0ng-pass-123"})
+        newbie = User.objects.get(username="newbie")
+        self.assertEqual(newbie.profile.referred_by, self.code)
+        welcome = Coupon.objects.get(owner=newbie)
+        self.assertEqual((welcome.purpose, welcome.percent_off), ("referral_welcome", 15))
+        from .models import _reward_referrer_for
+        _reward_referrer_for(newbie)
+        reward = Coupon.objects.get(owner=self.friend_of)
+        self.assertEqual((reward.purpose, reward.percent_off), ("referral_reward", 20))
+        self.client.force_login(self.friend_of)
+        r = self.client.get(reverse("referrals"))
+        self.assertContains(r, reward.code)
+        self.assertContains(r, "ne•••")
+        self.assertContains(r, f"ref={self.code}")
+
+    def test_admin_report_and_switch_off(self):
+        admin = User.objects.create_superuser("radmin", "r@example.com", "pass12345")
+        self.client.force_login(admin)
+        self.assertContains(self.client.get(reverse("manage_referrals")), "Top referrers")
+        SiteSettings.objects.filter(pk=1).update(referral_enabled=False)
+        cache.clear()
+        self.client.force_login(self.friend_of)
+        self.assertRedirects(self.client.get(reverse("referrals")), reverse("profile"), fetch_redirect_response=False)
+
+
+class ShippingAndTrackingTests(TestCase):
+    def test_per_item_fee(self):
+        from . import shipping
+        ShippingZone.objects.create(name="US", countries="US", fee=Decimal("5"), per_item_fee=Decimal("2"))
+        shipping.clear_cache()
+        self.assertEqual(shipping.quote("US", Decimal("10"), 3)["fee"], Decimal("9"))
+        self.assertEqual(shipping.quote("US", Decimal("10"))["fee"], Decimal("5"))
+
+    def test_tracking_links(self):
+        from .tracking import tracking_link
+        self.assertIn("ups.com", tracking_link("ups", "1Z 999"))
+        self.assertIn("1Z%20999", tracking_link("UPS", "1Z 999"))
+        self.assertIn("17track", tracking_link("Some Local Courier", "AB12"))
+        self.assertEqual(tracking_link("DHL", ""), "")
+        self.assertEqual(tracking_link("DHL", "1", "https://my.courier/track/1"), "https://my.courier/track/1")
+
+    def test_customer_sees_track_button(self):
+        user = User.objects.create_user("trk", "trk@example.com", "pass12345")
+        order = Order.objects.create(user=user, full_name="T", address="1", city="X", phone="1", country="US",
+                                     status="shipped", courier_name="FedEx", tracking_number="123")
+        self.client.force_login(user)
+        self.assertContains(self.client.get(reverse("my_orders")), "fedex.com/fedextrack/?trknbr=123")
+        admin = User.objects.create_superuser("tadmin", "t@example.com", "pass12345")
+        self.client.force_login(admin)
+        self.client.post(reverse("manage_order", args=[order.id]), {"action": "update", "status": "shipped", "courier_name": "Local",
+                                                                   "tracking_number": "9", "tracking_url": "https://local.example/9"})
+        order.refresh_from_db()
+        self.assertEqual(order.tracking_link, "https://local.example/9")
+
+
+class SellerBadgeTests(TestCase):
+    def setUp(self):
+        owner = User.objects.create_user("badge", "badge@example.com", "pass12345")
+        self.seller = SellerAccount.objects.create(user=owner, business_name="Badge Co")
+        self.seller.status = "approved"
+        self.seller.save()
+        self.product = make_product(name="Pot", seller_account=self.seller, seller_name="Badge Co")
+
+    def test_staff_verifies_seller(self):
+        admin = User.objects.create_superuser("vadmin", "v@example.com", "pass12345")
+        self.client.force_login(admin)
+        self.client.post(reverse("manage_seller", args=[self.seller.id]), {"action": "verify"})
+        self.seller.refresh_from_db()
+        self.assertTrue(self.seller.is_verified)
+        self.assertContains(self.client.get(reverse("product_detail", args=[self.product.id])), "Verified seller")
+
+    @override_settings(TOP_SELLER_MIN_ORDERS=2, TOP_SELLER_MIN_REVIEWS=1, TOP_SELLER_MIN_RATING=4.5)
+    def test_top_seller_badge_is_earned_and_lost(self):
+        from . import badges
+        buyer = User.objects.create_user("b2", "b2@example.com", "pass12345")
+        for _ in range(2):
+            o = Order.objects.create(user=buyer, full_name="B", address="1", city="X", phone="1", country="US", status="delivered")
+            item = OrderItem(order=o, product=self.product, product_name="Pot", price=Decimal("10"), quantity=1)
+            item.apply_commission(self.seller)
+            item.save()
+        Review.objects.create(product=self.product, user=buyer, username="b2", rating=5, comment="Great")
+        self.assertEqual(badges.update_all(), (1, 0))
+        self.seller.refresh_from_db()
+        self.assertTrue(self.seller.top_seller)
+        self.client.force_login(self.seller.user)
+        self.assertContains(self.client.get(reverse("seller_dashboard")), "Top seller")
+        Review.objects.create(product=self.product, user=buyer, username="b2", rating=1, comment="Broke")
+        Review.objects.create(product=self.product, user=buyer, username="b2", rating=1, comment="Broke")
+        self.assertEqual(badges.update_all(), (0, 1))

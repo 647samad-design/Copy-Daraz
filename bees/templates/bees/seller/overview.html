@@ -108,6 +108,16 @@
             {% empty %}<p class="muted">You'll see which countries buy from you once orders come in.</p>{% endfor %}
         </section>
         <section class="panel">
+            <h2>Your badges</h2>
+            <div class="list-row"><span><span class="seller-badge verified">✓ Verified seller</span></span><strong>{% if seller.verified_at %}<span class="pill ok">Earned</span>{% else %}<span class="muted small">{% if seller.id_document or seller.business_certificate %}Our team is checking your documents{% else %}Send your ID or business papers to the store team{% endif %}</span>{% endif %}</strong></div>
+            <div class="list-row"><span><span class="seller-badge top">★ Top seller</span></span><strong>{% if seller.top_seller %}<span class="pill ok">Earned</span>{% else %}<span class="muted small">In progress</span>{% endif %}</strong></div>
+            {% if not seller.top_seller %}
+            <p class="small" style="margin:10px 0 4px;">Orders in the last 90 days: <strong>{{ badge.orders }} / {{ badge.orders_needed }}</strong></p>
+            <div class="meter" aria-hidden="true"><i style="width:{{ badge.orders_pct }}%"></i></div>
+            <p class="small" style="margin:10px 0 0;">Product rating: <strong>{% if badge.reviews %}{{ badge.rating|floatformat:1 }}★ from {{ badge.reviews }} review{{ badge.reviews|pluralize }}{% else %}no reviews yet{% endif %}</strong> <span class="muted">(needs {{ badge.rating_needed }}★ from {{ badge.reviews_needed }}+)</span></p>
+            {% endif %}
+        </section>
+        <section class="panel">
             <h2>Store health</h2>
             <div class="list-row"><span>Live products</span><strong>{{ live_count }} of {{ product_count }}</strong></div>
             <div class="list-row"><span>Product rating</span><strong>{% if rating.n %}{{ rating.avg|floatformat:1 }} ★ <span class="muted small">({{ rating.n }})</span>{% else %}—{% endif %}</strong></div>

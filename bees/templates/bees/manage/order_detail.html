@@ -53,8 +53,9 @@
                     <span class="hint">The customer is notified when this changes. Marking "Shipped" also emails them the tracking details.</span>
                 </div>
                 <div class="field"><label for="f-eta">Estimated delivery</label><input type="date" id="f-eta" name="estimated_delivery" value="{{ order.estimated_delivery|date:'Y-m-d' }}"></div>
-                <div class="field"><label for="f-courier">Courier</label><input type="text" id="f-courier" name="courier_name" value="{{ order.courier_name }}" placeholder="DHL, FedEx, UPS…"></div>
-                <div class="field"><label for="f-track">Tracking number</label><input type="text" id="f-track" name="tracking_number" value="{{ order.tracking_number }}"></div>
+                <div class="field"><label for="f-courier">Courier</label><input type="text" id="f-courier" name="courier_name" value="{{ order.courier_name }}" placeholder="DHL, FedEx, UPS…" list="courier-list" autocomplete="off">{% courier_names as couriers %}<datalist id="courier-list">{% for c in couriers %}<option value="{{ c }}">{% endfor %}</datalist></div>
+                <div class="field"><label for="f-track">Tracking number</label><input type="text" id="f-track" name="tracking_number" value="{{ order.tracking_number }}">{% if order.tracking_link %}<span class="hint"><a class="link" href="{{ order.tracking_link }}" target="_blank" rel="noopener">Open tracking page</a></span>{% endif %}</div>
+                <div class="field span-2"><label for="f-turl">Tracking link <span class="muted">(optional)</span></label><input type="url" id="f-turl" name="tracking_url" value="{{ order.tracking_url }}" placeholder="https://… — leave empty to build it from the courier"></div>
                 <div class="span-2"><button type="submit" class="btn btn-primary">Save changes</button></div>
             </form>
         </section>

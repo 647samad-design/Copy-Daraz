@@ -29,6 +29,7 @@
             {% if order.tracking_number %}
             <div style="color:#56606B;font-size:14px;{% if order.estimated_delivery %}margin-top:10px;{% endif %}">{% if order.courier_name %}{{ order.courier_name }} tracking number{% else %}Tracking number{% endif %}</div>
             <div style="font-size:18px;font-weight:bold;letter-spacing:1px;">{{ order.tracking_number }}</div>
+            {% if order.tracking_link %}<div style="margin-top:12px;"><a href="{{ order.tracking_link }}" style="display:inline-block;background:#0E3B43;color:#ffffff;text-decoration:none;font-weight:bold;padding:10px 18px;border-radius:999px;">Track your package</a></div>{% endif %}
             {% endif %}
         </td></tr>
     </table>

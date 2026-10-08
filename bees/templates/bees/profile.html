@@ -106,15 +106,12 @@
             </details>
         </section>
 
-        <section class="panel" style="grid-column:1/-1;">
-            <h2>Invite friends, both get 10% off</h2>
-            <p class="muted" style="margin-bottom:14px;">When a friend creates an account with your link, you each receive a 10% discount code.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <label for="ref-link" class="sr-only">Your referral link</label>
-                <input class="input" id="ref-link" type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'signup' %}?ref={{ profile.referral_code }}" onclick="this.select()" style="flex:1;min-width:240px;">
-                <button type="button" class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('ref-link').value).then(() => { this.textContent = 'Link copied'; })">Copy link</button>
-            </div>
+        {% if brand.referral_enabled %}
+        <section class="panel" style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
+            <div><h2 style="margin:0 0 4px;">{{ t.invite_friends }}</h2><p class="muted" style="margin:0;">Friends get {{ brand.referral_friend_percent }}% off their first order. You get {{ brand.referral_reward_percent }}% off when it's delivered.</p></div>
+            <a class="btn btn-primary" href="{% url 'referrals' %}">Get your link</a>
         </section>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

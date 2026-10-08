@@ -1,0 +1,18 @@
+{% extends "bees/base.html" %}
+{% block title %}{{ t.messages }} — {{ brand.site_name }}{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block content %}
+<div class="wrap page">
+    <div class="page-head"><div><h1>{{ t.messages }}</h1><p>Your conversations with sellers.</p></div></div>
+    <div class="msg-layout {% if conv %}has-conv{% endif %}">
+        {% include "bees/partials/chat_list.html" with side="buyer" url_name="conversation" %}
+        {% if conv %}
+            {% url 'store_page' conv.seller.display_name as store_url %}
+            {% url 'messages_inbox' as back %}
+            {% include "bees/partials/chat_thread.html" with side="buyer" title=conv.seller.display_name subtitle="Seller" back_url=back %}
+        {% else %}
+        <div class="panel msg-empty" style="display:grid;place-items:center;min-height:320px;text-align:center;"><p class="muted">Choose a conversation.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

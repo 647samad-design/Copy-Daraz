@@ -107,6 +107,7 @@
             {% if pricing.tax %}<div class="sum-row"><span>Tax ({{ pricing.tax_percent|floatformat:"-2" }}%)</span><span>{{ pricing.tax|money }}</span></div>{% endif %}
             {% if store_credit > 0 %}<div class="sum-row" id="credit-row" style="color:var(--ok);font-weight:700;"><span>Store credit</span><span id="credit-amount">−{{ credit_applicable|money }}</span></div>{% endif %}
             <div class="sum-total"><span>{{ t.total }}</span><span><span id="sum-total">{% if store_credit > 0 %}{{ total_after_credit|money }}{% else %}{{ pricing.total|money }}{% endif %}</span> <span class="muted small" style="font-weight:400;">{{ store_currency }}</span></span></div>
+            {% if shopper_currency %}<p class="muted small" style="margin-top:8px;">{{ t.approx_note }} {{ store_currency_code }}.</p>{% endif %}
         </aside>
     </div>
 </div>
@@ -138,7 +139,8 @@ function fillAddress(sel) {
             if (!rule) return { known: true, ships: false, fee: 0 };
         }
         const free = rule.free_over !== null && rule.free_over !== undefined && goods >= num(rule.free_over);
-        return { known: true, ships: true, fee: free ? 0 : num(rule.fee) };
+        const extra = Math.max((d.items || 1) - 1, 0) * num(rule.per_item);
+        return { known: true, ships: true, fee: free ? 0 : num(rule.fee) + extra };
     }
     function update() {
         const goods = Math.max(num(d.subtotal) - num(d.discount), 0);

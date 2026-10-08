@@ -1,0 +1,19 @@
+{% extends "bees/seller/base.html" %}
+{% block page_title %}Messages{% endblock %}
+{% block seller %}
+<div class="adm-head"><div><h1>Messages</h1><p>Questions from shoppers. Quick, friendly answers win more sales.</p></div></div>
+<div class="msg-layout {% if conv %}has-conv{% endif %}">
+    {% include "bees/partials/chat_list.html" with side="seller" url_name="seller_conversation" %}
+    {% if conv %}
+        {% url 'seller_messages' as back %}
+        {% if buyer_orders %}{% with n=buyer_orders|stringformat:"s" %}{% with sub="Customer · "|add:n|add:" order(s) with you" %}
+        {% include "bees/partials/chat_thread.html" with side="seller" title=conv.buyer.get_full_name|default:conv.buyer.username subtitle=sub back_url=back %}
+        {% endwith %}{% endwith %}
+        {% else %}
+        {% include "bees/partials/chat_thread.html" with side="seller" title=conv.buyer.get_full_name|default:conv.buyer.username subtitle="Shopper" back_url=back %}
+        {% endif %}
+    {% else %}
+    <div class="panel msg-empty" style="display:grid;place-items:center;min-height:320px;text-align:center;"><p class="muted">Choose a conversation.</p></div>
+    {% endif %}
+</div>
+{% endblock %}

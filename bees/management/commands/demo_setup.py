@@ -55,9 +55,13 @@ class Command(BaseCommand):
             if options["reset"] or not Order.objects.filter(user=users["shopper"]).exists():
                 self._orders(users["shopper"], products)
         site = SiteSettings.load()
-        if not site.setup_completed:
-            site.setup_completed = True
-            site.save()
+        site.setup_completed = True
+        site.show_language_menu = True  # show off languages and currencies in the demo
+        site.save()
+        from bees.models import Currency
+        Currency.objects.filter(code__in=["EUR", "GBP", "AED"]).update(active=True)
+        from django.core.cache import cache
+        cache.delete("currencies:v1")
         self.stdout.write(self.style.SUCCESS(
             "Demo ready: demo_shopper, demo_seller and demo_admin. Turn on DEMO_MODE=True to show the one-click logins."))
 
@@ -84,6 +88,7 @@ class Command(BaseCommand):
         seller.city, seller.country = "Lisbon", "Portugal"
         seller.store_description = "Small-batch homeware and gifts, made by hand and shipped worldwide."
         seller.vacation_mode = False
+        seller.verified_at = seller.verified_at or timezone.now()
         pro = SellerPlan.objects.filter(active=True, price__gt=0).order_by("price").first()
         if pro:
             seller.plan, seller.plan_expires_at = pro, timezone.now() + timedelta(days=365)
@@ -106,6 +111,10 @@ class Command(BaseCommand):
                 product.approval_status = "approved"
                 product.save(update_fields=["approval_status"])
             out.append(product)
+        # Show off a running deal with a countdown and a quantity offer.
+        Product.objects.filter(pk=out[1].pk).update(
+            is_flash_sale=True, flash_sale_ends=timezone.now() + timedelta(days=2, hours=5), old_price=Decimal("32.00"))
+        Product.objects.filter(pk=out[0].pk).update(bulk_min_qty=2, bulk_percent=10)
         return out
 
     def _orders(self, shopper, products):

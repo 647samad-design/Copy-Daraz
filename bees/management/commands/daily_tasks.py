@@ -6,7 +6,8 @@ PythonAnywhere scheduled task covers it:
   1. cancel card orders that were never paid (safety net for webhooks)
   2. email cart reminders
   3. back up the database and images
-  4. remind sellers whose paid plan ends soon
+  4. remind sellers whose paid plan ends soon, refresh Top seller badges
+     and currency rates
   5. delete expired sign-in sessions
   (on a demo copy with DEMO_MODE=True: also reset the demo accounts)
 Each step runs even if an earlier one fails.
@@ -21,7 +22,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         failed = []
         from django.conf import settings
-        jobs = [("release_unpaid_orders",), ("send_cart_reminders",), ("plan_reminders",), ("backup_data",), ("clearsessions",)]
+        jobs = [("release_unpaid_orders",), ("send_cart_reminders",), ("plan_reminders",), ("update_seller_badges",), ("update_currency_rates",), ("backup_data",), ("clearsessions",)]
         if getattr(settings, "DEMO_MODE", False):
             jobs.append(("demo_setup", "--reset"))
         for job in jobs:

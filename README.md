@@ -68,6 +68,31 @@ without a key a built-in writer is used. Search understands phrases like `hoodie
 `lamp between 20 and 50` or `cheap earbuds`, matches words in any order and plurals, and shows
 close matches when nothing matches every word.
 
+## Languages and currencies
+
+Turn on Store settings > Language & currency. Shoppers then pick English, Arabic (right-to-left),
+Spanish, French, Urdu or Roman Urdu (first visit follows the browser language), and a currency.
+Add or switch on currencies at /manage/currencies/; rates update daily (or type them in).
+Product prices are converted for display; cart, checkout and payments stay in STORE_CURRENCY.
+
+## Buyer and seller messages
+
+"Message seller" on product and store pages opens a private conversation. Sellers (and their team)
+answer from Seller Center > Messages; new messages appear live, as a notification and by email.
+Either side can report a conversation; staff review them at /manage/messages/.
+
+## Deals, quantity offers, referrals, shipping and badges
+
+- Deals: tick "Show in today's deals" and set an end time for a live countdown; ended deals drop off.
+- Quantity offers: "Buy 3 or more, save 10%" on any product, applied automatically in the cart.
+- Referrals: customers get a dashboard at /account/referrals/ with share buttons and rewards; any
+  link with `?ref=CODE` counts. Reward sizes are in Store settings; report at /manage/referrals/.
+- Shipping: zones can add a fee per extra item; product pages show delivery cost and time by country.
+- Tracking: pick a courier (DHL, FedEx, UPS, USPS, Royal Mail, Aramex, TCS, Leopards…) and the customer
+  gets a "Track package" button and email link; any other courier uses 17TRACK.
+- Badges: staff mark a seller "Verified" after checking documents; "Top seller" is given daily
+  (10+ orders in 90 days and 4.5★ from 3+ reviews, see TOP_SELLER_* settings).
+
 ## Demo copy for clients
 
 On a separate copy of the store (never your live store):

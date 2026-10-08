@@ -81,3 +81,43 @@ def abs_url(value):
         from ..order_emails import absolute
         return absolute(value)
     return value
+
+
+@register.filter
+def price(value):
+    """Product price in the currency the shopper picked (store currency
+    otherwise). Display only - checkout always charges the store currency."""
+    from bees import currency
+    cur = currency.current()
+    if cur is None:
+        return money(value)
+    try:
+        return currency.fmt(value, cur)
+    except (InvalidOperation, ValueError, TypeError):
+        return money(value)
+
+
+@register.filter
+def approx(value):
+    """'≈ €12.30' in the shopper's currency, or '' when they use the store
+    currency. For cart and checkout totals, which stay in store currency."""
+    from bees import currency
+    cur = currency.current()
+    if cur is None:
+        return ""
+    return "≈ " + currency.fmt(value, cur)
+
+
+@register.filter
+def fill(text, product):
+    """Fills {n} / {p} in a quantity-offer sentence from a product."""
+    try:
+        return str(text).replace("{n}", str(product.bulk_min_qty)).replace("{p}", str(product.bulk_percent))
+    except AttributeError:
+        return text
+
+
+@register.simple_tag
+def courier_names():
+    from bees.tracking import courier_names as names
+    return names()

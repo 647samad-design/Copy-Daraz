@@ -122,16 +122,18 @@
 
         <div class="buybox">
             <h1>{{ product.name }}</h1>
-            {% if product.seller_name %}<p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a>{% if product.seller_account.has_badge %} <span class="pro-badge">★ Pro seller</span>{% endif %}</p>{% endif %}
+            {% if product.seller_name %}<p class="seller-line">Sold by <a href="{% url 'store_page' product.seller_name %}">{{ product.seller_name }}</a>{% if product.seller_account.has_badge %} <span class="pro-badge">★ Pro seller</span>{% endif %}{% if product.seller_account.verified_at %} <span class="seller-badge verified">✓ {{ t.verified_seller }}</span>{% endif %}{% if product.seller_account.top_seller %} <span class="seller-badge top">★ {{ t.top_seller }}</span>{% endif %}</p>{% endif %}
             {% if product.rating_count %}
             <div class="rating-line"><span class="stars" aria-hidden="true">{{ product.average_rating|stars }}</span><strong>{{ product.average_rating }}</strong><a href="#reviews">{{ product.rating_count }} review{{ product.rating_count|pluralize }}</a></div>
             {% endif %}
 
             <div class="buy-price">
-                <span class="price" id="buy-price">{{ product.price|money }}</span>
-                {% if product.old_price %}<span class="price-was"><span class="sr-only">Was </span>{{ product.old_price|money }}</span>{% endif %}
+                <span class="price" id="buy-price">{{ product.price|price }}</span>
+                {% if product.old_price %}<span class="price-was"><span class="sr-only">Was </span>{{ product.old_price|price }}</span>{% endif %}
                 {% if product.discount_percent %}<span class="badge badge-sale">Save {{ product.discount_percent }}%</span>{% endif %}
             </div>
+            {% if product.flash_countdown %}<div class="deal-timer" data-ends="{{ product.flash_sale_ends|date:'c' }}"><span>⚡ {{ t.deal_ends_in }}</span> <strong data-timer>--:--:--</strong></div>{% endif %}
+            {% if product.has_bulk_offer %}<div class="bulk-offer">🏷️ {{ t.bulk_offer|fill:product }}</div>{% endif %}
             {% if product.has_variants %}
             <div class="variant-picker">
                 {% if variant_sizes %}<fieldset><legend>Size: <strong id="pick-size">Choose</strong></legend><div class="opts">{% for s in variant_sizes %}<button type="button" class="opt" data-kind="size" data-value="{{ s }}">{{ s }}</button>{% endfor %}</div></fieldset>{% endif %}
@@ -176,10 +178,20 @@
                 </form>
                 {% endif %}
                 <a href="{% url 'toggle_compare' product.id %}" rel="nofollow">{% if product.id in compare_ids %}Remove from compare{% else %}Add to compare{% endif %}</a>
+                {% if product.seller_account_id %}<a href="{% url 'message_seller' product.id %}" rel="nofollow">💬 {{ t.message_seller }}</a>{% endif %}
+                <button type="button" class="link-btn" data-share-product data-url="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}{% if user.is_authenticated and brand.referral_enabled and user.profile.referral_code %}?ref={{ user.profile.referral_code }}{% endif %}" data-title="{{ product.name }}">↗ Share</button>
             </div>
 
             <ul class="assurances">
-                <li><span>Shipping</span><span>{% if has_shipping_zones %}By country, shown at checkout{% elif brand.free_shipping_threshold %}Free over {{ brand.free_shipping_threshold|money }}{% elif brand.shipping_flat_fee %}{{ brand.shipping_flat_fee|money }} flat rate{% else %}Free{% endif %}</span></li>
+                {% if has_shipping_zones %}
+                <li class="ship-est"><span>{{ t.delivery_to }}</span><span>
+                    <label class="sr-only" for="ship_country">{{ t.delivery_to }}</label>
+                    {% country_select name="ship_country" selected=ship_country field_id="ship_country" required=False %}
+                    <span class="ship-result" data-ship-result aria-live="polite"></span>
+                </span></li>
+                {{ ship_table|json_script:"ship-table" }}
+                {% endif %}
+                <li {% if has_shipping_zones %}hidden{% endif %}><span>Shipping</span><span>{% if has_shipping_zones %}By country, shown at checkout{% elif brand.free_shipping_threshold %}Free over {{ brand.free_shipping_threshold|money }}{% elif brand.shipping_flat_fee %}{{ brand.shipping_flat_fee|money }} flat rate{% else %}Free{% endif %}</span></li>
                 <li><span>Returns</span><span>{{ brand.return_days }} days from delivery</span></li>
                 <li><span>Payment</span><span>{% if stripe_enabled %}Secure card checkout via Stripe{% else %}{{ t.cash_on_delivery }}{% endif %}</span></li>
             </ul>
@@ -284,6 +296,42 @@
 {% endblock %}
 {% block extra_js %}
 <script>
+    document.querySelectorAll('[data-share-product]').forEach(function (b) {
+        b.addEventListener('click', function () {
+            var url = b.dataset.url;
+            if (navigator.share) { navigator.share({ title: b.dataset.title, url: url }).catch(function () {}); return; }
+            (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () {
+                if (window.showToast) showToast('Link copied{% if user.is_authenticated and brand.referral_enabled %}. Friends who join with it earn you a reward{% endif %}.', 'success');
+            }).catch(function () { prompt('Copy this link', url); });
+        });
+    });
+    (function () {
+        var sel = document.getElementById('ship_country'), out = document.querySelector('[data-ship-result]'), el = document.getElementById('ship-table');
+        if (!sel || !out || !el) return;
+        var table = JSON.parse(el.textContent), price = {{ product.price|stringformat:"s" }};
+        {% if shopper_currency %}var rate = {{ shopper_currency.rate|stringformat:"s" }}, sym = "{{ shopper_currency.symbol|escapejs }}", dec = {{ shopper_currency.decimals }};{% else %}var rate = 1, sym = null, dec = 2;{% endif %}
+        var fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: '{{ store_currency_code }}' });
+        function money(v) { return sym === null ? fmt.format(v) : sym + (v * rate).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+        function show() {
+            var code = sel.value, rule = code ? (table.countries[code] || table.rest) : null;
+            if (!code) { out.textContent = ''; return; }
+            if (!rule) { out.textContent = "We don't deliver there yet"; out.className = 'ship-result bad'; return; }
+            var free = rule.free_over !== null && price >= parseFloat(rule.free_over);
+            var fee = parseFloat(rule.fee);
+            var text = free || !fee ? 'Free shipping' : money(fee) + ' shipping';
+            if (!free && rule.free_over !== null) text += ' · free over ' + money(parseFloat(rule.free_over));
+            var days = rule.days || table.default_days;
+            if (days) text += ' · ' + days + ' {{ t.days|escapejs }}';
+            out.textContent = text; out.className = 'ship-result ok';
+        }
+        sel.addEventListener('change', function () {
+            show();
+            var body = new FormData(); body.append('country', sel.value);
+            body.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            fetch('{% url "remember_ship_country" %}', { method: 'POST', body: body, credentials: 'same-origin' }).catch(function () {});
+        });
+        show();
+    })();
     function showImage(btn, src) {
         const main = document.getElementById('main-image');
         delete main.dataset.fallback;
